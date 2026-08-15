@@ -1,7 +1,7 @@
 import { BaseSideService } from '@zeppos/zml/base-side'
 import { settingsLib } from '@zeppos/zml/base-side'
 
-const VERCEL_BASE = 'https://your-project.vercel.app'
+const VERCEL_BASE = 'https://whatsapp-ai-nikhil.vercel.app'
 
 function getSettings() {
   const hash = settingsLib.getItem('hash') || ''

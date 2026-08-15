@@ -29,7 +29,7 @@ sequenceDiagram
     participant Bridge as WhatsApp Bridge
     actor Watch as Smartwatch (Zepp OS)
 
-    User->>Web: Opens https://<your-project>.vercel.app/setup
+    User->>Web: Opens https://whatsapp-ai-nikhil.vercel.app/setup
     User->>Web: Submits 3 Keys (Owner Phone, Allowed Contacts, AI Key) + Coupon
     Web->>Web: Verifies coupon (Contact wa.me/+917060410033)
     Web->>KV: Saves connection & generates 6-character Hash (e.g. "K9X2P4")

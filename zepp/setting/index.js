@@ -1,6 +1,6 @@
 import { gettext } from 'i18n'
 
-const DEFAULT_BASE = 'https://your-project.vercel.app'
+const DEFAULT_BASE = 'https://whatsapp-ai-nikhil.vercel.app'
 
 AppSettingsPage({
   state: {

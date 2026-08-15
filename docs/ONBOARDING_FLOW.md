@@ -17,7 +17,7 @@ sequenceDiagram
     actor Watch as Smartwatch (Zepp OS)
 
     Note over User, Web: Step 1: Connection & Coupon Verification
-    User->>Web: Opens https://<your-project>.vercel.app/setup
+    User->>Web: Opens https://whatsapp-ai-nikhil.vercel.app/setup
     User->>Web: Enters 3 Keys (Owner Phone, Allowed Recipients, AI Key) + Coupon
     Web->>Web: Verifies Coupon against process.env.COUPON
     alt Invalid Coupon
