@@ -10,6 +10,7 @@
   "dependencies": {
     "@vercel/kv": "^3.0.0",
     "next": "^15.1.0",
+    "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   }

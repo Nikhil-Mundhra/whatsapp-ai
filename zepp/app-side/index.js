@@ -1,14 +1,23 @@
 import { BaseSideService } from '@zeppos/zml/base-side'
+import { settingsLib } from '@zeppos/zml/base-side'
 
 const VERCEL_BASE = 'https://your-project.vercel.app'
+
+function getSettings() {
+  const hash = settingsLib.getItem('hash') || ''
+  const base = settingsLib.getItem('vercelBase') || VERCEL_BASE
+  return { hash, base }
+}
 
 function isGrantOption(option) {
   return option !== 'Deny'
 }
 
 async function fetchPending() {
+  const { hash, base } = getSettings()
+  if (!hash) return null
   const response = await fetch({
-    url: `${VERCEL_BASE}/api/polls/pending`,
+    url: `${base}/api/polls/pending?hash=${hash}`,
     method: 'GET'
   })
   const body = typeof response.body === 'string' ? JSON.parse(response.body) : response.body
@@ -16,8 +25,10 @@ async function fetchPending() {
 }
 
 async function submitVote(pollId, option) {
+  const { hash, base } = getSettings()
+  if (!hash) return null
   const response = await fetch({
-    url: `${VERCEL_BASE}/api/polls/${pollId}`,
+    url: `${base}/api/polls/${pollId}?hash=${hash}`,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -53,6 +64,14 @@ AppSideService(
           .catch(() => res(null, { vote: 'deny' }))
       } else {
         res(null, {})
+      }
+    },
+
+    onSettingsChange({ key }) {
+      if (key === 'hash' || key === 'vercelBase') {
+        this.call({
+          result: { type: 'settings', settings: getSettings() }
+        })
       }
     },
 

@@ -42,10 +42,24 @@ from whatsapp import (  # noqa: E402
 )
 from send import count_recent_me, send_reply  # noqa: E402
 
+
+def _parse_recipients(raw: str):
+    """Parse ALLOWED_RECIPIENTS env as a JSON array, falling back to CSV."""
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        try:
+            return [str(r) for r in json.loads(raw)]
+        except ValueError:
+            pass
+    return [r.strip() for r in raw.split(",") if r.strip()]
+
+
 OWNER_PHONE = re.sub(r"\D", "", os.environ.get("OWNER_PHONE", ""))
 ALLOWED_RECIPIENTS = {
     re.sub(r"\D", "", r)
-    for r in os.environ.get("ALLOWED_RECIPIENTS", "").split(",")
+    for r in _parse_recipients(os.environ.get("ALLOWED_RECIPIENTS", ""))
     if r.strip()
 }
 

@@ -9,7 +9,7 @@ This document details the architectural design, communication protocols, state m
 The system operates across three tiers:
 1. **Edge & Hardware Tier**: Amazfit Smartwatch running Zepp OS 4.0 and the user's mobile device running WhatsApp & the Zepp App companion.
 2. **Local Processing Tier**: Go Bridge (connected via WhatsApp Web Multi-Device protocol), local SQLite store, Python TakeOver Controller, and Ollama local LLM inference engine.
-3. **Cloud & Web Relay Tier**: Next.js App Router deployed with Vercel KV (Redis) enabling remote dashboard access and cross-device approval synchronization.
+3. **Cloud & Web Relay Tier**: Next.js App Router deployed with Vercel KV (Redis) enabling remote dashboard access, connection provisioning, and cross-device approval synchronization.
 
 ```mermaid
 graph TB
@@ -19,10 +19,10 @@ graph TB
         WhatsAppMobile["Phone (WhatsApp Mobile App)"]
     end
 
-    subgraph CloudTier["Cloud Relay & Panel"]
-        WebRelay["Next.js REST API (/api/polls/*)"]
+    subgraph CloudTier["Cloud Relay & Provisioning"]
+        WebRelay["Next.js REST API (/api/polls/*, /api/connections/*)"]
         KVStore[("Vercel KV / Redis Store")]
-        WebDash["Next.js Web UI Control Panel"]
+        WebDash["Next.js Web UI & Setup (/setup)"]
     end
 
     subgraph LocalCore["Local Server / Daemon"]
@@ -35,7 +35,7 @@ graph TB
     end
 
     Watch <-->|"Zepp ZML (BLE)"| PhoneApp
-    PhoneApp <-->|"HTTPS fetch"| WebRelay
+    PhoneApp <-->|"HTTPS fetch (?hash=...)"| WebRelay
     WebDash <--> WebRelay
     WebRelay <--> KVStore
 
@@ -143,36 +143,52 @@ The persona engine generates authentic replies by prompting the model with conve
 
 ---
 
-### 2.4 Zepp OS Smartwatch Architecture (`zepp/`)
-
-Built for **Amazfit T-Rex 3** (Zepp OS 4.0, 480x480 round AMOLED display):
+### 2.4 Connection Provisioning & Pairing System (`web/app/setup/`)
 
 ```mermaid
 sequenceDiagram
-    participant Watch as Zepp Watch App (Page)
-    participant Side as Zepp Companion (app-side)
-    participant Cloud as Next.js Cloud Relay
-    participant Controller as Harness Controller
+    autonumber
+    actor User as User (Browser)
+    participant Web as Next.js API (/api/connections)
+    participant KV as Vercel KV (Redis)
+    participant Bridge as Go WhatsApp Bridge
+    actor Watch as Amazfit Watch (Zepp OS)
 
-    Note over Controller, Cloud: Controller creates pending poll
-    Controller->>Cloud: POST /api/polls {id, contact, question, options}
+    User->>Web: POST /api/connections {ownerPhone, allowedRecipients, aiApiKey, coupon}
+    Web->>Web: Validate Coupon (matches process.env.COUPON)
+    Web->>KV: Generate 6-char hash & store conn:{HASH}
+    Web-->>User: Return { hash: "K9X2P4" }
     
-    Watch->>Side: request({ method: 'GET_POLL' }) via ZML BLE
-    Side->>Cloud: GET /api/polls/pending
-    Cloud-->>Side: 200 OK { poll: {...} }
-    Side-->>Watch: res(null, { poll })
+    User->>Web: POST /api/connections/K9X2P4/qr
+    Web->>Bridge: Request WhatsApp Web QR
+    Bridge-->>Web: Return QR ASCII/SVG
+    Web-->>User: Display QR code in browser
+    User->>Bridge: Scans QR code with WhatsApp Mobile
     
-    Note over Watch: Displays contact name & 4 colored action buttons
-    Owner->>Watch: Taps "5 minutes"
+    loop Status Polling
+        Web->>Bridge: GET /api/connections/K9X2P4/status
+        Bridge-->>Web: { linked: true }
+    end
+    Web->>KV: Update conn:K9X2P4 status = 'linked'
+    Web-->>User: Present Pairing Code: K 9 X 2 P 4
     
-    Watch->>Side: request({ method: 'VOTE', params: { pollId, option: '5 minutes' } })
-    Side->>Cloud: POST /api/polls/:id { option: '5 minutes', source: 'watch' }
-    Cloud-->>Side: 200 OK { poll: { status: 'answered' } }
-    Side-->>Watch: res(null, { vote: 'grant' })
-    
-    Watch->>Watch: Show "Granted ✓" (haptic feedback)
-    Controller->>Cloud: Polls /api/polls/:id -> Detects 'answered' -> Activates grant
+    User->>Watch: Enter code K9X2P4 in TakeOver Watch Settings
+    Watch->>Web: GET /api/polls/pending?hash=K9X2P4
 ```
+
+#### Key Elements:
+* **The 3 Key Values**: `OWNER_PHONE`, `ALLOWED_RECIPIENTS`, `AI_API_KEY`.
+* **Coupon Gating**: Access is guarded by `COUPON` in the environment. Mismatched coupons return HTTP 403 with `Contact wa.me/+917060410033 to get one.`
+* **Unambiguous Base-32 Hash Algorithm**:
+  * Generates random 6-character tokens omitting visual duplicates (`0`, `O`, `1`, `I`):
+  * Alphabet: `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`
+  * Keys stored in KV: `conn:{HASH}` and indexed in the `connections` sorted set.
+
+---
+
+### 2.5 Zepp OS Smartwatch Architecture (`zepp/`)
+
+Built for **Amazfit T-Rex 3** (Zepp OS 4.0, 480x480 round AMOLED display):
 
 * **Touch Geometry**: Symmetrically aligned buttons with radius styling designed specifically for circular watch bezels ([`zepp/page/index.page.r.layout.js`](file:///Users/nikhilmundhra/Documents/Github/external/whatsapp-mcp/zepp/page/index.page.r.layout.js)).
 * **Color Psychology**:
@@ -183,35 +199,35 @@ sequenceDiagram
 
 ---
 
-### 2.5 Cloud Relay & Web Control Panel (`web/`)
+### 2.6 Cloud Relay & Web Control Panel (`web/`)
 
 * Built on **Next.js 14** with `@vercel/kv` (Redis).
 * **Key Schemas**:
+  * `conn:<hash>`: Connection configuration and link status.
   * `poll:<id>`: Hash containing poll JSON metadata.
   * `pending`: Set containing IDs of currently active, unanswered polls.
   * `polls`: Sorted set ordered by creation timestamp (`createdAt`).
 * **Endpoints**:
+  * `POST /api/connections`: Validate coupon & register connection parameters.
+  * `POST /api/connections/:hash/qr`: Request QR pairing code from bridge.
+  * `GET /api/connections/:hash/status`: Check WhatsApp Web authentication state.
   * `GET /api/polls`: List all historical and pending polls.
-  * `POST /api/polls`: Ingest a new poll from the controller.
-  * `GET /api/polls/pending`: Retrieve the oldest pending poll for smartwatch consumption.
+  * `GET /api/polls/pending`: Retrieve pending poll scoped to a pairing hash.
   * `POST /api/polls/[id]`: Record a vote from the Web UI or smartwatch.
   * `POST /api/polls/[id]/expire`: Mark poll as expired.
 
 ---
 
-## 3. Database Schemas (SQLite)
+## 3. Database Schemas (SQLite & Vercel KV)
 
-Located at `whatsapp-bridge/store/messages.db`:
-
+### SQLite (`whatsapp-bridge/store/messages.db`)
 ```sql
--- Track synced chats
 CREATE TABLE IF NOT EXISTS chats (
     jid TEXT PRIMARY KEY,
     name TEXT,
     last_message_time TIMESTAMP
 );
 
--- Complete message history
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT,
     chat_jid TEXT,
@@ -232,7 +248,6 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (chat_jid) REFERENCES chats(jid)
 );
 
--- Decrypted poll votes
 CREATE TABLE IF NOT EXISTS poll_votes (
     poll_msg_id TEXT,
     voter_jid TEXT,
@@ -241,6 +256,18 @@ CREATE TABLE IF NOT EXISTS poll_votes (
     timestamp TIMESTAMP,
     PRIMARY KEY (poll_msg_id, voter_jid)
 );
+```
+
+### Vercel KV (Redis)
+```redis
+# Connection Hash
+HSET conn:K9X2P4 data '{"hash":"K9X2P4","ownerPhone":"917060410033","allowedRecipients":["917893472546"],"status":"linked","createdAt":1723760000000}'
+ZADD connections 1723760000000 K9X2P4
+
+# Poll Entry
+HSET poll:msg_12345 data '{"id":"msg_12345","hash":"K9X2P4","contactDisplay":"Alex","question":"Take over?","options":["Send 1 text","5 minutes","2 hours","Deny"],"status":"pending","createdAt":1723760100000}'
+SADD pending msg_12345
+ZADD polls 1723760100000 msg_12345
 ```
 
 ---
@@ -253,4 +280,5 @@ CREATE TABLE IF NOT EXISTS poll_votes (
 | **Runaway AI loops** | Floor control verifies last sender $\neq$ Me; count limits enforce 1-reply bounds. |
 | **Accidental autonomous takeover** | Owner must explicitly click a poll option; default state is `idle`. |
 | **Human takeover conflict** | Automatic hardware override whenever `origin == "phone"` is observed. |
+| **Unauthenticated watch access** | Watch queries are scoped strictly by valid, verified 6-character connection hashes. |
 | **Data exfiltration** | Local SQLite storage; LLM runs 100% locally on Ollama without external API calls. |

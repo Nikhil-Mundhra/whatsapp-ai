@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -34,9 +35,23 @@ from whatsapp import (  # noqa: E402
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
+
+def _parse_recipients(raw: str):
+    """Parse ALLOWED_RECIPIENTS env as a JSON array, falling back to CSV."""
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        try:
+            return [str(r) for r in json.loads(raw)]
+        except ValueError:
+            pass
+    return [r.strip() for r in raw.split(",") if r.strip()]
+
+
 ALLOWED_RECIPIENTS = {
     re.sub(r"\D", "", r)
-    for r in os.environ.get("ALLOWED_RECIPIENTS", "").split(",")
+    for r in _parse_recipients(os.environ.get("ALLOWED_RECIPIENTS", ""))
     if r.strip()
 }
 

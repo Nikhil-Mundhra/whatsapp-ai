@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getPendingPoll } from "../../../../lib/polls";
 
-export async function GET() {
-  const poll = await getPendingPoll();
+export async function GET(req) {
+  const { searchParams } = new URL(req.url);
+  const hash = searchParams.get("hash") || "default";
+  const poll = await getPendingPoll(hash);
   if (!poll) return NextResponse.json({ poll: null });
   return NextResponse.json({ poll });
 }

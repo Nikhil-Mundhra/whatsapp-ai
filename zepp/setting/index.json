@@ -1,0 +1,19 @@
+{
+  "setting": {
+    "title": "TakeOver Settings",
+    "items": [
+      {
+        "type": "input",
+        "key": "hash",
+        "label": "Your connection hash",
+        "placeholder": "e.g. ABC123"
+      },
+      {
+        "type": "input",
+        "key": "vercelBase",
+        "label": "Server URL (optional)",
+        "placeholder": "https://your-project.vercel.app"
+      }
+    ]
+  }
+}

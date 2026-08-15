@@ -2,13 +2,17 @@ import { listPolls } from "../lib/polls";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
-  const polls = await listPolls(100);
+export default async function Home({ searchParams }) {
+  const hash = (await searchParams)?.hash || "default";
+  const polls = await listPolls(hash, 100);
   const pending = polls.filter((p) => p.status === "pending");
 
   return (
     <main style={{ maxWidth: 720, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
       <h1 style={{ fontSize: 22 }}>Take-over control panel</h1>
+      <p>
+        <a href="/setup" style={{ color: "#2b6cb0" }}>Setup &amp; config</a>
+      </p>
       {pending.length > 0 && (
         <section style={{ marginBottom: 24 }}>
           <h2 style={{ fontSize: 16 }}>Pending — answer now</h2>
@@ -16,7 +20,7 @@ export default async function Home() {
             <div key={p.id} style={{ border: "1px solid #eee", borderRadius: 8, padding: 16, marginBottom: 12 }}>
               <div style={{ fontWeight: 600 }}>{p.contactDisplay} texted you</div>
               <div style={{ color: "#555", margin: "4px 0 12px" }}>{p.question}</div>
-              <form action={`/api/polls/${p.id}`} method="POST">
+              <form action={`/api/polls/${p.id}?hash=${hash}`} method="POST">
                 {p.options.map((opt) => (
                   <button
                     key={opt}

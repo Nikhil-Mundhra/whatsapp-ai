@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { createPoll, listPolls } from "../../../lib/polls";
 
-export async function GET() {
-  const polls = await listPolls(100);
+export async function GET(req) {
+  const { searchParams } = new URL(req.url);
+  const hash = searchParams.get("hash") || "default";
+  const polls = await listPolls(hash, 100);
   return NextResponse.json({ polls });
 }
 
@@ -13,6 +15,7 @@ export async function POST(req) {
   }
   const poll = {
     id: body.id,
+    hash: body.hash || "default",
     contact: body.contact || "",
     contactDisplay: body.contactDisplay || body.contact || "Someone",
     question: body.question,
