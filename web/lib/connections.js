@@ -18,8 +18,14 @@ export function generateHash() {
 
 export async function createConnection(config) {
   let hash = generateHash();
-  while (await kv.exists(PREFIX + hash)) {
-    hash = generateHash();
+  if (kv) {
+    try {
+      while (await kv.exists(PREFIX + hash)) {
+        hash = generateHash();
+      }
+    } catch {
+      /* fallback */
+    }
   }
   const conn = {
     hash,
@@ -27,25 +33,46 @@ export async function createConnection(config) {
     status: "configuring",
     createdAt: Date.now(),
   };
-  await kv.hset(PREFIX + hash, { data: JSON.stringify(conn) });
-  await kv.zadd(INDEX, { score: conn.createdAt, member: hash });
+  if (kv) {
+    try {
+      await kv.hset(PREFIX + hash, { data: JSON.stringify(conn) });
+      await kv.zadd(INDEX, { score: conn.createdAt, member: hash });
+    } catch (err) {
+      console.error("[kv createConnection error]", err);
+    }
+  }
   return conn;
 }
 
 export async function getConnection(hash) {
-  const raw = await kv.hget(PREFIX + hash, "data");
-  return raw ? JSON.parse(raw) : null;
+  if (!kv) return null;
+  try {
+    const raw = await kv.hget(PREFIX + hash, "data");
+    return raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
+  } catch (err) {
+    console.error("[kv getConnection error]", err);
+    return null;
+  }
 }
 
 export async function updateConnection(hash, patch) {
   const conn = await getConnection(hash);
-  if (!conn) return null;
+  if (!conn || !kv) return conn;
   const next = { ...conn, ...patch };
-  await kv.hset(PREFIX + hash, { data: JSON.stringify(next) });
+  try {
+    await kv.hset(PREFIX + hash, { data: JSON.stringify(next) });
+  } catch (err) {
+    console.error("[kv updateConnection error]", err);
+  }
   return next;
 }
 
 export async function deleteConnection(hash) {
-  await kv.del(PREFIX + hash);
-  await kv.zrem(INDEX, hash);
+  if (!kv) return;
+  try {
+    await kv.del(PREFIX + hash);
+    await kv.zrem(INDEX, hash);
+  } catch (err) {
+    console.error("[kv deleteConnection error]", err);
+  }
 }
