@@ -7,6 +7,9 @@ const INDEX = "connections";
 const HASH_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const HASH_LEN = 6;
 
+// In-memory fallback in case KV is unconfigured
+globalThis.__connectionsFallback = globalThis.__connectionsFallback || new Map();
+
 export function generateHash() {
   const bytes = randomBytes(HASH_LEN);
   let hash = "";
@@ -33,6 +36,9 @@ export async function createConnection(config) {
     status: "configuring",
     createdAt: Date.now(),
   };
+  
+  globalThis.__connectionsFallback.set(hash, conn);
+
   if (kv) {
     try {
       await kv.hset(PREFIX + hash, { data: JSON.stringify(conn) });
@@ -45,29 +51,38 @@ export async function createConnection(config) {
 }
 
 export async function getConnection(hash) {
-  if (!kv) return null;
-  try {
-    const raw = await kv.hget(PREFIX + hash, "data");
-    return raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
-  } catch (err) {
-    console.error("[kv getConnection error]", err);
-    return null;
+  if (!hash) return null;
+  if (kv) {
+    try {
+      const raw = await kv.hget(PREFIX + hash, "data");
+      if (raw) {
+        return typeof raw === "string" ? JSON.parse(raw) : raw;
+      }
+    } catch (err) {
+      console.error("[kv getConnection error]", err);
+    }
   }
+  return globalThis.__connectionsFallback.get(hash) || null;
 }
 
 export async function updateConnection(hash, patch) {
   const conn = await getConnection(hash);
-  if (!conn || !kv) return conn;
+  if (!conn) return null;
   const next = { ...conn, ...patch };
-  try {
-    await kv.hset(PREFIX + hash, { data: JSON.stringify(next) });
-  } catch (err) {
-    console.error("[kv updateConnection error]", err);
+  globalThis.__connectionsFallback.set(hash, next);
+
+  if (kv) {
+    try {
+      await kv.hset(PREFIX + hash, { data: JSON.stringify(next) });
+    } catch (err) {
+      console.error("[kv updateConnection error]", err);
+    }
   }
   return next;
 }
 
 export async function deleteConnection(hash) {
+  globalThis.__connectionsFallback.delete(hash);
   if (!kv) return;
   try {
     await kv.del(PREFIX + hash);
