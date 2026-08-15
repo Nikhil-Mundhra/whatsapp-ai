@@ -85,7 +85,10 @@ export default function SetupPage() {
 
   return (
     <main style={{ maxWidth: 560, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
-      <h1 style={{ fontSize: 22 }}>Set up your connection</h1>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <img src="/logo.svg" alt="WhatsApp AI" style={{ width: 44, height: 44 }} />
+        <h1 style={{ fontSize: 22, margin: 0 }}>Set up your connection</h1>
+      </div>
 
       {error && (
         <p style={{ color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, padding: 10 }}>

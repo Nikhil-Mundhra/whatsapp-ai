@@ -9,10 +9,15 @@ export default async function Home({ searchParams }) {
 
   return (
     <main style={{ maxWidth: 720, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
-      <h1 style={{ fontSize: 22 }}>Take-over control panel</h1>
-      <p>
-        <a href="/setup" style={{ color: "#2b6cb0" }}>Setup &amp; config</a>
-      </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <img src="/logo.svg" alt="WhatsApp AI" style={{ width: 42, height: 42 }} />
+        <div>
+          <h1 style={{ fontSize: 22, margin: 0 }}>Take-over control panel</h1>
+          <p style={{ margin: "2px 0 0" }}>
+            <a href="/setup" style={{ color: "#2b6cb0", fontSize: 14 }}>Setup &amp; config</a>
+          </p>
+        </div>
+      </div>
       {pending.length > 0 && (
         <section style={{ marginBottom: 24 }}>
           <h2 style={{ fontSize: 16 }}>Pending — answer now</h2>
