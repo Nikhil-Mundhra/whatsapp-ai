@@ -91,9 +91,19 @@ export default function SetupPage() {
       </div>
 
       {error && (
-        <p style={{ color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, padding: 10 }}>
-          {error}
-        </p>
+        <div style={{ color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, padding: "10px 14px", fontSize: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>{error.includes("wa.me") ? "Invalid coupon code." : error}</span>
+          {error.includes("wa.me") && (
+            <a
+              href="https://wa.me/917060410033?text=Hey,%20I%20need%20a%20coupon%20for%20TakeOver"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "#059669", fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap", marginLeft: 8 }}
+            >
+              Get one now →
+            </a>
+          )}
+        </div>
       )}
 
       {step === 1 && (
@@ -131,15 +141,25 @@ export default function SetupPage() {
             />
           </label>
 
-          <label style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontWeight: 600 }}>Coupon</span>
+          <div style={{ display: "grid", gap: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontWeight: 600 }}>Coupon</span>
+              <a
+                href="https://wa.me/917060410033?text=Hey,%20I%20need%20a%20coupon%20for%20TakeOver"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#25D366", fontSize: 13, fontWeight: 600, textDecoration: "none" }}
+              >
+                Get one now →
+              </a>
+            </div>
             <input
               value={form.coupon}
               onChange={update("coupon")}
-              placeholder="Contact wa.me/+917060410033"
+              placeholder="Enter coupon code"
               style={{ padding: 10, borderRadius: 6, border: "1px solid #ccc" }}
             />
-          </label>
+          </div>
 
           <button
             type="submit"
