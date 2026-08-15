@@ -1,0 +1,60 @@
+# Environment & Secrets
+.env
+.env*.local
+*.env
+
+# SQLite Databases & Stores
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+whatsapp-bridge/store/
+whatsapp.log
+
+# Go binaries & build artifacts
+whatsapp-bridge/whatsapp-client
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Python & UV
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.pytest_cache/
+.coverage
+
+# Node.js & Next.js
+node_modules/
+.next/
+out/
+build/
+dist/
+.npm
+*.tsbuildinfo
+next-env.d.ts
+
+# Zepp OS Build artifacts
+zepp/dist/
+zepp/node_modules/
+
+# OS Specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor & MCP Configurations
+claude_desktop_config.json
+.vscode/
+.idea/
+*.swp
+*.swo

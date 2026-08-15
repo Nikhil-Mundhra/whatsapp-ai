@@ -1,0 +1,12 @@
+{
+  "en-US": {
+    "title": "TakeOver",
+    "loading": "Loading...",
+    "noPending": "No pending polls",
+    "tapToVote": "Tap to vote",
+    "sending": "Sending vote...",
+    "voteGranted": "Granted ✓",
+    "voteDenied": "Denied",
+    "voteFailed": "Vote failed"
+  }
+}

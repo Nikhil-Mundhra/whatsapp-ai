@@ -1,0 +1,48 @@
+{
+  "configVersion": "v3",
+  "app": {
+    "appType": "app",
+    "version": {
+      "code": 1,
+      "name": "0.1.0"
+    },
+    "appId": 1000101,
+    "appName": "TakeOver",
+    "icon": "icon.png",
+    "vender": "nikhilmundhra",
+    "description": "Approve or deny AI takeover polls"
+  },
+  "runtime": {
+    "apiVersion": {
+      "compatible": "4.0",
+      "target": "4.0",
+      "minVersion": "4.0"
+    }
+  },
+  "targets": {
+    "trex3": {
+      "module": {
+        "page": {
+          "pages": ["page/index.page"]
+        },
+        "app-side": {
+          "path": "app-side/index"
+        }
+      },
+      "platforms": [
+        {
+          "st": "r",
+          "dw": 480
+        }
+      ]
+    }
+  },
+  "permissions": [],
+  "i18n": {
+    "en-US": {
+      "name": "TakeOver"
+    }
+  },
+  "defaultLanguage": "en-US",
+  "debug": false
+}

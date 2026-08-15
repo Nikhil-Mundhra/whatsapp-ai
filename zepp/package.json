@@ -1,0 +1,17 @@
+{
+  "name": "takeover",
+  "version": "0.1.0",
+  "description": "Approve or deny AI takeover polls from your watch",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@zeppos/device-types": "^3.0.0"
+  },
+  "dependencies": {
+    "@zeppos/zml": "^0.0.38"
+  }
+}
