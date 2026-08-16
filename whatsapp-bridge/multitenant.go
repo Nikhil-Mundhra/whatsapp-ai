@@ -521,7 +521,7 @@ READ THE ROOM:
 		reqBody = RequestBody{
 			Model:     model,
 			Messages:  messages,
-			MaxTokens: 250,
+			MaxTokens: 800,
 		}
 	} else if strings.HasPrefix(apiKey, "gsk_") {
 		// 3. Groq
@@ -529,14 +529,14 @@ READ THE ROOM:
 		reqBody = RequestBody{
 			Model:     model,
 			Messages:  messages,
-			MaxTokens: 250,
+			MaxTokens: 800,
 		}
 	} else {
 		// 4. OpenRouter (default)
 		reqBody = RequestBody{
 			Model:     model,
 			Messages:  messages,
-			MaxTokens: 250,
+			MaxTokens: 800,
 			Reasoning: &Reasoning{Enabled: true},
 		}
 	}
@@ -590,7 +590,8 @@ READ THE ROOM:
 	var resData struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string `json:"content"`
+				Reasoning string `json:"reasoning"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
@@ -601,7 +602,15 @@ READ THE ROOM:
 
 	replyText := strings.TrimSpace(resData.Choices[0].Message.Content)
 	if replyText == "" {
-		t.logger.Warnf("AI generated empty content")
+		replyText = strings.TrimSpace(resData.Choices[0].Message.Reasoning)
+	}
+	if strings.Contains(replyText, "</think>") {
+		parts := strings.Split(replyText, "</think>")
+		replyText = strings.TrimSpace(parts[len(parts)-1])
+	}
+
+	if replyText == "" {
+		t.logger.Warnf("AI generated empty content (raw: %s)", string(bodyBytes))
 		return
 	}
 
