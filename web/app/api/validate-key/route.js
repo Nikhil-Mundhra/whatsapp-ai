@@ -180,14 +180,17 @@ async function checkOpenRouter(apiKey) {
 
       // Sort highlighted/popular models to the top
       const popularPrefixes = [
-        "qwen/qwen-2.5-72b",
-        "qwen/qwen-2.5-32b",
-        "anthropic/claude-3.5-sonnet",
-        "deepseek/deepseek-chat",
+        "qwen/qwen3",
+        "qwen/qwen-3",
+        "qwen/qwen2.5",
+        "qwen/qwen-2.5",
+        "qwen/",
+        "anthropic/claude-3.7",
+        "anthropic/claude-3.5",
         "deepseek/deepseek-r1",
-        "meta-llama/llama-3.3-70b",
-        "google/gemini-2.0-flash",
-        "openai/gpt-4o-mini",
+        "deepseek/deepseek-chat",
+        "meta-llama/llama-3.3",
+        "google/gemini-2.0",
         "openai/gpt-4o",
       ];
 
@@ -198,19 +201,21 @@ async function checkOpenRouter(apiKey) {
       }));
 
       models.sort((a, b) => {
-        const aPop = popularPrefixes.findIndex((p) => a.id.startsWith(p));
-        const bPop = popularPrefixes.findIndex((p) => b.id.startsWith(p));
+        const aPop = popularPrefixes.findIndex((p) => a.id.toLowerCase().startsWith(p));
+        const bPop = popularPrefixes.findIndex((p) => b.id.toLowerCase().startsWith(p));
         if (aPop !== -1 && bPop !== -1) return aPop - bPop;
         if (aPop !== -1) return -1;
         if (bPop !== -1) return 1;
         return a.name.localeCompare(b.name);
       });
 
+      const topQwen = models.find((m) => m.id.toLowerCase().includes("qwen"));
+
       return {
         valid: true,
         provider: "OpenRouter",
-        models: models.slice(0, 100), // Top 100 curated models
-        defaultModel: models.find((m) => m.id.includes("qwen"))?.id || "qwen/qwen-2.5-72b-instruct",
+        models: models.slice(0, 150), // Top 150 models from live OpenRouter catalog
+        defaultModel: topQwen ? topQwen.id : (models[0]?.id || "qwen/qwen-2.5-72b-instruct"),
       };
     }
   } catch {}
