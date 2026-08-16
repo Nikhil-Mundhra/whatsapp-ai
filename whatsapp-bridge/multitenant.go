@@ -242,7 +242,31 @@ func normalizePhone(phone string) string {
 	return out.String()
 }
 
+func (t *Tenant) resolveGroupName(chatJID types.JID) string {
+	ctx := context.Background()
+	return GetChatName(ctx, t.client, t.messageStore, chatJID, chatJID.String(), nil, "", t.logger)
+}
+
 func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
+	// If it's a group chat, check group JID and group name
+	if chatJID.Server == "g.us" {
+		groupName := strings.ToLower(t.resolveGroupName(chatJID))
+		for _, r := range t.recipients {
+			trimmed := strings.TrimSpace(r)
+			if trimmed == "" {
+				continue
+			}
+			// Match exact group JID or group user ID
+			if chatJID.String() == trimmed || chatJID.User == trimmed {
+				return true
+			}
+			// Match group name case-insensitively
+			if groupName != "" && (strings.EqualFold(trimmed, groupName) || strings.Contains(groupName, strings.ToLower(trimmed))) {
+				return true
+			}
+		}
+	}
+
 	candidates := []string{
 		senderJID.User,
 		chatJID.User,
@@ -369,6 +393,78 @@ func (t *Tenant) resolveContactName(msg *events.Message) string {
 	return "Contact"
 }
 
+// isGroupMessageDirectedToOwner checks if a message in a group chat is directed at the owner (via @mention, direct reply/quote, or name mention).
+func (t *Tenant) isGroupMessageDirectedToOwner(msg *events.Message) (bool, string) {
+	if msg == nil || msg.Message == nil {
+		return false, ""
+	}
+
+	ownerPN := normalizePhone(t.ownerPhone)
+	ownerUser := ""
+	if t.client != nil && t.client.Store != nil && t.client.Store.ID != nil {
+		ownerUser = t.client.Store.ID.User
+	}
+
+	// 1. Check ContextInfo for mentions and replies
+	ci := getContextInfo(msg.Message)
+	if ci != nil {
+		// Mentions
+		for _, mj := range ci.GetMentionedJID() {
+			normMJ := normalizePhone(mj)
+			if (ownerPN != "" && (normMJ == ownerPN || strings.HasSuffix(normMJ, ownerPN))) ||
+				(ownerUser != "" && (mj == ownerUser || strings.Contains(mj, ownerUser))) {
+				return true, "mentioned you"
+			}
+		}
+
+		// Reply/Quote to owner's message
+		if participant := ci.GetParticipant(); participant != "" {
+			normP := normalizePhone(participant)
+			if (ownerPN != "" && (normP == ownerPN || strings.HasSuffix(normP, ownerPN))) ||
+				(ownerUser != "" && (participant == ownerUser || strings.Contains(participant, ownerUser))) {
+				return true, "replied to you"
+			}
+		}
+	}
+
+	// 2. Check message body text for owner's first name/nickname
+	text := strings.ToLower(extractTextContent(msg.Message))
+	if text != "" {
+		ownerNames := []string{}
+		if t.ownerPhone != "" && t.client != nil && t.client.Store != nil {
+			pnJID := types.NewJID(normalizePhone(t.ownerPhone), types.DefaultUserServer)
+			if contact, err := t.client.Store.Contacts.GetContact(context.Background(), pnJID); err == nil {
+				if contact.FullName != "" {
+					parts := strings.Fields(contact.FullName)
+					if len(parts) > 0 && len(parts[0]) >= 3 {
+						ownerNames = append(ownerNames, strings.ToLower(parts[0]))
+					}
+				}
+				if contact.PushName != "" && !isAllDigits(contact.PushName) && len(contact.PushName) >= 3 {
+					parts := strings.Fields(contact.PushName)
+					if len(parts) > 0 && len(parts[0]) >= 3 {
+						ownerNames = append(ownerNames, strings.ToLower(parts[0]))
+					}
+				}
+			}
+		}
+		if t.client != nil && t.client.Store != nil && t.client.Store.PushName != "" {
+			parts := strings.Fields(t.client.Store.PushName)
+			if len(parts) > 0 && len(parts[0]) >= 3 {
+				ownerNames = append(ownerNames, strings.ToLower(parts[0]))
+			}
+		}
+
+		for _, name := range ownerNames {
+			if strings.Contains(text, name) {
+				return true, fmt.Sprintf("mentioned %s", name)
+			}
+		}
+	}
+
+	return false, ""
+}
+
 // setupEventHandler wires message and poll events for this tenant.
 func (t *Tenant) setupEventHandler() {
 	t.client.AddEventHandler(func(evt interface{}) {
@@ -381,11 +477,15 @@ func (t *Tenant) setupEventHandler() {
 
 				sender := v.Info.Sender.User
 				isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
+				isGroup := v.Info.Chat.Server == "g.us"
 
-				// Determine normalized recipient key
-				recipientKey := normalizePhone(v.Info.Chat.User)
-				if recipientKey == "" {
-					recipientKey = normalizePhone(v.Info.Sender.User)
+				// Determine normalized recipient key (for group chats, key by group JID)
+				recipientKey := v.Info.Chat.String()
+				if !isGroup {
+					recipientKey = normalizePhone(v.Info.Chat.User)
+					if recipientKey == "" {
+						recipientKey = normalizePhone(v.Info.Sender.User)
+					}
 				}
 
 				if v.Info.IsFromMe && isAllowed {
@@ -437,17 +537,47 @@ func (t *Tenant) setupEventHandler() {
 						t.logger.Infof("Active takeover grant for %s -> drafting AI reply immediately", t.Hash)
 						go t.replyToChat(v.Info.Chat)
 					} else if t.ownerPhone != "" {
+						// For Group Chats, apply Smart Triggering
+						triggerReason := ""
+						if isGroup {
+							directed, reason := t.isGroupMessageDirectedToOwner(v)
+							if !directed {
+								// Background group chatter: stored in DB, but no poll triggered
+								return
+							}
+							triggerReason = reason
+						}
+
 						chatName := t.resolveContactName(v)
-						question := fmt.Sprintf("%s texted you. Take over?", chatName)
+						var question string
+						if isGroup {
+							groupName := t.resolveGroupName(v.Info.Chat)
+							textSnippet := strings.TrimSpace(extractTextContent(v.Message))
+							if len(textSnippet) > 35 {
+								textSnippet = textSnippet[:32] + "..."
+							}
+							if textSnippet != "" {
+								question = fmt.Sprintf("%s in \"%s\" (%s: \"%s\"). Take over?", chatName, groupName, triggerReason, textSnippet)
+							} else {
+								question = fmt.Sprintf("%s in \"%s\" %s. Take over?", chatName, groupName, triggerReason)
+							}
+						} else {
+							question = fmt.Sprintf("%s texted you. Take over?", chatName)
+						}
 						options := []string{"Send 1 text", "5 minutes", "2 hours", "Deny"}
 
-						// Revoke previous active poll for THIS recipient so only the latest poll per recipient is active
+						// In group chats, if a poll is already active, keep it ALIVE (do not spam or revoke rapidly)
 						t.mu.Lock()
 						if t.activePollsByRecipient == nil {
 							t.activePollsByRecipient = make(map[string]string)
 						}
 						oldPollID := t.activePollsByRecipient[recipientKey]
 						t.mu.Unlock()
+
+						if isGroup && oldPollID != "" {
+							t.logger.Infof("Active poll %s is already pending for group %s. Keeping existing poll alive.", oldPollID, recipientKey)
+							return
+						}
 
 						if oldPollID != "" {
 							t.logger.Infof("Revoking previous active poll %s for recipient %s (tenant %s)", oldPollID, recipientKey, t.Hash)
@@ -719,12 +849,27 @@ func (t *Tenant) replyToChat(targetJID types.JID) {
 		return
 	}
 
+	isGroup := targetJID.Server == "g.us"
 	var historyBuilder strings.Builder
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
 		prefix := "From: " + m.Sender
 		if m.IsFromMe {
 			prefix = "From: Me"
+		} else if isGroup {
+			senderDisplayName := m.Sender
+			if t.client != nil && t.client.Store != nil {
+				normS := normalizePhone(m.Sender)
+				if normS != "" {
+					pnJID := types.NewJID(normS, types.DefaultUserServer)
+					if c, err := t.client.Store.Contacts.GetContact(context.Background(), pnJID); err == nil && c.FullName != "" {
+						senderDisplayName = c.FullName
+					} else if c.PushName != "" && !isAllDigits(c.PushName) {
+						senderDisplayName = c.PushName
+					}
+				}
+			}
+			prefix = fmt.Sprintf("[%s]", senderDisplayName)
 		}
 		historyBuilder.WriteString(fmt.Sprintf("%s: %s\n", prefix, m.Content))
 	}
@@ -743,7 +888,28 @@ func (t *Tenant) replyToChat(targetJID types.JID) {
 		}
 	}
 
-	systemPrompt := fmt.Sprintf(`%s That is your own writing style: mirror your own message length, tone, capitalization, punctuation, slang, and emoji usage. If your messages are one-liners, reply with one-liners. If you use emojis, use emojis; if you don't, don't.
+	var systemPrompt string
+	if isGroup {
+		groupName := t.resolveGroupName(targetJID)
+		systemPrompt = fmt.Sprintf(`%s That is your own writing style: mirror your own message length, tone, capitalization, punctuation, slang, and emoji usage. If your messages are one-liners, reply with one-liners. If you use emojis, use emojis; if you don't, don't.
+
+YOU ARE IN A GROUP CHAT ("%s"):
+1. GROUP DYNAMICS & BREVITY:
+   - Group texts must be very short, natural, and casual (often 1 to 8 words). Never write long paragraphs or sound like an assistant.
+   - Match the group banter, sarcasm, teasing, or casual vibe.
+   - If the group uses regional languages or code-mixing (Telugu/Tanglish, Hindi/Hinglish, etc.), ALWAYS prefer and reply in that language or code-mixed style over plain English. Match the casual Romanized transliteration.
+
+2. TARGETED REPLY:
+   - Multiple people are in this group chat. Each message is labeled with "[Sender Name]: ...".
+   - Respond specifically to the person who addressed, mentioned, or replied to you.
+   - Do NOT answer for other group members or interrupt conversations between others unless relevant to you.
+
+3. ABSOLUTE RULES:
+   - Never say you are an AI or bot.
+   - No formal greetings ("Hey guys", "Hello all").
+   - Output ONLY the exact text message to send and nothing else.`, identityClause, groupName)
+	} else {
+		systemPrompt = fmt.Sprintf(`%s That is your own writing style: mirror your own message length, tone, capitalization, punctuation, slang, and emoji usage. If your messages are one-liners, reply with one-liners. If you use emojis, use emojis; if you don't, don't.
 
 LANGUAGE PREFERENCE:
 - If the other person or the chat history uses non-English languages, regional dialects, vernacular phrases, or code-mixed speech (e.g. Hindi/Hinglish, Telugu/Tanglish, etc. written in Latin/English script), ALWAYS prefer and reply in that language or code-mixed style over plain English, even if English is commonly used in the chat.
@@ -754,6 +920,7 @@ READ THE ROOM:
 - Never repeat a message you already sent in the history, and never send the same text twice in a row.
 - Never continue your own monologue: if the other person has not spoken since your last message, you have nothing to reply to.
 - Reply naturally and human. Don't mention that you're an AI. Don't use markdown. Output only the message text and nothing else.`, identityClause)
+	}
 
 	model := t.aiModel
 	if model == "" {
