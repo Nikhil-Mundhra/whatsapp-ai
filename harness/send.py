@@ -109,6 +109,7 @@ def generate_reply(history: str, model: str = DEFAULT_MODEL, think: bool = True)
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": history},
             ],
+            "max_tokens": 250,
             "reasoning": {"enabled": think},
         }
 

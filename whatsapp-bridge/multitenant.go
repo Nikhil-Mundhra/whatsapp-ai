@@ -445,6 +445,7 @@ READ THE ROOM:
 	type RequestBody struct {
 		Model     string     `json:"model"`
 		Messages  []Message  `json:"messages"`
+		MaxTokens int        `json:"max_tokens,omitempty"`
 		Reasoning *Reasoning `json:"reasoning,omitempty"`
 	}
 
@@ -518,21 +519,24 @@ READ THE ROOM:
 	if strings.HasPrefix(apiKey, "sk-") && !strings.HasPrefix(apiKey, "sk-or-") && !strings.HasPrefix(apiKey, "sk-ant-") {
 		endpoint = "https://api.openai.com/v1/chat/completions"
 		reqBody = RequestBody{
-			Model:    model,
-			Messages: messages,
+			Model:     model,
+			Messages:  messages,
+			MaxTokens: 250,
 		}
 	} else if strings.HasPrefix(apiKey, "gsk_") {
 		// 3. Groq
 		endpoint = "https://api.groq.com/openai/v1/chat/completions"
 		reqBody = RequestBody{
-			Model:    model,
-			Messages: messages,
+			Model:     model,
+			Messages:  messages,
+			MaxTokens: 250,
 		}
 	} else {
 		// 4. OpenRouter (default)
 		reqBody = RequestBody{
 			Model:     model,
 			Messages:  messages,
+			MaxTokens: 250,
 			Reasoning: &Reasoning{Enabled: true},
 		}
 	}
