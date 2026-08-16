@@ -12,6 +12,20 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [votingId, setVotingId] = useState(null);
 
+  // Edit Settings Modal State
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [configForm, setConfigForm] = useState({
+    ownerPhone: "",
+    allowedRecipients: "",
+    aiApiKey: "",
+    aiModel: "",
+  });
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [configSuccess, setConfigSuccess] = useState("");
+  const [configError, setConfigError] = useState("");
+  const [keyStatus, setKeyStatus] = useState({ state: "idle", message: "", provider: "", models: [] });
+  const validateTimerRef = useRef(null);
+
   // 1. Initialize hash from URL searchParams or localStorage
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -95,6 +109,95 @@ export default function Home() {
       console.error("Vote failed", err);
     } finally {
       setVotingId(null);
+    }
+  }
+
+  function openEditModal() {
+    setConfigForm({
+      ownerPhone: connInfo?.connection?.ownerPhone || "",
+      allowedRecipients: Array.isArray(connInfo?.connection?.allowedRecipients)
+        ? connInfo.connection.allowedRecipients.join(", ")
+        : connInfo?.connection?.allowedRecipients || "",
+      aiApiKey: "",
+      aiModel: connInfo?.connection?.aiModel || "qwen/qwen3.8-27b",
+    });
+    setKeyStatus({ state: "idle", message: "", provider: "", models: [] });
+    setConfigError("");
+    setConfigSuccess("");
+    setIsConfigOpen(true);
+  }
+
+  function handleApiKeyChange(e) {
+    const val = e.target.value;
+    setConfigForm((prev) => ({ ...prev, aiApiKey: val }));
+
+    if (!val.trim()) {
+      setKeyStatus({ state: "idle", message: "", provider: "", models: [] });
+      return;
+    }
+
+    setKeyStatus({ state: "checking", message: "Checking API key...", provider: "", models: [] });
+    if (validateTimerRef.current) clearTimeout(validateTimerRef.current);
+    validateTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/validate-key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey: val.trim() }),
+        });
+        const data = await res.json();
+        if (data.valid) {
+          setKeyStatus({
+            state: "valid",
+            message: data.warning || `Valid ${data.provider} Key ✓`,
+            provider: data.provider,
+            models: data.models || [],
+          });
+          if (data.defaultModel) {
+            setConfigForm((prev) => ({ ...prev, aiModel: data.defaultModel }));
+          }
+        } else {
+          setKeyStatus({
+            state: "invalid",
+            message: data.error || "Invalid API key",
+            provider: "",
+            models: [],
+          });
+        }
+      } catch {
+        setKeyStatus({ state: "idle", message: "", provider: "", models: [] });
+      }
+    }, 800);
+  }
+
+  async function handleSaveConfig(e) {
+    e.preventDefault();
+    setSavingConfig(true);
+    setConfigError("");
+    setConfigSuccess("");
+
+    try {
+      const res = await fetch(`/api/connections/${hash}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ownerPhone: configForm.ownerPhone,
+          allowedRecipients: configForm.allowedRecipients,
+          aiApiKey: configForm.aiApiKey || undefined,
+          aiModel: configForm.aiModel,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update configuration");
+
+      setConfigSuccess("Configuration updated & synced with bridge! ✓");
+      setTimeout(() => {
+        setIsConfigOpen(false);
+      }, 1200);
+    } catch (err) {
+      setConfigError(err.message);
+    } finally {
+      setSavingConfig(false);
     }
   }
 
@@ -243,11 +346,158 @@ export default function Home() {
               </div>
             </div>
           </div>
-          {connInfo.connection?.aiModel && (
-            <span style={{ fontSize: 12, background: "#dcfce7", color: "#15803d", padding: "4px 8px", borderRadius: 6, fontWeight: 500 }}>
-              Model: {connInfo.connection.aiModel}
-            </span>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {connInfo.connection?.aiModel && (
+              <span style={{ fontSize: 12, background: "#dcfce7", color: "#15803d", padding: "4px 8px", borderRadius: 6, fontWeight: 500 }}>
+                {connInfo.connection.aiModel}
+              </span>
+            )}
+            <button
+              onClick={openEditModal}
+              style={{
+                background: "#ffffff",
+                border: "1px solid #86efac",
+                color: "#166534",
+                padding: "4px 10px",
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              ⚙️ Edit Config
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Config Modal */}
+      {isConfigOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 24, maxWidth: 500, width: "100%", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ fontSize: 18, margin: 0 }}>⚙️ Edit Connection Settings</h2>
+              <button
+                onClick={() => setIsConfigOpen(false)}
+                style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#64748b" }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {configError && (
+              <div style={{ color: "#b91c1c", background: "#fef2f2", padding: "8px 12px", borderRadius: 6, fontSize: 13, marginBottom: 12 }}>
+                {configError}
+              </div>
+            )}
+            {configSuccess && (
+              <div style={{ color: "#15803d", background: "#f0fdf4", padding: "8px 12px", borderRadius: 6, fontSize: 13, marginBottom: 12 }}>
+                {configSuccess}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveConfig} style={{ display: "grid", gap: 12 }}>
+              <label style={{ display: "grid", gap: 4 }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>OWNER_PHONE</span>
+                <input
+                  value={configForm.ownerPhone}
+                  onChange={(e) => setConfigForm({ ...configForm, ownerPhone: e.target.value })}
+                  placeholder="e.g. 917060410033"
+                  style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc", fontSize: 14 }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 4 }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>ALLOWED_RECIPIENTS</span>
+                <input
+                  value={configForm.allowedRecipients}
+                  onChange={(e) => setConfigForm({ ...configForm, allowedRecipients: e.target.value })}
+                  placeholder="e.g. 917893472546"
+                  style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc", fontSize: 14 }}
+                />
+              </label>
+
+              <div style={{ display: "grid", gap: 4 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>AI API KEY (OpenRouter, Gemini, OpenAI)</span>
+                  {keyStatus.state === "checking" && (
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>⏳ Verifying...</span>
+                  )}
+                  {keyStatus.state === "valid" && (
+                    <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>{keyStatus.message}</span>
+                  )}
+                  {keyStatus.state === "invalid" && (
+                    <span style={{ fontSize: 11, color: "#dc2626", fontWeight: 600 }}>❌ {keyStatus.message}</span>
+                  )}
+                </div>
+                <input
+                  type="password"
+                  value={configForm.aiApiKey}
+                  onChange={handleApiKeyChange}
+                  placeholder="Paste your API key to update"
+                  style={{
+                    padding: 8,
+                    borderRadius: 6,
+                    border: `1px solid ${
+                      keyStatus.state === "valid"
+                        ? "#22c55e"
+                        : keyStatus.state === "invalid"
+                        ? "#ef4444"
+                        : "#ccc"
+                    }`,
+                    fontSize: 14,
+                  }}
+                />
+                <small style={{ color: "#64748b", fontSize: 11 }}>
+                  Leave empty if you don't want to change the existing key.
+                </small>
+              </div>
+
+              {keyStatus.models?.length > 0 ? (
+                <div style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>AI MODEL</span>
+                  <select
+                    value={configForm.aiModel}
+                    onChange={(e) => setConfigForm({ ...configForm, aiModel: e.target.value })}
+                    style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc", fontSize: 14, background: "#fff" }}
+                  >
+                    {keyStatus.models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name || m.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>AI MODEL</span>
+                  <input
+                    value={configForm.aiModel}
+                    onChange={(e) => setConfigForm({ ...configForm, aiModel: e.target.value })}
+                    placeholder="e.g. qwen/qwen3.8-27b"
+                    style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc", fontSize: 14 }}
+                  />
+                </label>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setIsConfigOpen(false)}
+                  style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #ccc", background: "#fff", cursor: "pointer" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingConfig}
+                  style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: "pointer" }}
+                >
+                  {savingConfig ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
