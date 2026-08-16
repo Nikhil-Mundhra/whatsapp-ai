@@ -66,14 +66,14 @@ export async function getConnection(hash) {
 }
 
 export async function updateConnection(hash, patch) {
-  const conn = await getConnection(hash);
-  if (!conn) return null;
+  const conn = (await getConnection(hash)) || { hash, createdAt: Date.now() };
   const next = { ...conn, ...patch };
   globalThis.__connectionsFallback.set(hash, next);
 
   if (kv) {
     try {
       await kv.hset(PREFIX + hash, { data: JSON.stringify(next) });
+      await kv.zadd(INDEX, { score: next.createdAt || Date.now(), member: hash });
     } catch (err) {
       console.error("[kv updateConnection error]", err);
     }

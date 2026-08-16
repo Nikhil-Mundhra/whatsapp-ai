@@ -7,10 +7,11 @@ export async function GET(_req, props) {
   const { hash } = await props.params;
   if (!hash) return NextResponse.json({ error: "missing hash" }, { status: 400 });
 
-  const conn = (await getConnection(hash)) || { hash, status: "configuring" };
-
+  let conn = (await getConnection(hash)) || { hash, status: "configuring" };
   let whatsapp = conn.status === "linked" ? "linked" : "configuring";
+  let bridgeStatus = null;
   let error = null;
+
   if (BRIDGE_URL) {
     try {
       const res = await fetch(`${BRIDGE_URL}/api/connections/${hash}/status`, {
@@ -18,21 +19,40 @@ export async function GET(_req, props) {
         signal: AbortSignal.timeout(5000),
       });
       if (res.ok) {
-        const data = await res.json();
-        whatsapp = data.linked ? "linked" : "configuring";
+        bridgeStatus = await res.json();
+        whatsapp = bridgeStatus.linked ? "linked" : "configuring";
+
+        // Auto-hydrate missing fields from bridge
+        const patch = {};
+        if (!conn.ownerPhone && bridgeStatus.ownerPhone) {
+          patch.ownerPhone = bridgeStatus.ownerPhone;
+        }
+        if ((!conn.allowedRecipients || !conn.allowedRecipients.length) && bridgeStatus.allowedRecipients) {
+          patch.allowedRecipients = bridgeStatus.allowedRecipients;
+        }
+        if (!conn.aiModel && bridgeStatus.aiModel) {
+          patch.aiModel = bridgeStatus.aiModel;
+        }
+        if (Object.keys(patch).length > 0) {
+          conn = await updateConnection(hash, patch);
+        }
       }
     } catch (e) {
       error = "bridge unreachable";
     }
   }
 
-  const { aiApiKey, ...rest } = conn;
+  const { aiApiKey, ...rest } = conn || {};
   return NextResponse.json({
     connection: {
       ...rest,
-      aiApiKeySet: Boolean(aiApiKey),
+      ownerPhone: conn?.ownerPhone || bridgeStatus?.ownerPhone || "",
+      allowedRecipients: conn?.allowedRecipients || bridgeStatus?.allowedRecipients || [],
+      aiModel: conn?.aiModel || bridgeStatus?.aiModel || "qwen/qwen3.8-27b",
+      aiApiKeySet: Boolean(aiApiKey || bridgeStatus?.aiApiKeySet),
     },
     whatsapp,
+    bridgeStatus,
     bridgeError: error,
   });
 }
@@ -52,8 +72,8 @@ async function handleUpdate(req, props) {
   const body = await req.json().catch(() => ({}));
   const updates = {};
 
-  if (body.ownerPhone) updates.ownerPhone = String(body.ownerPhone).trim();
-  if (body.allowedRecipients) {
+  if (body.ownerPhone !== undefined) updates.ownerPhone = String(body.ownerPhone).trim();
+  if (body.allowedRecipients !== undefined) {
     updates.allowedRecipients = Array.isArray(body.allowedRecipients)
       ? body.allowedRecipients.map((s) => String(s).trim()).filter(Boolean)
       : String(body.allowedRecipients).split(",").map((s) => s.trim()).filter(Boolean);
@@ -61,7 +81,7 @@ async function handleUpdate(req, props) {
   if (body.aiApiKey) updates.aiApiKey = String(body.aiApiKey).trim();
   if (body.aiModel) updates.aiModel = String(body.aiModel).trim();
 
-  const conn = await updateConnection(hash, updates);
+  const conn = (await updateConnection(hash, updates)) || { hash, ...updates };
 
   // Sync with multi-tenant bridge
   if (BRIDGE_URL) {

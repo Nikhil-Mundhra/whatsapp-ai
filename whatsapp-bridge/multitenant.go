@@ -599,14 +599,16 @@ func (t *Tenant) status() map[string]interface{} {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return map[string]interface{}{
-		"hash":       t.Hash,
-		"linked":     t.paired,
-		"pairing":    t.pairing,
-		"connected":  t.client != nil && t.client.IsConnected(),
-		"hasQR":      t.qrCode != "",
-		"qrAge":      int(time.Since(t.qrUpdated).Seconds()),
-		"ownerPhone": t.ownerPhone,
-		"aiModel":    t.aiModel,
+		"hash":              t.Hash,
+		"linked":            t.paired,
+		"pairing":           t.pairing,
+		"connected":         t.client != nil && t.client.IsConnected(),
+		"hasQR":             t.qrCode != "",
+		"qrAge":             int(time.Since(t.qrUpdated).Seconds()),
+		"ownerPhone":        t.ownerPhone,
+		"allowedRecipients": t.recipients,
+		"aiModel":           t.aiModel,
+		"aiApiKeySet":       t.aiApiKey != "",
 	}
 }
 

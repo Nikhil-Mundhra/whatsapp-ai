@@ -187,15 +187,28 @@ export default function Home() {
           aiModel: configForm.aiModel,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to update configuration");
+      let data = {};
+      try {
+        data = await res.json();
+      } catch {}
+
+      if (!res.ok) {
+        throw new Error(data.error || `Server responded with status ${res.status}`);
+      }
+
+      if (data.connection) {
+        setConnInfo((prev) => ({
+          ...prev,
+          connection: { ...prev?.connection, ...data.connection },
+        }));
+      }
 
       setConfigSuccess("Configuration updated & synced with bridge! ✓");
       setTimeout(() => {
         setIsConfigOpen(false);
-      }, 1200);
+      }, 1000);
     } catch (err) {
-      setConfigError(err.message);
+      setConfigError(err.message || "Failed to update configuration");
     } finally {
       setSavingConfig(false);
     }
