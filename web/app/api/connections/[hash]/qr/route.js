@@ -8,6 +8,11 @@ async function toQrImage(code) {
   return code ? QRCode.toDataURL(code, { width: 280, margin: 1 }) : null;
 }
 
+function parseRecipients(raw) {
+  if (Array.isArray(raw)) return raw.map(String).map((s) => s.trim()).filter(Boolean);
+  return String(raw || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 export async function POST(req, props) {
   const { hash } = await props.params;
   if (!hash) return NextResponse.json({ error: "missing hash" }, { status: 400 });
@@ -16,19 +21,15 @@ export async function POST(req, props) {
   }
 
   const conn = (await getConnection(hash)) || {};
-  let bodyPayload = {
-    ownerPhone: conn.ownerPhone || "",
-    allowedRecipients: conn.allowedRecipients || [],
-  };
+  const incomingBody = await req.json().catch(() => ({}));
 
-  // If client provided a body, merge it
-  const incomingBody = await req.json().catch(() => null);
-  if (incomingBody) {
-    bodyPayload = {
-      ownerPhone: incomingBody.ownerPhone || bodyPayload.ownerPhone,
-      allowedRecipients: incomingBody.allowedRecipients || bodyPayload.allowedRecipients,
-    };
-  }
+  const ownerPhone = String(incomingBody?.ownerPhone || conn.ownerPhone || "").trim();
+  const allowedRecipients = parseRecipients(incomingBody?.allowedRecipients || conn.allowedRecipients || []);
+
+  const bodyPayload = {
+    ownerPhone,
+    allowedRecipients,
+  };
 
   try {
     const res = await fetch(`${BRIDGE_URL}/api/connections/${hash}`, {

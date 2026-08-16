@@ -250,22 +250,45 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 		switch {
 		case sub == "" && r.Method == http.MethodPost:
 			var body struct {
-				OwnerPhone        string   `json:"ownerPhone"`
-				AllowedRecipients []string `json:"allowedRecipients"`
+				OwnerPhone        string      `json:"ownerPhone"`
+				AllowedRecipients interface{} `json:"allowedRecipients"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				http.Error(w, "invalid body", http.StatusBadRequest)
-				return
+			_ = json.NewDecoder(r.Body).Decode(&body)
+
+			var recipients []string
+			switch v := body.AllowedRecipients.(type) {
+			case []interface{}:
+				for _, item := range v {
+					if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+						recipients = append(recipients, strings.TrimSpace(s))
+					}
+				}
+			case []string:
+				recipients = v
+			case string:
+				for _, part := range strings.Split(v, ",") {
+					if trimmed := strings.TrimSpace(part); trimmed != "" {
+						recipients = append(recipients, trimmed)
+					}
+				}
 			}
+
 			tenant := manager.Get(hash)
 			if tenant == nil {
 				tenant = &Tenant{
 					Hash:       hash,
 					logger:     waLog.Stdout(fmt.Sprintf("Tenant-%s", hash), "INFO", true),
 					ownerPhone: body.OwnerPhone,
-					recipients: body.AllowedRecipients,
+					recipients: recipients,
 				}
 				manager.Add(tenant)
+			} else {
+				if body.OwnerPhone != "" {
+					tenant.ownerPhone = body.OwnerPhone
+				}
+				if len(recipients) > 0 {
+					tenant.recipients = recipients
+				}
 			}
 			qr, err := tenant.provision()
 			if err != nil {
