@@ -17,12 +17,35 @@ function pollKey(hash, id) {
   return `${PREFIX}${hash || "default"}:${id}`;
 }
 
+function tenantPollsKey(hash) {
+  return `polls:${hash || "default"}`;
+}
+
 export async function createPoll(poll) {
   if (!kv) return poll;
   try {
+    const prefix = `${PREFIX}${poll.hash || "default"}:`;
+    const members = await kv.smembers(PENDING);
+    if (members && members.length > 0) {
+      for (const m of members) {
+        if (typeof m === "string" && m.startsWith(prefix)) {
+          await kv.srem(PENDING, m);
+          const raw = await kv.hget(m, "data");
+          if (raw) {
+            const oldPoll = typeof raw === "string" ? JSON.parse(raw) : raw;
+            if (oldPoll && oldPoll.status === "pending") {
+              oldPoll.status = "expired";
+              await kv.hset(m, { data: JSON.stringify(oldPoll) });
+            }
+          }
+        }
+      }
+    }
+
     const key = pollKey(poll.hash, poll.id);
     await kv.hset(key, { data: JSON.stringify(poll) });
     await kv.zadd(POLLS_KEY, { score: poll.createdAt, member: key });
+    await kv.zadd(tenantPollsKey(poll.hash), { score: poll.createdAt, member: key });
     await kv.sadd(PENDING, key);
   } catch (err) {
     console.error("[kv createPoll error]", err);
@@ -73,17 +96,19 @@ export async function expirePoll(hash, id) {
 export async function listPolls(hash, limit = 50) {
   if (!kv) return [];
   try {
-    const keys = await kv.zrevrange(POLLS_KEY, 0, limit - 1);
+    let keys = await kv.zrevrange(tenantPollsKey(hash), 0, limit - 1);
+    if (!keys || keys.length === 0) {
+      const globalKeys = await kv.zrevrange(POLLS_KEY, 0, 500);
+      const prefix = `${PREFIX}${hash || "default"}:`;
+      keys = (globalKeys || []).filter((k) => typeof k === "string" && k.startsWith(prefix)).slice(0, limit);
+    }
     if (!keys || keys.length === 0) return [];
-    const prefix = `${PREFIX}${hash || "default"}:`;
-    const filtered = keys.filter((k) => typeof k === "string" && k.startsWith(prefix));
-    if (filtered.length === 0) return [];
     const pipeline = kv.pipeline();
-    for (const key of filtered) {
+    for (const key of keys) {
       pipeline.hget(key, "data");
     }
     const data = await pipeline.exec();
-    return filtered
+    return keys
       .map((k, i) => {
         if (!data || !data[i]) return null;
         return typeof data[i] === "string" ? JSON.parse(data[i]) : data[i];

@@ -215,6 +215,18 @@ export default function Home() {
   }
 
   const pending = polls.filter((p) => p.status === "pending");
+  const history = polls.filter((p) => p.status !== "pending");
+
+  function formatPollTime(timestamp) {
+    if (!timestamp) return "";
+    const d = new Date(timestamp);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    if (isToday) {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
 
   return (
     <main style={{ maxWidth: 760, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
@@ -617,39 +629,84 @@ export default function Home() {
           </section>
 
           {/* History Section */}
-          <section>
+          <section style={{ marginTop: 24 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h2 style={{ fontSize: 16, margin: 0, color: "#334155" }}>Take-over History</h2>
+              <h2 style={{ fontSize: 16, margin: 0, color: "#1e293b", fontWeight: 600 }}>Take-over History</h2>
+              <span style={{ fontSize: 12, color: "#64748b" }}>
+                {history.length} {history.length === 1 ? "past event" : "past events"}
+              </span>
             </div>
 
-            {loading && polls.length === 0 && (
-              <p style={{ color: "#64748b", fontSize: 14 }}>Loading polls...</p>
+            {loading && history.length === 0 && (
+              <p style={{ color: "#64748b", fontSize: 14 }}>Loading history...</p>
             )}
 
-            {!loading && polls.length === 0 && (
+            {!loading && history.length === 0 && (
               <div style={{ padding: 20, textAlign: "center", background: "#f8fafc", borderRadius: 8, border: "1px solid #f1f5f9", color: "#64748b", fontSize: 13 }}>
-                No past takeovers yet.
+                No past takeovers recorded yet.
               </div>
             )}
 
-            {polls.map((p) => (
-              <div key={p.id} style={{ border: "1px solid #f1f5f9", background: "#ffffff", borderRadius: 8, padding: "12px 16px", marginBottom: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <strong style={{ fontSize: 14, color: "#0f172a" }}>{p.contactDisplay}</strong>
-                  <span style={{ color: "#94a3b8", fontSize: 12 }}>
-                    {p.createdAt ? new Date(p.createdAt).toLocaleTimeString() : ""}
-                  </span>
-                </div>
-                <div style={{ color: "#475569", margin: "4px 0", fontSize: 13 }}>{p.question}</div>
-                <div style={{ fontSize: 12, fontWeight: 500, color: p.status === "answered" ? "#16a34a" : p.status === "expired" ? "#ea580c" : "#2563eb" }}>
-                  {p.status === "answered"
-                    ? `✓ Granted: ${p.selectedOption} (${p.source || "watch"})`
-                    : p.status === "expired"
-                    ? "Expired / Fallback"
-                    : "⏳ Pending answer"}
-                </div>
-              </div>
-            ))}
+            <div style={{ display: "grid", gap: 8 }}>
+              {history.map((p) => {
+                const isDenied = p.status === "answered" && p.selectedOption?.toLowerCase() === "deny";
+                const isGranted = p.status === "answered" && !isDenied;
+                const isExpired = p.status === "expired";
+
+                const badgeStyle = isGranted
+                  ? { bg: "#dcfce7", text: "#15803d", border: "#bbf7d0", label: `✓ Granted: ${p.selectedOption}` }
+                  : isDenied
+                  ? { bg: "#fef2f2", text: "#b91c1c", border: "#fecaca", label: "✕ Denied" }
+                  : { bg: "#fff7ed", text: "#c2410c", border: "#ffedd5", label: "⏱ Expired / Fallback" };
+
+                const sourceLabel = p.source === "panel" ? "web panel" : p.source === "watch" ? "smartwatch" : p.source;
+
+                return (
+                  <div
+                    key={p.id}
+                    style={{
+                      border: "1px solid #e2e8f0",
+                      background: "#ffffff",
+                      borderRadius: 8,
+                      padding: "12px 16px",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <strong style={{ fontSize: 14, color: "#0f172a" }}>
+                        {p.contactDisplay || p.contact || "Unknown Contact"}
+                      </strong>
+                      <span style={{ color: "#64748b", fontSize: 12 }}>
+                        {formatPollTime(p.createdAt)}
+                      </span>
+                    </div>
+                    <div style={{ color: "#334155", margin: "4px 0 8px", fontSize: 13, wordBreak: "break-word" }}>
+                      {p.question}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "2px 8px",
+                          borderRadius: 9999,
+                          background: badgeStyle.bg,
+                          color: badgeStyle.text,
+                          border: `1px solid ${badgeStyle.border}`,
+                        }}
+                      >
+                        {badgeStyle.label}
+                      </span>
+                      {sourceLabel && (
+                        <span style={{ fontSize: 11, color: "#64748b" }}>
+                          via {sourceLabel}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </section>
         </>
       )}

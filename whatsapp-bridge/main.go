@@ -383,6 +383,47 @@ func resolvePollOptions(msgID string, selectedHashes [][]byte) (string, []string
 	return question, selected
 }
 
+var (
+	activePollMu            sync.Mutex
+	activePollIDByRecipient = make(map[string]string)
+)
+
+func cleanPhoneDigits(p string) string {
+	p = strings.TrimPrefix(p, "+")
+	var b strings.Builder
+	for _, r := range p {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// deleteWhatsAppMessage revokes/deletes a message previously sent by the client.
+func deleteWhatsAppMessage(client *whatsmeow.Client, recipient, msgID string) error {
+	if client == nil || !client.IsConnected() || msgID == "" {
+		return nil
+	}
+	var recipientJID types.JID
+	var err error
+	if strings.Contains(recipient, "@") {
+		recipientJID, err = types.ParseJID(recipient)
+		if err != nil {
+			return err
+		}
+	} else {
+		clean := cleanPhoneDigits(recipient)
+		if clean == "" {
+			return fmt.Errorf("invalid recipient phone: %s", recipient)
+		}
+		recipientJID = types.JID{User: clean, Server: "s.whatsapp.net"}
+	}
+
+	revokeMsg := client.BuildRevoke(recipientJID, types.EmptyJID, types.MessageID(msgID))
+	_, err = client.SendMessage(context.Background(), recipientJID, revokeMsg)
+	return err
+}
+
 // sendWhatsAppPoll sends a real interactive WhatsApp poll to a recipient.
 func sendWhatsAppPoll(client *whatsmeow.Client, recipient, question string, options []string, selectableCount int) (bool, string, string) {
 	if !client.IsConnected() {
@@ -406,7 +447,20 @@ func sendWhatsAppPoll(client *whatsmeow.Client, recipient, question string, opti
 			return false, fmt.Sprintf("Error parsing JID: %v", err), ""
 		}
 	} else {
-		recipientJID = types.JID{User: recipient, Server: "s.whatsapp.net"}
+		clean := cleanPhoneDigits(recipient)
+		if clean == "" {
+			return false, "Invalid recipient phone number", ""
+		}
+		recipientJID = types.JID{User: clean, Server: "s.whatsapp.net"}
+	}
+
+	// Auto-delete previously active poll to this recipient so only the latest poll is active
+	activePollMu.Lock()
+	prevPollID := activePollIDByRecipient[recipientJID.String()]
+	activePollMu.Unlock()
+
+	if prevPollID != "" {
+		_ = deleteWhatsAppMessage(client, recipient, prevPollID)
 	}
 
 	pollMsg := client.BuildPollCreation(question, options, selectableCount)
@@ -414,8 +468,14 @@ func sendWhatsAppPoll(client *whatsmeow.Client, recipient, question string, opti
 	if err != nil {
 		return false, fmt.Sprintf("Error sending poll: %v", err), ""
 	}
-	registerPollOptions(string(resp.ID), question, options)
-	return true, fmt.Sprintf("Poll sent to %s", recipient), string(resp.ID)
+	newID := string(resp.ID)
+	registerPollOptions(newID, question, options)
+
+	activePollMu.Lock()
+	activePollIDByRecipient[recipientJID.String()] = newID
+	activePollMu.Unlock()
+
+	return true, fmt.Sprintf("Poll sent to %s", recipient), newID
 }
 
 // handlePollVote decrypts and logs an incoming poll vote (events.Message with a PollUpdateMessage).

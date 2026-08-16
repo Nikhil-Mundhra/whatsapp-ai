@@ -382,18 +382,27 @@ func (t *Tenant) setupEventHandler() {
 				sender := v.Info.Sender.User
 				isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
 
-				if v.Info.IsFromMe && isAllowed {
-					if t.isApiSent(v.Info.ID) {
-						t.logger.Infof("Ignoring self-echo of API-sent message %s", v.Info.ID)
-						return
-					}
+				if v.Info.IsFromMe && !t.isApiSent(string(v.Info.ID)) {
 					t.mu.Lock()
 					if t.grantKind != "none" {
 						t.grantKind = "none"
 						t.grantRemaining = 0
 						t.logger.Infof("Owner sent manual message -> reset takeover grant for %s", t.Hash)
 					}
+					oldPollID := t.activePoll
+					t.activePoll = ""
 					t.mu.Unlock()
+
+					if oldPollID != "" {
+						_ = deleteWhatsAppMessage(t.client, t.ownerPhone, oldPollID)
+						go func(pID string) {
+							expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
+							req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
+							if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
+								_ = resp.Body.Close()
+							}
+						}(oldPollID)
+					}
 					return
 				}
 
@@ -415,6 +424,23 @@ func (t *Tenant) setupEventHandler() {
 						chatName := t.resolveContactName(v)
 						question := fmt.Sprintf("%s texted you. Take over?", chatName)
 						options := []string{"Send 1 text", "5 minutes", "2 hours", "Deny"}
+
+						// Revoke previous active poll in WhatsApp chat so only the latest poll is active
+						t.mu.Lock()
+						oldPollID := t.activePoll
+						t.mu.Unlock()
+						if oldPollID != "" {
+							t.logger.Infof("Revoking previous active poll %s for tenant %s before sending new poll", oldPollID, t.Hash)
+							_ = deleteWhatsAppMessage(t.client, t.ownerPhone, oldPollID)
+							go func(pID string) {
+								expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
+								req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
+								if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
+									_ = resp.Body.Close()
+								}
+							}(oldPollID)
+						}
+
 						ok, status, pollID := sendWhatsAppPoll(t.client, t.ownerPhone, question, options, 1)
 						t.mu.Lock()
 						t.activePoll = pollID
@@ -481,6 +507,9 @@ func (t *Tenant) handleTenantPollVote(msg *events.Message) {
 		choice := selected[0]
 		t.mu.Lock()
 		targetJID := t.lastTargetJID
+		if t.activePoll == pollMsgID {
+			t.activePoll = ""
+		}
 		switch choice {
 		case "Send 1 text":
 			t.grantKind = "count"
