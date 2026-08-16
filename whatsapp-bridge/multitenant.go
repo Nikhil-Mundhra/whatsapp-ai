@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -442,22 +443,102 @@ READ THE ROOM:
 		Enabled bool `json:"enabled"`
 	}
 	type RequestBody struct {
-		Model     string    `json:"model"`
-		Messages  []Message `json:"messages"`
-		Reasoning Reasoning `json:"reasoning"`
+		Model     string     `json:"model"`
+		Messages  []Message  `json:"messages"`
+		Reasoning *Reasoning `json:"reasoning,omitempty"`
 	}
 
-	reqBody := RequestBody{
-		Model: model,
-		Messages: []Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: history},
-		},
-		Reasoning: Reasoning{Enabled: true},
+	messages := []Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: history},
+	}
+
+	endpoint := "https://openrouter.ai/api/v1/chat/completions"
+	var reqBody RequestBody
+
+	// 1. Google Gemini (direct key format AIza...)
+	if strings.HasPrefix(apiKey, "AIza") {
+		geminiModel := model
+		if strings.Contains(geminiModel, "/") {
+			parts := strings.Split(geminiModel, "/")
+			geminiModel = parts[len(parts)-1]
+		}
+		endpoint = fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", geminiModel, apiKey)
+		type GeminiPart struct {
+			Text string `json:"text"`
+		}
+		type GeminiContent struct {
+			Role  string       `json:"role"`
+			Parts []GeminiPart `json:"parts"`
+		}
+		type GeminiReq struct {
+			SystemInstruction *GeminiContent  `json:"system_instruction,omitempty"`
+			Contents          []GeminiContent `json:"contents"`
+		}
+		gReq := GeminiReq{
+			SystemInstruction: &GeminiContent{Parts: []GeminiPart{{Text: systemPrompt}}},
+			Contents:          []GeminiContent{{Role: "user", Parts: []GeminiPart{{Text: history}}}},
+		}
+		gBytes, _ := json.Marshal(gReq)
+		httpReq, _ := http.NewRequest("POST", endpoint, bytes.NewReader(gBytes))
+		httpReq.Header.Set("Content-Type", "application/json")
+		client := &http.Client{Timeout: 60 * time.Second}
+		resp, err := client.Do(httpReq)
+		if err != nil {
+			t.logger.Errorf("Gemini request failed: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			t.logger.Errorf("Gemini API error (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
+			return
+		}
+		var gRes struct {
+			Candidates []struct {
+				Content struct {
+					Parts []struct {
+						Text string `json:"text"`
+					} `json:"parts"`
+				} `json:"content"`
+			} `json:"candidates"`
+		}
+		if err := json.Unmarshal(bodyBytes, &gRes); err == nil && len(gRes.Candidates) > 0 && len(gRes.Candidates[0].Content.Parts) > 0 {
+			replyText := strings.TrimSpace(gRes.Candidates[0].Content.Parts[0].Text)
+			if replyText != "" {
+				t.logger.Infof("Gemini drafted reply for %s: %q", targetJID, replyText)
+				ok, sendStatus := sendWhatsAppMessage(t.client, t.messageStore, targetJID.String(), replyText, "", t.logger)
+				t.logger.Infof("Sent Gemini reply to %s: ok=%v status=%s", targetJID, ok, sendStatus)
+			}
+		}
+		return
+	}
+
+	// 2. OpenAI (direct key format sk-... not sk-or-)
+	if strings.HasPrefix(apiKey, "sk-") && !strings.HasPrefix(apiKey, "sk-or-") && !strings.HasPrefix(apiKey, "sk-ant-") {
+		endpoint = "https://api.openai.com/v1/chat/completions"
+		reqBody = RequestBody{
+			Model:    model,
+			Messages: messages,
+		}
+	} else if strings.HasPrefix(apiKey, "gsk_") {
+		// 3. Groq
+		endpoint = "https://api.groq.com/openai/v1/chat/completions"
+		reqBody = RequestBody{
+			Model:    model,
+			Messages: messages,
+		}
+	} else {
+		// 4. OpenRouter (default)
+		reqBody = RequestBody{
+			Model:     model,
+			Messages:  messages,
+			Reasoning: &Reasoning{Enabled: true},
+		}
 	}
 
 	jsonBytes, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewReader(jsonBytes))
+	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(jsonBytes))
 	if err != nil {
 		t.logger.Errorf("Failed to build AI request: %v", err)
 		return
@@ -475,6 +556,33 @@ READ THE ROOM:
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.logger.Errorf("AI Provider error (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
+
+		// If OpenRouter failed due to reasoning parameter, retry without reasoning
+		if reqBody.Reasoning != nil {
+			reqBody.Reasoning = nil
+			retryBytes, _ := json.Marshal(reqBody)
+			retryReq, _ := http.NewRequest("POST", endpoint, bytes.NewReader(retryBytes))
+			retryReq.Header.Set("Authorization", "Bearer "+apiKey)
+			retryReq.Header.Set("Content-Type", "application/json")
+			retryReq.Header.Set("HTTP-Referer", "https://github.com/Nikhil-Mundhra/whatsapp-ai")
+			retryReq.Header.Set("X-Title", "WhatsApp TakeOver AI")
+			retryResp, retryErr := client.Do(retryReq)
+			if retryErr == nil {
+				defer retryResp.Body.Close()
+				bodyBytes, _ = io.ReadAll(retryResp.Body)
+				if retryResp.StatusCode != http.StatusOK {
+					t.logger.Errorf("AI retry without reasoning also failed (HTTP %d): %s", retryResp.StatusCode, string(bodyBytes))
+					return
+				}
+			}
+		} else {
+			return
+		}
+	}
+
 	var resData struct {
 		Choices []struct {
 			Message struct {
@@ -482,13 +590,14 @@ READ THE ROOM:
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&resData); err != nil || len(resData.Choices) == 0 {
-		t.logger.Errorf("Failed to parse AI response: %v", err)
+	if err := json.Unmarshal(bodyBytes, &resData); err != nil || len(resData.Choices) == 0 {
+		t.logger.Errorf("Failed to parse AI response: %v (raw: %s)", err, string(bodyBytes))
 		return
 	}
 
 	replyText := strings.TrimSpace(resData.Choices[0].Message.Content)
 	if replyText == "" {
+		t.logger.Warnf("AI generated empty content")
 		return
 	}
 
