@@ -91,16 +91,78 @@ func (m *TenantManager) restoreTenants() {
 			continue
 		}
 		hash := entry.Name()
+		dir := filepath.Join(tenantsDir, hash)
+		dbPath := filepath.Join(dir, "whatsapp.db")
+		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+			continue
+		}
+
 		t := &Tenant{
 			Hash:   hash,
 			logger: waLog.Stdout(fmt.Sprintf("Tenant-%s", hash), "INFO", true),
 		}
 		t.loadConfig()
-		if _, err := t.provision(); err != nil {
-			m.logger.Warnf("Failed to auto-restore tenant %s: %v", hash, err)
+
+		dbLog := waLog.Stdout(fmt.Sprintf("Tenant-%s/DB", hash), "INFO", true)
+		container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+dbPath+"?_foreign_keys=on", dbLog)
+		if err != nil {
+			continue
+		}
+		deviceStore, err := container.GetFirstDevice(context.Background())
+		if err != nil || deviceStore == nil || deviceStore.ID == nil {
+			// Unauthenticated session, don't auto-start QR loop on boot
+			_ = container.Close()
+			continue
+		}
+
+		t.container = container
+		t.client = whatsmeow.NewClient(deviceStore, t.logger)
+		ms, _ := NewMessageStore(filepath.Join(dir, "messages.db"))
+		t.messageStore = ms
+
+		t.client.AddEventHandler(func(evt interface{}) {
+			switch v := evt.(type) {
+			case *events.Message:
+				if v.Message.GetPollUpdateMessage() != nil {
+					handlePollVote(t.client, t.messageStore, v, t.logger)
+				} else {
+					handleMessage(t.client, t.messageStore, v, t.logger)
+
+					sender := v.Info.Sender.User
+					if !v.Info.IsFromMe && t.isAllowedRecipient(sender) && t.ownerPhone != "" {
+						chatName := GetChatName(context.Background(), t.client, t.messageStore, v.Info.Chat, v.Info.Chat.String(), nil, sender, t.logger)
+						if chatName == "" || chatName == sender {
+							chatName = sender
+						}
+						question := fmt.Sprintf("%s texted you. Take over?", chatName)
+						options := []string{"Send 1 text", "5 minutes", "2 hours", "Deny"}
+						ok, status, pollID := sendWhatsAppPoll(t.client, t.ownerPhone, question, options, 1)
+						t.mu.Lock()
+						t.activePoll = pollID
+						t.mu.Unlock()
+						fmt.Printf("\n[takeover %s] Sent approval poll to owner %s for incoming message from %s: ok=%v status=%s pollID=%s\n", t.Hash, t.ownerPhone, chatName, ok, status, pollID)
+					}
+				}
+			case *events.HistorySync:
+				handleHistorySync(t.client, t.messageStore, v, t.logger)
+			case *events.Connected:
+				t.logger.Infof("Tenant %s connected", t.Hash)
+			case *events.LoggedOut:
+				t.logger.Warnf("Tenant %s logged out", t.Hash)
+				t.mu.Lock()
+				t.paired = false
+				t.pairing = false
+				t.qrCode = ""
+				t.mu.Unlock()
+			}
+		})
+
+		if err := t.client.Connect(); err != nil {
+			m.logger.Warnf("Failed to connect restored tenant %s: %v", hash, err)
 		} else {
+			t.paired = true
 			m.Add(t)
-			m.logger.Infof("Auto-restored tenant %s (owner=%s)", hash, t.ownerPhone)
+			m.logger.Infof("Auto-restored and connected tenant %s (owner=%s)", hash, t.ownerPhone)
 		}
 	}
 }
