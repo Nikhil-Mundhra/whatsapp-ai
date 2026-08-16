@@ -48,11 +48,11 @@ type Tenant struct {
 	aiApiKey     string
 	aiModel      string
 
-	qrCode     string
-	qrUpdated  time.Time
-	paired     bool
-	pairing    bool
-	activePoll string
+	qrCode                 string
+	qrUpdated              time.Time
+	paired                 bool
+	pairing                bool
+	activePollsByRecipient map[string]string // map[recipientNormalizedPhone]pollMsgID
 
 	// Takeover Grant State
 	grantKind      string    // "none" | "count" | "duration"
@@ -382,26 +382,42 @@ func (t *Tenant) setupEventHandler() {
 				sender := v.Info.Sender.User
 				isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
 
-				if v.Info.IsFromMe && !t.isApiSent(string(v.Info.ID)) {
-					t.mu.Lock()
-					if t.grantKind != "none" {
-						t.grantKind = "none"
-						t.grantRemaining = 0
-						t.logger.Infof("Owner sent manual message -> reset takeover grant for %s", t.Hash)
-					}
-					oldPollID := t.activePoll
-					t.activePoll = ""
-					t.mu.Unlock()
+				// Determine normalized recipient key
+				recipientKey := normalizePhone(v.Info.Chat.User)
+				if recipientKey == "" {
+					recipientKey = normalizePhone(v.Info.Sender.User)
+				}
 
-					if oldPollID != "" {
-						_ = deleteWhatsAppMessage(t.client, t.ownerPhone, oldPollID)
-						go func(pID string) {
-							expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
-							req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
-							if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
-								_ = resp.Body.Close()
-							}
-						}(oldPollID)
+				if v.Info.IsFromMe && isAllowed {
+					if t.isApiSent(string(v.Info.ID)) {
+						t.logger.Infof("Ignoring self-echo of API-sent message %s", v.Info.ID)
+						return
+					}
+					// Only reset takeover if owner manually texted an allowed contact (not self-chat)
+					if recipientKey != normalizePhone(t.ownerPhone) {
+						t.mu.Lock()
+						if t.grantKind != "none" {
+							t.grantKind = "none"
+							t.grantRemaining = 0
+							t.logger.Infof("Owner sent manual message -> reset takeover grant for %s", t.Hash)
+						}
+						var oldPollID string
+						if t.activePollsByRecipient != nil {
+							oldPollID = t.activePollsByRecipient[recipientKey]
+							delete(t.activePollsByRecipient, recipientKey)
+						}
+						t.mu.Unlock()
+
+						if oldPollID != "" {
+							_ = deleteWhatsAppMessage(t.client, t.ownerPhone, oldPollID)
+							go func(pID string) {
+								expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
+								req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
+								if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
+									_ = resp.Body.Close()
+								}
+							}(oldPollID)
+						}
 					}
 					return
 				}
@@ -425,12 +441,16 @@ func (t *Tenant) setupEventHandler() {
 						question := fmt.Sprintf("%s texted you. Take over?", chatName)
 						options := []string{"Send 1 text", "5 minutes", "2 hours", "Deny"}
 
-						// Revoke previous active poll in WhatsApp chat so only the latest poll is active
+						// Revoke previous active poll for THIS recipient so only the latest poll per recipient is active
 						t.mu.Lock()
-						oldPollID := t.activePoll
+						if t.activePollsByRecipient == nil {
+							t.activePollsByRecipient = make(map[string]string)
+						}
+						oldPollID := t.activePollsByRecipient[recipientKey]
 						t.mu.Unlock()
+
 						if oldPollID != "" {
-							t.logger.Infof("Revoking previous active poll %s for tenant %s before sending new poll", oldPollID, t.Hash)
+							t.logger.Infof("Revoking previous active poll %s for recipient %s (tenant %s)", oldPollID, recipientKey, t.Hash)
 							_ = deleteWhatsAppMessage(t.client, t.ownerPhone, oldPollID)
 							go func(pID string) {
 								expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
@@ -442,10 +462,13 @@ func (t *Tenant) setupEventHandler() {
 						}
 
 						ok, status, pollID := sendWhatsAppPoll(t.client, t.ownerPhone, question, options, 1)
-						t.mu.Lock()
-						t.activePoll = pollID
-						t.mu.Unlock()
-						fmt.Printf("\n[takeover %s] Sent approval poll to owner %s for incoming message from %s: ok=%v status=%s pollID=%s\n", t.Hash, t.ownerPhone, chatName, ok, status, pollID)
+						if ok && pollID != "" {
+							t.recordApiSent(pollID) // CRITICAL: record poll ID so self-echo doesn't trigger manual message reset!
+							t.mu.Lock()
+							t.activePollsByRecipient[recipientKey] = pollID
+							t.mu.Unlock()
+						}
+						fmt.Printf("\n[takeover %s] Sent approval poll to owner %s for incoming message from %s (recipient %s): ok=%v status=%s pollID=%s\n", t.Hash, t.ownerPhone, chatName, recipientKey, ok, status, pollID)
 
 						go func(pID, contact, cName, q string, opts []string) {
 							payload, _ := json.Marshal(map[string]interface{}{
@@ -507,8 +530,13 @@ func (t *Tenant) handleTenantPollVote(msg *events.Message) {
 		choice := selected[0]
 		t.mu.Lock()
 		targetJID := t.lastTargetJID
-		if t.activePoll == pollMsgID {
-			t.activePoll = ""
+		if t.activePollsByRecipient != nil {
+			for rk, pid := range t.activePollsByRecipient {
+				if pid == pollMsgID {
+					delete(t.activePollsByRecipient, rk)
+					break
+				}
+			}
 		}
 		switch choice {
 		case "Send 1 text":

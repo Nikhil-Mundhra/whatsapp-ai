@@ -454,15 +454,6 @@ func sendWhatsAppPoll(client *whatsmeow.Client, recipient, question string, opti
 		recipientJID = types.JID{User: clean, Server: "s.whatsapp.net"}
 	}
 
-	// Auto-delete previously active poll to this recipient so only the latest poll is active
-	activePollMu.Lock()
-	prevPollID := activePollIDByRecipient[recipientJID.String()]
-	activePollMu.Unlock()
-
-	if prevPollID != "" {
-		_ = deleteWhatsAppMessage(client, recipient, prevPollID)
-	}
-
 	pollMsg := client.BuildPollCreation(question, options, selectableCount)
 	resp, err := client.SendMessage(context.Background(), recipientJID, pollMsg)
 	if err != nil {
@@ -470,10 +461,6 @@ func sendWhatsAppPoll(client *whatsmeow.Client, recipient, question string, opti
 	}
 	newID := string(resp.ID)
 	registerPollOptions(newID, question, options)
-
-	activePollMu.Lock()
-	activePollIDByRecipient[recipientJID.String()] = newID
-	activePollMu.Unlock()
 
 	return true, fmt.Sprintf("Poll sent to %s", recipient), newID
 }
