@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getConnection, updateConnection } from "../../../../lib/connections";
+import { getConnection, updateConnection, getBridgeHeaders } from "../../../../lib/connections";
 
 const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
 
@@ -15,6 +15,7 @@ export async function GET(_req, props) {
   if (BRIDGE_URL) {
     try {
       const res = await fetch(`${BRIDGE_URL}/api/connections/${hash}/status`, {
+        headers: getBridgeHeaders(),
         cache: "no-store",
         signal: AbortSignal.timeout(5000),
       });
@@ -88,7 +89,7 @@ async function handleUpdate(req, props) {
     try {
       await fetch(`${BRIDGE_URL}/api/connections/${hash}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getBridgeHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           ownerPhone: conn.ownerPhone,
           allowedRecipients: conn.allowedRecipients,

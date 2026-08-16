@@ -89,8 +89,22 @@ def load_state() -> dict:
 
 
 def save_state(state: dict) -> None:
-    with open(STATE_PATH, "w") as f:
-        json.dump(state, f, indent=2)
+    dirname = os.path.dirname(STATE_PATH)
+    os.makedirs(dirname, exist_ok=True)
+    temp_path = f"{STATE_PATH}.tmp.{os.getpid()}"
+    try:
+        with open(temp_path, "w") as f:
+            json.dump(state, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, STATE_PATH)
+    except Exception as e:
+        if os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+        print(f"[error] saving state: {e}")
 
 
 def chat_name(recipient: str) -> str:

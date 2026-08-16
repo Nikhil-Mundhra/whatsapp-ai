@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getConnection, updateConnection } from "../../../../../lib/connections";
+import { getConnection, updateConnection, getBridgeHeaders } from "../../../../../lib/connections";
 
 const BRIDGE_URL = process.env.BRIDGE_URL || "";
 
@@ -13,6 +13,7 @@ export async function GET(_req, props) {
   if (BRIDGE_URL) {
     try {
       const res = await fetch(`${BRIDGE_URL}/api/connections/${hash}/status`, {
+        headers: getBridgeHeaders(),
         cache: "no-store",
         signal: AbortSignal.timeout(5000),
       });

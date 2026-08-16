@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "whatsapp-mcp-server"))
 
 from whatsapp import (  # noqa: E402
     get_direct_chat_by_contact,
+    get_sender_name,
     list_messages,
     send_message,
 )
@@ -66,24 +67,48 @@ def normalize_recipient(recipient: str) -> str:
     return digits.lstrip("0") or recipient
 
 
-SYSTEM_PROMPT = (
-    "You are the person who writes the messages labeled 'From: Me' in the "
-    "conversation history below. That is your own writing style: mirror your "
-    "own message length, tone, capitalization, punctuation, slang, and emoji "
-    "usage. If your messages are one-liners, reply with one-liners. If you "
-    "use emojis, use emojis; if you don't, don't. Stay in the same language "
-    "you use. Do NOT copy or mirror the other person's style.\n\n"
-    "READ THE ROOM:\n"
-    "- The last message from the other person is the one you are replying to. "
-    "Answer what THEY just said and stay on that topic. Never reply with a "
-    "generic or off-topic one-liner.\n"
-    "- Never repeat a message you already sent in the history, and never send "
-    "the same text twice in a row.\n"
-    "- Never continue your own monologue: if the other person has not spoken "
-    "since your last message, you have nothing to reply to.\n"
-    "- Reply naturally and human. Don't mention that you're an AI. Don't use "
-    "markdown. Output only the message text and nothing else."
-)
+def get_owner_name() -> str:
+    explicit = os.environ.get("OWNER_NAME", "").strip()
+    if explicit:
+        return explicit
+    owner_phone = re.sub(r"\D", "", os.environ.get("OWNER_PHONE", ""))
+    if owner_phone:
+        name = get_sender_name(owner_phone)
+        if name and not name.isdigit() and not name.endswith("@lid") and not name.endswith("@s.whatsapp.net"):
+            return name
+    return ""
+
+
+def get_system_prompt() -> str:
+    owner_name = get_owner_name()
+    if owner_name:
+        identity = (
+            f"You are {owner_name}, the person who writes the messages labeled 'From: Me' in the "
+            f"conversation history below. Your name is {owner_name}."
+        )
+    else:
+        identity = (
+            "You are the person who writes the messages labeled 'From: Me' in the "
+            "conversation history below."
+        )
+
+    return (
+        f"{identity} That is your own writing style: mirror your "
+        "own message length, tone, capitalization, punctuation, slang, and emoji "
+        "usage. If your messages are one-liners, reply with one-liners. If you "
+        "use emojis, use emojis; if you don't, don't. Stay in the same language "
+        "you use. Do NOT copy or mirror the other person's style.\n\n"
+        "READ THE ROOM:\n"
+        "- The last message from the other person is the one you are replying to. "
+        "Answer what THEY just said and stay on that topic. Never reply with a "
+        "generic or off-topic one-liner.\n"
+        "- Never repeat a message you already sent in the history, and never send "
+        "the same text twice in a row.\n"
+        "- Never continue your own monologue: if the other person has not spoken "
+        "since your last message, you have nothing to reply to.\n"
+        "- Reply naturally and human. Don't mention that you're an AI. Don't use "
+        "markdown. Output only the message text and nothing else."
+    )
 
 
 THINK_MIN_WORDS = 5
@@ -94,6 +119,7 @@ FAST_LIMIT = 8
 def generate_reply(history: str, model: str = DEFAULT_MODEL, think: bool = True) -> str:
     """Generate reply via OpenRouter (with reasoning enabled) or local Ollama."""
     api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("AI_API_KEY") or ""
+    system_prompt = get_system_prompt()
 
     # 1. OpenRouter / Cloud API
     if api_key:
@@ -106,7 +132,7 @@ def generate_reply(history: str, model: str = DEFAULT_MODEL, think: bool = True)
         payload = {
             "model": model,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": history},
             ],
             "max_tokens": 2000,
@@ -142,7 +168,7 @@ def generate_reply(history: str, model: str = DEFAULT_MODEL, think: bool = True)
                 "think": think,
                 "stream": False,
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": history},
                 ],
             },
@@ -155,13 +181,15 @@ def generate_reply(history: str, model: str = DEFAULT_MODEL, think: bool = True)
 
 
 def last_incoming_words(history: str) -> int:
-    """Word count of the most recent incoming (non-Me) message."""
+    """Word count of the most recent incoming (non-Me) message, ignoring metadata brackets."""
     for line in history.strip().splitlines():
         if "From: " not in line or "From: Me:" in line:
             continue
         content = line.split("From: ", 1)[1]
         content = content.split(": ", 1)[1] if ": " in content else content
-        return len(content.split())
+        # Strip metadata tags like [image - Message ID: ...] or [replied to: ...]
+        clean_content = re.sub(r"\[.*?\]", "", content).strip()
+        return len(clean_content.split())
     return 0
 
 

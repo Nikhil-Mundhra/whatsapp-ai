@@ -78,7 +78,11 @@ export async function listPolls(hash, limit = 50) {
     const prefix = `${PREFIX}${hash || "default"}:`;
     const filtered = keys.filter((k) => typeof k === "string" && k.startsWith(prefix));
     if (filtered.length === 0) return [];
-    const data = await kv.hmget(...filtered.map((k) => [k, "data"]));
+    const pipeline = kv.pipeline();
+    for (const key of filtered) {
+      pipeline.hget(key, "data");
+    }
+    const data = await pipeline.exec();
     return filtered
       .map((k, i) => {
         if (!data || !data[i]) return null;

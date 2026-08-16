@@ -91,3 +91,11 @@ export async function deleteConnection(hash) {
     console.error("[kv deleteConnection error]", err);
   }
 }
+
+export function getBridgeHeaders(extra = {}) {
+  const headers = { ...extra };
+  if (process.env.BRIDGE_AUTH_TOKEN) {
+    headers["Authorization"] = `Bearer ${process.env.BRIDGE_AUTH_TOKEN}`;
+  }
+  return headers;
+}

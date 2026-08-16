@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import QRCode from "qrcode";
-import { getConnection, updateConnection } from "../../../../../lib/connections";
+import { getConnection, updateConnection, getBridgeHeaders } from "../../../../../lib/connections";
 
 const BRIDGE_URL = process.env.BRIDGE_URL || "";
 
@@ -38,7 +38,7 @@ export async function POST(req, props) {
   try {
     const res = await fetch(`${BRIDGE_URL}/api/connections/${hash}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getBridgeHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(bodyPayload),
       signal: AbortSignal.timeout(15000),
     });
@@ -81,6 +81,7 @@ export async function GET(_req, props) {
 
   try {
     const res = await fetch(`${BRIDGE_URL}/api/connections/${hash}/qr`, {
+      headers: getBridgeHeaders(),
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });

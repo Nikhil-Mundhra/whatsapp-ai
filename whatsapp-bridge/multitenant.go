@@ -59,6 +59,63 @@ type Tenant struct {
 	grantRemaining int       // count remaining
 	grantExpiresAt time.Time // expiry for duration grant
 	lastTargetJID  types.JID // target contact to reply to
+
+	apiSentMu     sync.Mutex
+	apiSentMsgIDs map[string]time.Time
+}
+
+func (t *Tenant) recordApiSent(id string) {
+	if id == "" {
+		return
+	}
+	t.apiSentMu.Lock()
+	defer t.apiSentMu.Unlock()
+	if t.apiSentMsgIDs == nil {
+		t.apiSentMsgIDs = make(map[string]time.Time)
+	}
+	t.apiSentMsgIDs[id] = time.Now()
+	cutoff := time.Now().Add(-10 * time.Minute)
+	for k, ts := range t.apiSentMsgIDs {
+		if ts.Before(cutoff) {
+			delete(t.apiSentMsgIDs, k)
+		}
+	}
+}
+
+func (t *Tenant) isApiSent(id string) bool {
+	if id == "" {
+		return false
+	}
+	t.apiSentMu.Lock()
+	defer t.apiSentMu.Unlock()
+	if t.apiSentMsgIDs == nil {
+		return false
+	}
+	_, ok := t.apiSentMsgIDs[id]
+	return ok
+}
+
+func getWebhookBaseURL() string {
+	if u := os.Getenv("WEB_BASE_URL"); u != "" {
+		return strings.TrimRight(u, "/")
+	}
+	if u := os.Getenv("PANEL_URL"); u != "" {
+		return strings.TrimRight(u, "/")
+	}
+	return "https://whatsapp-ai-nikhil.vercel.app"
+}
+
+func checkBridgeAuth(r *http.Request) bool {
+	token := os.Getenv("BRIDGE_AUTH_TOKEN")
+	if token == "" {
+		return true
+	}
+	authHeader := r.Header.Get("Authorization")
+	expected := "Bearer " + token
+	if authHeader == expected || r.Header.Get("X-Bridge-Token") == token {
+		return true
+	}
+	return false
 }
 
 // TenantManager holds all provisioned tenants keyed by setup hash.
@@ -113,7 +170,7 @@ func (m *TenantManager) restoreTenants() {
 		t.loadConfig()
 
 		dbLog := waLog.Stdout(fmt.Sprintf("Tenant-%s/DB", hash), "INFO", true)
-		container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+dbPath+"?_foreign_keys=on", dbLog)
+		container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+dbPath+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000", dbLog)
 		if err != nil {
 			continue
 		}
@@ -326,6 +383,10 @@ func (t *Tenant) setupEventHandler() {
 				isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
 
 				if v.Info.IsFromMe && isAllowed {
+					if t.isApiSent(v.Info.ID) {
+						t.logger.Infof("Ignoring self-echo of API-sent message %s", v.Info.ID)
+						return
+					}
 					t.mu.Lock()
 					if t.grantKind != "none" {
 						t.grantKind = "none"
@@ -343,10 +404,6 @@ func (t *Tenant) setupEventHandler() {
 					if t.grantKind == "duration" && time.Now().Before(t.grantExpiresAt) {
 						activeGrant = true
 					} else if t.grantKind == "count" && t.grantRemaining > 0 {
-						t.grantRemaining--
-						if t.grantRemaining == 0 {
-							t.grantKind = "none"
-						}
 						activeGrant = true
 					}
 					t.mu.Unlock()
@@ -374,7 +431,8 @@ func (t *Tenant) setupEventHandler() {
 								"options":        opts,
 								"status":         "pending",
 							})
-							resp, err := http.Post("https://whatsapp-ai-nikhil.vercel.app/api/polls", "application/json", bytes.NewReader(payload))
+							webhookURL := fmt.Sprintf("%s/api/polls", getWebhookBaseURL())
+							resp, err := http.Post(webhookURL, "application/json", bytes.NewReader(payload))
 							if err == nil && resp != nil {
 								_ = resp.Body.Close()
 							}
@@ -477,13 +535,26 @@ func (t *Tenant) replyToChat(targetJID types.JID) {
 	}
 	history := historyBuilder.String()
 
-	systemPrompt := `You are the person who writes the messages labeled 'From: Me' in the conversation history below. That is your own writing style: mirror your own message length, tone, capitalization, punctuation, slang, and emoji usage. If your messages are one-liners, reply with one-liners. If you use emojis, use emojis; if you don't, don't. Stay in the same language you use. Do NOT copy or mirror the other person's style.
+	identityClause := "You are the person who writes the messages labeled 'From: Me' in the conversation history below."
+	if t.ownerPhone != "" && t.client != nil && t.client.Store != nil {
+		normPhone := normalizePhone(t.ownerPhone)
+		pnJID := types.NewJID(normPhone, types.DefaultUserServer)
+		if contact, err := t.client.Store.Contacts.GetContact(context.Background(), pnJID); err == nil {
+			if contact.FullName != "" {
+				identityClause = fmt.Sprintf("You are %s, the person who writes the messages labeled 'From: Me' in the conversation history below. Your name is %s.", contact.FullName, contact.FullName)
+			} else if contact.PushName != "" && !isAllDigits(contact.PushName) {
+				identityClause = fmt.Sprintf("You are %s, the person who writes the messages labeled 'From: Me' in the conversation history below. Your name is %s.", contact.PushName, contact.PushName)
+			}
+		}
+	}
+
+	systemPrompt := fmt.Sprintf(`%s That is your own writing style: mirror your own message length, tone, capitalization, punctuation, slang, and emoji usage. If your messages are one-liners, reply with one-liners. If you use emojis, use emojis; if you don't, don't. Stay in the same language you use. Do NOT copy or mirror the other person's style.
 
 READ THE ROOM:
 - The last message from the other person is the one you are replying to. Answer what THEY just said and stay on that topic. Never reply with a generic or off-topic one-liner.
 - Never repeat a message you already sent in the history, and never send the same text twice in a row.
 - Never continue your own monologue: if the other person has not spoken since your last message, you have nothing to reply to.
-- Reply naturally and human. Don't mention that you're an AI. Don't use markdown. Output only the message text and nothing else.`
+- Reply naturally and human. Don't mention that you're an AI. Don't use markdown. Output only the message text and nothing else.`, identityClause)
 
 	model := t.aiModel
 	if model == "" {
@@ -580,8 +651,21 @@ READ THE ROOM:
 			replyText := strings.TrimSpace(gRes.Candidates[0].Content.Parts[0].Text)
 			if replyText != "" {
 				t.logger.Infof("Gemini drafted reply for %s: %q", targetJID, replyText)
-				ok, sendStatus := sendWhatsAppMessage(t.client, t.messageStore, targetJID.String(), replyText, "", t.logger)
-				t.logger.Infof("Sent Gemini reply to %s: ok=%v status=%s", targetJID, ok, sendStatus)
+				ok, sendStatus, sentMsgID := sendWhatsAppMessage(t.client, t.messageStore, targetJID.String(), replyText, "", t.logger)
+				t.logger.Infof("Sent Gemini reply to %s: ok=%v status=%s msgID=%s", targetJID, ok, sendStatus, sentMsgID)
+				if ok && sentMsgID != "" {
+					t.recordApiSent(sentMsgID)
+					t.mu.Lock()
+					if t.grantKind == "count" {
+						if t.grantRemaining > 0 {
+							t.grantRemaining--
+						}
+						if t.grantRemaining <= 0 {
+							t.grantKind = "none"
+						}
+					}
+					t.mu.Unlock()
+				}
 			}
 		}
 		return
@@ -689,8 +773,21 @@ READ THE ROOM:
 
 	t.logger.Infof("AI drafted reply for %s using %s: %q", targetJID, model, replyText)
 
-	ok, sendStatus := sendWhatsAppMessage(t.client, t.messageStore, targetJID.String(), replyText, "", t.logger)
-	t.logger.Infof("Sent AI reply to %s: ok=%v status=%s", targetJID, ok, sendStatus)
+	ok, sendStatus, sentMsgID := sendWhatsAppMessage(t.client, t.messageStore, targetJID.String(), replyText, "", t.logger)
+	t.logger.Infof("Sent AI reply to %s: ok=%v status=%s msgID=%s", targetJID, ok, sendStatus, sentMsgID)
+	if ok && sentMsgID != "" {
+		t.recordApiSent(sentMsgID)
+		t.mu.Lock()
+		if t.grantKind == "count" {
+			if t.grantRemaining > 0 {
+				t.grantRemaining--
+			}
+			if t.grantRemaining <= 0 {
+				t.grantKind = "none"
+			}
+		}
+		t.mu.Unlock()
+	}
 }
 
 // provision creates (or reloads) the whatsmeow client for this tenant and starts pairing.
@@ -712,7 +809,7 @@ func (t *Tenant) provision() (string, error) {
 	t.saveConfig()
 
 	dbLog := waLog.Stdout(fmt.Sprintf("Tenant-%s/DB", t.Hash), "INFO", true)
-	container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+filepath.Join(dir, "whatsapp.db")+"?_foreign_keys=on", dbLog)
+	container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+filepath.Join(dir, "whatsapp.db")+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000", dbLog)
 	if err != nil {
 		return "", fmt.Errorf("failed to open device store: %v", err)
 	}
@@ -811,7 +908,11 @@ func (t *Tenant) sendToRecipient(recipient, message string) (bool, string) {
 	if t.client == nil || !t.client.IsConnected() {
 		return false, "tenant not connected"
 	}
-	return sendWhatsAppMessage(t.client, t.messageStore, recipient, message, "", t.logger)
+	ok, status, msgID := sendWhatsAppMessage(t.client, t.messageStore, recipient, message, "", t.logger)
+	if ok && msgID != "" {
+		t.recordApiSent(msgID)
+	}
+	return ok, status
 }
 
 func (t *Tenant) sendPollToRecipient(recipient, question string, options []string, selectableCount int) (bool, string, string) {
@@ -825,6 +926,10 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 	manager := NewTenantManager(logger)
 
 	http.HandleFunc("/api/connections/", func(w http.ResponseWriter, r *http.Request) {
+		if !checkBridgeAuth(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		rest := strings.TrimPrefix(r.URL.Path, "/api/connections/")
 		parts := strings.Split(strings.TrimSuffix(rest, "/"), "/")
 		hash := parts[0]

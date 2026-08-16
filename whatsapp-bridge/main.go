@@ -61,7 +61,7 @@ func NewMessageStore(dbPath string) (*MessageStore, error) {
 	}
 
 	// Open SQLite database for messages
-	db, err := sql.Open("sqlite3", "file:"+dbPath+"?_foreign_keys=on")
+	db, err := sql.Open("sqlite3", "file:"+dbPath+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open message database: %v", err)
 	}
@@ -440,9 +440,9 @@ func handlePollVote(client *whatsmeow.Client, messageStore *MessageStore, msg *e
 }
 
 // Function to send a WhatsApp message
-func sendWhatsAppMessage(client *whatsmeow.Client, messageStore *MessageStore, recipient string, message string, mediaPath string, logger waLog.Logger) (bool, string) {
+func sendWhatsAppMessage(client *whatsmeow.Client, messageStore *MessageStore, recipient string, message string, mediaPath string, logger waLog.Logger) (bool, string, string) {
 	if !client.IsConnected() {
-		return false, "Not connected to WhatsApp"
+		return false, "Not connected to WhatsApp", ""
 	}
 
 	// Create JID for recipient
@@ -456,7 +456,7 @@ func sendWhatsAppMessage(client *whatsmeow.Client, messageStore *MessageStore, r
 		// Parse the JID string
 		recipientJID, err = types.ParseJID(recipient)
 		if err != nil {
-			return false, fmt.Sprintf("Error parsing JID: %v", err)
+			return false, fmt.Sprintf("Error parsing JID: %v", err), ""
 		}
 	} else {
 		// Create JID from phone number
@@ -473,7 +473,7 @@ func sendWhatsAppMessage(client *whatsmeow.Client, messageStore *MessageStore, r
 		// Read media file
 		mediaData, err := os.ReadFile(mediaPath)
 		if err != nil {
-			return false, fmt.Sprintf("Error reading media file: %v", err)
+			return false, fmt.Sprintf("Error reading media file: %v", err), ""
 		}
 
 		// Determine media type and mime type based on file extension
@@ -522,7 +522,7 @@ func sendWhatsAppMessage(client *whatsmeow.Client, messageStore *MessageStore, r
 		// Upload media to WhatsApp servers
 		resp, err := client.Upload(context.Background(), mediaData, mediaType)
 		if err != nil {
-			return false, fmt.Sprintf("Error uploading media: %v", err)
+			return false, fmt.Sprintf("Error uploading media: %v", err), ""
 		}
 
 		fmt.Println("Media uploaded", resp)
@@ -552,7 +552,7 @@ func sendWhatsAppMessage(client *whatsmeow.Client, messageStore *MessageStore, r
 					seconds = analyzedSeconds
 					waveform = analyzedWaveform
 				} else {
-					return false, fmt.Sprintf("Failed to analyze Ogg Opus file: %v", err)
+					return false, fmt.Sprintf("Failed to analyze Ogg Opus file: %v", err), ""
 				}
 			} else {
 				fmt.Printf("Not an Ogg Opus file: %s\n", mimeType)
@@ -583,7 +583,7 @@ func sendWhatsAppMessage(client *whatsmeow.Client, messageStore *MessageStore, r
 			}
 		case whatsmeow.MediaDocument:
 			msg.DocumentMessage = &waProto.DocumentMessage{
-				Title:         proto.String(mediaPath[strings.LastIndex(mediaPath, "/")+1:]),
+				Title:         proto.String(filepath.Base(mediaPath)),
 				Caption:       proto.String(message),
 				Mimetype:      proto.String(mimeType),
 				URL:           &resp.URL,
@@ -602,7 +602,7 @@ func sendWhatsAppMessage(client *whatsmeow.Client, messageStore *MessageStore, r
 	respID, err := client.SendMessage(context.Background(), recipientJID, msg)
 
 	if err != nil {
-		return false, fmt.Sprintf("Error sending message: %v", err)
+		return false, fmt.Sprintf("Error sending message: %v", err), ""
 	}
 
 	// Persist the outbound message so the sender can see its own texts.
@@ -649,7 +649,7 @@ func sendWhatsAppMessage(client *whatsmeow.Client, messageStore *MessageStore, r
 		fmt.Printf("[%s] → %s: %s\n", now.Format("2006-01-02 15:04:05"), sender, message)
 	}
 
-	return true, fmt.Sprintf("Message sent to %s", recipient)
+	return true, fmt.Sprintf("Message sent to %s", recipient), string(respID.ID)
 }
 
 // Extract media info from a message
@@ -724,6 +724,10 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 	origin := "remote"
 	if msg.Info.IsFromMe {
 		origin = "phone"
+		var existingOrigin string
+		if err := messageStore.db.QueryRow("SELECT origin FROM messages WHERE id = ?", msg.Info.ID).Scan(&existingOrigin); err == nil && existingOrigin == "api" {
+			origin = "api"
+		}
 	}
 	err = messageStore.StoreMessage(
 		msg.Info.ID,
@@ -1000,7 +1004,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		fmt.Println("Received request to send message", req.Message, req.MediaPath)
 
 		// Send the message
-		success, message := sendWhatsAppMessage(client, messageStore, req.Recipient, req.Message, req.MediaPath, logger)
+		success, message, _ := sendWhatsAppMessage(client, messageStore, req.Recipient, req.Message, req.MediaPath, logger)
 		fmt.Println("Message sent", success, message)
 		// Set response headers
 		w.Header().Set("Content-Type", "application/json")
@@ -1142,7 +1146,7 @@ func main() {
 		return
 	}
 
-	container, err := sqlstore.New(context.Background(), "sqlite3", "file:store/whatsapp.db?_foreign_keys=on", dbLog)
+	container, err := sqlstore.New(context.Background(), "sqlite3", "file:store/whatsapp.db?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000", dbLog)
 	if err != nil {
 		logger.Errorf("Failed to connect to database: %v", err)
 		return

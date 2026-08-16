@@ -75,6 +75,7 @@ def get_sender_name(sender_jid: str) -> str:
         digits = ''.join(c for c in sender_jid.split('@')[0] if c.isdigit())
         contact_name = None
         if digits:
+            pc = None
             try:
                 pc = sqlite3.connect(WHATSAPP_DB_PATH)
                 pcur = pc.cursor()
@@ -86,7 +87,6 @@ def get_sender_name(sender_jid: str) -> str:
                     (f"%{search}%",),
                 )
                 name_row = pcur.fetchone()
-                pc.close()
                 if name_row:
                     for name in name_row:
                         if name:
@@ -94,6 +94,9 @@ def get_sender_name(sender_jid: str) -> str:
                             break
             except sqlite3.Error:
                 pass
+            finally:
+                if pc:
+                    pc.close()
         
         # First try matching by exact JID
         cursor.execute("""
@@ -795,23 +798,25 @@ def send_file(recipient: str, media_path: str) -> Tuple[bool, str]:
         return False, f"Unexpected error: {str(e)}"
 
 def send_audio_message(recipient: str, media_path: str) -> Tuple[bool, str]:
-    try:
-        # Validate input
-        if not recipient:
-            return False, "Recipient must be provided"
-        
-        if not media_path:
-            return False, "Media path must be provided"
-        
-        if not os.path.isfile(media_path):
-            return False, f"Media file not found: {media_path}"
+    # Validate input
+    if not recipient:
+        return False, "Recipient must be provided"
+    
+    if not media_path:
+        return False, "Media path must be provided"
+    
+    if not os.path.isfile(media_path):
+        return False, f"Media file not found: {media_path}"
 
-        if not media_path.endswith(".ogg"):
-            try:
-                media_path = audio.convert_to_opus_ogg_temp(media_path)
-            except Exception as e:
-                return False, f"Error converting file to opus ogg. You likely need to install ffmpeg: {str(e)}"
-        
+    temp_converted_path = None
+    if not media_path.endswith(".ogg"):
+        try:
+            temp_converted_path = audio.convert_to_opus_ogg_temp(media_path)
+            media_path = temp_converted_path
+        except Exception as e:
+            return False, f"Error converting file to opus ogg. You likely need to install ffmpeg: {str(e)}"
+    
+    try:
         url = f"{WHATSAPP_API_BASE_URL}/send"
         payload = {
             "recipient": recipient,
@@ -833,6 +838,12 @@ def send_audio_message(recipient: str, media_path: str) -> Tuple[bool, str]:
         return False, f"Error parsing response: {response.text}"
     except Exception as e:
         return False, f"Unexpected error: {str(e)}"
+    finally:
+        if temp_converted_path and os.path.exists(temp_converted_path):
+            try:
+                os.unlink(temp_converted_path)
+            except OSError:
+                pass
 
 def download_media(message_id: str, chat_jid: str) -> Optional[str]:
     """Download media from a message and return the local file path.

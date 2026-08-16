@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getBridgeHeaders } from "../../../../../lib/connections";
 
 const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
 
@@ -11,7 +12,7 @@ export async function GET(req, props) {
 
   try {
     const res = await fetch(`${BRIDGE_URL}/api/connections/${hash}/messages?limit=${limit}`, {
-      headers: { "Content-Type": "application/json" },
+      headers: getBridgeHeaders({ "Content-Type": "application/json" }),
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
