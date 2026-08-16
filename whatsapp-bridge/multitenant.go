@@ -52,7 +52,8 @@ type Tenant struct {
 	qrUpdated              time.Time
 	paired                 bool
 	pairing                bool
-	activePollsByRecipient map[string]string // map[recipientNormalizedPhone]pollMsgID
+	activePollsByRecipient  map[string]string    // map[recipientNormalizedPhone]pollMsgID
+	lastPollTimeByRecipient map[string]time.Time // map[recipientNormalizedPhone]lastPollSentTime
 
 	// Takeover Grant State
 	grantKind      string    // "none" | "count" | "duration"
@@ -506,6 +507,9 @@ func (t *Tenant) setupEventHandler() {
 							oldPollID = t.activePollsByRecipient[recipientKey]
 							delete(t.activePollsByRecipient, recipientKey)
 						}
+						if t.lastPollTimeByRecipient != nil {
+							delete(t.lastPollTimeByRecipient, recipientKey)
+						}
 						t.mu.Unlock()
 
 						if oldPollID != "" {
@@ -566,14 +570,25 @@ func (t *Tenant) setupEventHandler() {
 						}
 						options := []string{"Send 1 text", "5 minutes", "2 hours", "Deny"}
 
-						// In group chats, if a poll is already active, keep it ALIVE (do not spam or revoke rapidly)
 						t.mu.Lock()
 						if t.activePollsByRecipient == nil {
 							t.activePollsByRecipient = make(map[string]string)
 						}
+						if t.lastPollTimeByRecipient == nil {
+							t.lastPollTimeByRecipient = make(map[string]time.Time)
+						}
 						oldPollID := t.activePollsByRecipient[recipientKey]
+						lastPollTime := t.lastPollTimeByRecipient[recipientKey]
 						t.mu.Unlock()
 
+						// Cooldown check (60 seconds) for 1-on-1 and group chats:
+						// If a poll is already active and was sent less than 60s ago, keep it alive without revoking/recreating.
+						if oldPollID != "" && time.Since(lastPollTime) < 60*time.Second {
+							t.logger.Infof("Active poll %s was sent %v ago (< 60s cooldown) for recipient %s. Keeping existing poll alive.", oldPollID, time.Since(lastPollTime).Round(time.Second), recipientKey)
+							return
+						}
+
+						// In group chats, if any poll is already active, keep it ALIVE (do not spam or revoke rapidly)
 						if isGroup && oldPollID != "" {
 							t.logger.Infof("Active poll %s is already pending for group %s. Keeping existing poll alive.", oldPollID, recipientKey)
 							return
@@ -596,6 +611,7 @@ func (t *Tenant) setupEventHandler() {
 							t.recordApiSent(pollID) // CRITICAL: record poll ID so self-echo doesn't trigger manual message reset!
 							t.mu.Lock()
 							t.activePollsByRecipient[recipientKey] = pollID
+							t.lastPollTimeByRecipient[recipientKey] = time.Now()
 							t.mu.Unlock()
 						}
 						fmt.Printf("\n[takeover %s] Sent approval poll to owner %s for incoming message from %s (recipient %s): ok=%v status=%s pollID=%s\n", t.Hash, t.ownerPhone, chatName, recipientKey, ok, status, pollID)
@@ -802,6 +818,9 @@ func (t *Tenant) handleTenantPollVote(msg *events.Message) {
 			for rk, pid := range t.activePollsByRecipient {
 				if pid == pollMsgID {
 					delete(t.activePollsByRecipient, rk)
+					if t.lastPollTimeByRecipient != nil {
+						delete(t.lastPollTimeByRecipient, rk)
+					}
 					break
 				}
 			}
