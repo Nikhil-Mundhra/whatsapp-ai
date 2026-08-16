@@ -129,7 +129,10 @@ func (m *TenantManager) restoreTenants() {
 					handleMessage(t.client, t.messageStore, v, t.logger)
 
 					sender := v.Info.Sender.User
-					if !v.Info.IsFromMe && t.isAllowedRecipient(sender) && t.ownerPhone != "" {
+					isAllowed := t.isAllowedRecipient(sender)
+					t.logger.Infof("Incoming message from %s (allowed=%v, owner=%s, recipients=%v)", sender, isAllowed, t.ownerPhone, t.recipients)
+
+					if !v.Info.IsFromMe && isAllowed && t.ownerPhone != "" {
 						chatName := GetChatName(context.Background(), t.client, t.messageStore, v.Info.Chat, v.Info.Chat.String(), nil, sender, t.logger)
 						if chatName == "" || chatName == sender {
 							chatName = sender
@@ -275,7 +278,10 @@ func (t *Tenant) provision() (string, error) {
 
 				// Trigger takeover poll if message is from an allowed contact
 				sender := v.Info.Sender.User
-				if !v.Info.IsFromMe && t.isAllowedRecipient(sender) && t.ownerPhone != "" {
+				isAllowed := t.isAllowedRecipient(sender)
+				t.logger.Infof("Incoming message from %s (allowed=%v, owner=%s, recipients=%v)", sender, isAllowed, t.ownerPhone, t.recipients)
+
+				if !v.Info.IsFromMe && isAllowed && t.ownerPhone != "" {
 					chatName := GetChatName(context.Background(), t.client, t.messageStore, v.Info.Chat, v.Info.Chat.String(), nil, sender, t.logger)
 					if chatName == "" || chatName == sender {
 						chatName = sender
