@@ -105,7 +105,7 @@ func (t *Tenant) provision() (string, error) {
 	var deviceStore *store.Device
 	if t.client == nil {
 		deviceStore, err = container.GetFirstDevice(context.Background())
-		if err == sql.ErrNoRows {
+		if err == sql.ErrNoRows || (deviceStore != nil && deviceStore.ID == nil) {
 			deviceStore = container.NewDevice()
 		} else if err != nil {
 			return "", fmt.Errorf("failed to get device: %v", err)

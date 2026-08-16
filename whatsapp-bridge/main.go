@@ -34,8 +34,8 @@ import (
 )
 
 func init() {
-	store.DeviceProps.Os = proto.String("WhatsApp AI Assistant")
-	store.DeviceProps.PlatformType = waProto.DeviceProps_DESKTOP.Enum()
+	store.DeviceProps.Os = proto.String("Mac OS")
+	store.DeviceProps.PlatformType = waProto.DeviceProps_CHROME.Enum()
 }
 
 // Message represents a chat message for our client
