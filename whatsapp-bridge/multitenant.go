@@ -270,6 +270,8 @@ func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
 		}
 	}
 
+	t.logger.Infof("Evaluating allowed recipient for sender %s (chat %s): candidates=%v allowed_recipients=%v", senderJID, chatJID, candidates, t.recipients)
+
 	// 4. Check candidate strings against allowed phone numbers
 	for _, cand := range candidates {
 		normCand := normalizePhone(cand)
