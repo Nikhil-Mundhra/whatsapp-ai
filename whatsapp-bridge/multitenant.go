@@ -151,12 +151,17 @@ func (m *TenantManager) restoreTenants() {
 			case *events.Connected:
 				t.logger.Infof("Tenant %s connected", t.Hash)
 			case *events.LoggedOut:
-				t.logger.Warnf("Tenant %s logged out", t.Hash)
+				t.logger.Warnf("Tenant %s logged out from WhatsApp. Wiping stored session and messages...", t.Hash)
 				t.mu.Lock()
 				t.paired = false
 				t.pairing = false
 				t.qrCode = ""
+				if t.client != nil {
+					t.client.Disconnect()
+				}
 				t.mu.Unlock()
+				_ = os.RemoveAll(t.dir())
+				t.logger.Infof("Tenant %s local data wiped.", t.Hash)
 			}
 		})
 

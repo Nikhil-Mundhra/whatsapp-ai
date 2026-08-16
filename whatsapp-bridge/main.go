@@ -715,11 +715,13 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 			direction = "→"
 		}
 
-		// Log based on message type
-		if mediaType != "" {
-			fmt.Printf("[%s] %s %s: [%s: %s] %s\n", timestamp, direction, sender, mediaType, filename, content)
-		} else if content != "" {
-			fmt.Printf("[%s] %s %s: %s\n", timestamp, direction, sender, content)
+		// Only print live messages to console (avoids flooding console during initial history sync)
+		if time.Since(msg.Info.Timestamp) < 2*time.Minute {
+			if mediaType != "" {
+				fmt.Printf("[%s] %s %s: [%s: %s] %s\n", timestamp, direction, sender, mediaType, filename, content)
+			} else if content != "" {
+				fmt.Printf("[%s] %s %s: %s\n", timestamp, direction, sender, content)
+			}
 		}
 	}
 }
