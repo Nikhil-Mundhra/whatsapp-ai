@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export default function SetupPage() {
   const [step, setStep] = useState(1);
@@ -13,12 +13,33 @@ export default function SetupPage() {
   });
   const [hash, setHash] = useState(null);
   const [qr, setQr] = useState(null);
+  const [rawQr, setRawQr] = useState("");
+  const [timeLeft, setTimeLeft] = useState(20);
   const [linked, setLinked] = useState(false);
   const [syncing, setSyncing] = useState(false);
+
+  const rawQrRef = useRef("");
+  const pollIntervalRef = useRef(null);
+  const timerIntervalRef = useRef(null);
 
   function update(key) {
     return (e) => setForm({ ...form, [key]: e.target.value });
   }
+
+  // 1-second countdown timer for the active QR code
+  useEffect(() => {
+    if (step === 2 && !linked) {
+      timerIntervalRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            return 20; // reset for next cycle
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timerIntervalRef.current);
+  }, [step, linked]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -46,6 +67,7 @@ export default function SetupPage() {
 
   async function provisionQr(h) {
     setSyncing(true);
+    setError("");
     try {
       const res = await fetch(`/api/connections/${h}/qr`, {
         method: "POST",
@@ -57,17 +79,25 @@ export default function SetupPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "failed to start pairing");
-      setQr(data.qr);
-      pollStatus(h);
+      if (data.rawQr) {
+        rawQrRef.current = data.rawQr;
+        setRawQr(data.rawQr);
+      }
+      if (data.qr) {
+        setQr(data.qr);
+      }
+      setTimeLeft(data.ttl || 20);
+      startPolling(h);
     } catch (err) {
       setError(err.message);
       setSyncing(false);
     }
   }
 
-  async function pollStatus(h) {
+  function startPolling(h) {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     let ticks = 0;
-    const interval = setInterval(async () => {
+    pollIntervalRef.current = setInterval(async () => {
       ticks++;
       try {
         const res = await fetch(`/api/connections/${h}/status`, { cache: "no-store" });
@@ -75,20 +105,36 @@ export default function SetupPage() {
         if (data.linked) {
           setLinked(true);
           setSyncing(false);
-          clearInterval(interval);
+          clearInterval(pollIntervalRef.current);
+          clearInterval(timerIntervalRef.current);
           setTimeout(() => setStep(3), 800);
           return;
         }
-        if (ticks % 5 === 0) {
+
+        // Poll for QR updates every 4 seconds
+        if (ticks % 2 === 0) {
           const qrRes = await fetch(`/api/connections/${h}/qr`, { cache: "no-store" });
           const qrData = await qrRes.json();
-          if (qrData.qr) setQr(qrData.qr);
+          // Only update state if raw QR string has changed to prevent DOM flicker
+          if (qrData.rawQr && qrData.rawQr !== rawQrRef.current) {
+            rawQrRef.current = qrData.rawQr;
+            setRawQr(qrData.rawQr);
+            setQr(qrData.qr);
+            setTimeLeft(qrData.ttl || 20);
+          }
         }
       } catch {
         /* retry */
       }
     }, 2000);
   }
+
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, []);
 
   return (
     <main style={{ maxWidth: 560, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
@@ -98,7 +144,7 @@ export default function SetupPage() {
       </div>
 
       {error && (
-        <div style={{ color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, padding: "10px 14px", fontSize: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, padding: "10px 14px", fontSize: 14, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <span>{error.includes("wa.me") ? "Invalid coupon code." : error}</span>
           {error.includes("wa.me") && (
             <a
@@ -178,29 +224,54 @@ export default function SetupPage() {
       )}
 
       {step === 2 && (
-        <div style={{ textAlign: "center", display: "grid", gap: 12, justifyContent: "center" }}>
-          <h2 style={{ fontSize: 18 }}>Scan with WhatsApp</h2>
-          <p style={{ color: "#555" }}>
+        <div style={{ textAlign: "center", display: "grid", gap: 14, justifyContent: "center" }}>
+          <h2 style={{ fontSize: 18, margin: 0 }}>Scan with WhatsApp</h2>
+          <p style={{ color: "#555", margin: 0, fontSize: 14 }}>
             Open WhatsApp &gt; Linked devices &gt; Link a device, then scan this QR.
           </p>
-          {qr && !linked ? (
-            <img
-              src={qr}
-              alt="WhatsApp pairing QR code"
-              width={280}
-              height={280}
-              style={{ display: "inline-block", borderRadius: 8, background: "#fff", padding: 8 }}
-            />
-          ) : linked ? (
-            <p style={{ color: "#0a7d32", fontWeight: 600 }}>Linked! ✓</p>
-          ) : (
-            <p>{syncing ? "Starting pairing…" : "Not scanning. Check the bridge."}</p>
+
+          {/* Countdown & Refresh Indicator */}
+          {qr && !linked && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: timeLeft <= 5 ? "#dc2626" : "#4b5563" }}>
+                <span>⏳ QR Code expires in: {timeLeft}s</span>
+              </div>
+              <div style={{ width: 280, height: 4, background: "#e5e7eb", borderRadius: 999, overflow: "hidden" }}>
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${(timeLeft / 20) * 100}%`,
+                    background: timeLeft <= 5 ? "#ef4444" : timeLeft <= 10 ? "#f59e0b" : "#10b981",
+                    transition: "width 1s linear, background-color 0.5s ease",
+                  }}
+                />
+              </div>
+            </div>
           )}
+
+          {qr && !linked ? (
+            <div style={{ background: "#fff", padding: 12, borderRadius: 12, border: "1px solid #e2e8f0", display: "inline-block", boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)" }}>
+              <img
+                src={qr}
+                alt="WhatsApp pairing QR code"
+                width={280}
+                height={280}
+                style={{ display: "block", borderRadius: 6 }}
+              />
+            </div>
+          ) : linked ? (
+            <p style={{ color: "#0a7d32", fontWeight: 600, fontSize: 16 }}>Linked successfully! ✓</p>
+          ) : (
+            <div style={{ padding: 40, border: "1px dashed #cbd5e1", borderRadius: 12, color: "#64748b" }}>
+              <p>{syncing ? "Generating fresh QR code…" : "Connecting to bridge…"}</p>
+            </div>
+          )}
+
           <button
             onClick={() => provisionQr(hash)}
-            style={{ padding: "10px 20px", borderRadius: 6, border: "1px solid #ccc", background: "#fff", cursor: "pointer" }}
+            style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #d1d5db", background: "#fff", color: "#374151", cursor: "pointer", fontSize: 13, fontWeight: 500 }}
           >
-            Refresh QR
+            🔄 Refresh QR Code
           </button>
         </div>
       )}
@@ -208,20 +279,20 @@ export default function SetupPage() {
       {step === 3 && (
         <div style={{ textAlign: "center", display: "grid", gap: 12, justifyContent: "center" }}>
           <h2 style={{ fontSize: 18 }}>All set! 🎉</h2>
-          <p style={{ color: "#555" }}>Your connection is linked and ready.</p>
-          <div>
-            <p style={{ fontWeight: 600, marginBottom: 4 }}>Enter this code on your watch:</p>
-            <code
-              style={{
-                fontSize: 34, letterSpacing: 6, background: "#f3f4f6", borderRadius: 8,
-                padding: "10px 20px", display: "inline-block",
-              }}
-            >
-              {hash}
-            </code>
+          <p style={{ color: "#555" }}>
+            WhatsApp is linked. Your AI texting bridge is active.
+          </p>
+          <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: 16, borderRadius: 8 }}>
+            <p style={{ margin: "0 0 6px", fontWeight: 600, color: "#166534" }}>Your Connection Hash:</p>
+            <code style={{ fontSize: 24, fontWeight: 700, letterSpacing: 2, color: "#15803d" }}>{hash}</code>
           </div>
-          <p style={{ color: "#888", fontSize: 13 }}>
-            Install the TakeOver app via Zepp on your Amazfit watch and enter this code to link it.
+          <p style={{ fontSize: 13, color: "#6b7280" }}>
+            Enter this hash in the TakeOver companion settings in the Zepp app on your phone.
+          </p>
+          <p>
+            <a href="/" style={{ color: "#2b6cb0", fontWeight: 600, fontSize: 14 }}>
+              Open Take-Over Panel →
+            </a>
           </p>
         </div>
       )}

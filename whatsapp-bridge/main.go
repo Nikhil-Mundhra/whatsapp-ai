@@ -25,12 +25,18 @@ import (
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
+
+func init() {
+	store.DeviceProps.Os = proto.String("WhatsApp AI Assistant")
+	store.DeviceProps.PlatformType = waProto.DeviceProps_DESKTOP.Enum()
+}
 
 // Message represents a chat message for our client
 type Message struct {

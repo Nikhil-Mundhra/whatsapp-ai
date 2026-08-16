@@ -51,8 +51,12 @@ export async function POST(req, props) {
     }
     const data = await res.json();
     const qrImage = await toQrImage(data.qr);
+    const qrAge = typeof data.qrAge === "number" ? data.qrAge : 0;
     return NextResponse.json({
       qr: qrImage,
+      rawQr: data.qr,
+      qrAge,
+      ttl: Math.max(1, 20 - qrAge),
       linked: Boolean(data.linked),
       whatsapp: data.whatsapp || "pairing",
     });
@@ -78,7 +82,13 @@ export async function GET(_req, props) {
     if (!res.ok) return NextResponse.json({ qr: null });
     const data = await res.json();
     const qrImage = await toQrImage(data.qr);
-    return NextResponse.json({ qr: qrImage });
+    const qrAge = typeof data.qrAge === "number" ? data.qrAge : 0;
+    return NextResponse.json({
+      qr: qrImage,
+      rawQr: data.qr,
+      qrAge,
+      ttl: Math.max(1, 20 - qrAge),
+    });
   } catch {
     return NextResponse.json({ qr: null });
   }
