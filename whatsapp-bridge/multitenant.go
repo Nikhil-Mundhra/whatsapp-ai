@@ -440,7 +440,8 @@ READ THE ROOM:
 		Content string `json:"content"`
 	}
 	type Reasoning struct {
-		Enabled bool `json:"enabled"`
+		Effort    string `json:"effort,omitempty"`
+		MaxTokens int    `json:"max_tokens,omitempty"`
 	}
 	type RequestBody struct {
 		Model     string     `json:"model"`
@@ -521,7 +522,7 @@ READ THE ROOM:
 		reqBody = RequestBody{
 			Model:     model,
 			Messages:  messages,
-			MaxTokens: 800,
+			MaxTokens: 2000,
 		}
 	} else if strings.HasPrefix(apiKey, "gsk_") {
 		// 3. Groq
@@ -529,15 +530,15 @@ READ THE ROOM:
 		reqBody = RequestBody{
 			Model:     model,
 			Messages:  messages,
-			MaxTokens: 800,
+			MaxTokens: 2000,
 		}
 	} else {
 		// 4. OpenRouter (default)
 		reqBody = RequestBody{
 			Model:     model,
 			Messages:  messages,
-			MaxTokens: 800,
-			Reasoning: &Reasoning{Enabled: true},
+			MaxTokens: 2000,
+			Reasoning: &Reasoning{Effort: "low"},
 		}
 	}
 
@@ -600,10 +601,11 @@ READ THE ROOM:
 		return
 	}
 
-	replyText := strings.TrimSpace(resData.Choices[0].Message.Content)
-	if replyText == "" {
-		replyText = strings.TrimSpace(resData.Choices[0].Message.Reasoning)
+	if resData.Choices[0].Message.Reasoning != "" {
+		t.logger.Infof("[reasoning] %s", resData.Choices[0].Message.Reasoning)
 	}
+
+	replyText := strings.TrimSpace(resData.Choices[0].Message.Content)
 	if strings.Contains(replyText, "</think>") {
 		parts := strings.Split(replyText, "</think>")
 		replyText = strings.TrimSpace(parts[len(parts)-1])

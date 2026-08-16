@@ -109,8 +109,8 @@ def generate_reply(history: str, model: str = DEFAULT_MODEL, think: bool = True)
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": history},
             ],
-            "max_tokens": 250,
-            "reasoning": {"enabled": think},
+            "max_tokens": 2000,
+            "reasoning": {"effort": "low"} if think else None,
         }
 
         try:
@@ -123,6 +123,11 @@ def generate_reply(history: str, model: str = DEFAULT_MODEL, think: bool = True)
             # If reasoning details were returned, log them for transparency
             if choice.get("reasoning_details"):
                 print(f"[reasoning] {choice['reasoning_details']}")
+            elif choice.get("reasoning"):
+                print(f"[reasoning] {choice['reasoning']}")
+
+            if "</think>" in content:
+                content = content.split("</think>")[-1].strip()
 
             return content
         except Exception as e:
