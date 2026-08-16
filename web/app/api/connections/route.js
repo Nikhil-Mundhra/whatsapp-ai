@@ -19,6 +19,7 @@ export async function POST(req) {
     ? body.allowedRecipients.map((s) => String(s).trim()).filter(Boolean)
     : String(body.allowedRecipients || "").split(",").map((s) => s.trim()).filter(Boolean);
   const aiApiKey = String(body.aiApiKey || "").trim();
+  const aiModel = String(body.aiModel || "").trim();
 
   if (!ownerPhone || !allowedRecipients.length || !aiApiKey) {
     return NextResponse.json(
@@ -31,6 +32,7 @@ export async function POST(req) {
     ownerPhone,
     allowedRecipients,
     aiApiKey,
+    aiModel,
   });
 
   return NextResponse.json({ hash: conn.hash, connection: conn }, { status: 201 });

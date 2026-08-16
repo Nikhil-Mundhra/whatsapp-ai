@@ -9,6 +9,7 @@ export default function SetupPage() {
     ownerPhone: "",
     allowedRecipients: "",
     aiApiKey: "",
+    aiModel: "",
     coupon: "",
   });
   const [hash, setHash] = useState(null);
@@ -16,7 +17,8 @@ export default function SetupPage() {
   const [rawQr, setRawQr] = useState("");
   const [timeLeft, setTimeLeft] = useState(20);
   const [linked, setLinked] = useState(false);
-  const [keyStatus, setKeyStatus] = useState({ state: "idle", message: "", provider: "" }); // idle | checking | valid | invalid
+  const [syncing, setSyncing] = useState(false);
+  const [keyStatus, setKeyStatus] = useState({ state: "idle", message: "", provider: "", models: [] }); // idle | checking | valid | invalid
   const validateTimerRef = useRef(null);
 
   const rawQrRef = useRef("");
@@ -29,10 +31,10 @@ export default function SetupPage() {
       setForm((prev) => ({ ...prev, [key]: val }));
       if (key === "aiApiKey") {
         if (!val.trim()) {
-          setKeyStatus({ state: "idle", message: "", provider: "" });
+          setKeyStatus({ state: "idle", message: "", provider: "", models: [] });
           return;
         }
-        setKeyStatus({ state: "checking", message: "Checking API key...", provider: "" });
+        setKeyStatus({ state: "checking", message: "Checking API key...", provider: "", models: [] });
         if (validateTimerRef.current) clearTimeout(validateTimerRef.current);
         validateTimerRef.current = setTimeout(async () => {
           try {
@@ -47,16 +49,23 @@ export default function SetupPage() {
                 state: "valid",
                 message: data.warning || `Valid ${data.provider} Key ✓`,
                 provider: data.provider,
+                models: data.models || [],
               });
+              if (data.defaultModel) {
+                setForm((prev) => ({ ...prev, aiModel: data.defaultModel }));
+              } else if (data.models?.[0]?.id) {
+                setForm((prev) => ({ ...prev, aiModel: data.models[0].id }));
+              }
             } else {
               setKeyStatus({
                 state: "invalid",
                 message: data.error || "Invalid API key",
                 provider: "",
+                models: [],
               });
             }
           } catch {
-            setKeyStatus({ state: "idle", message: "", provider: "" });
+            setKeyStatus({ state: "idle", message: "", provider: "", models: [] });
           }
         }, 800);
       }
@@ -89,6 +98,7 @@ export default function SetupPage() {
           ownerPhone: form.ownerPhone,
           allowedRecipients: form.allowedRecipients,
           aiApiKey: form.aiApiKey,
+          aiModel: form.aiModel,
           coupon: form.coupon,
         }),
       });
@@ -152,7 +162,6 @@ export default function SetupPage() {
         if (ticks % 2 === 0) {
           const qrRes = await fetch(`/api/connections/${h}/qr`, { cache: "no-store" });
           const qrData = await qrRes.json();
-          // Only update state if raw QR string has changed to prevent DOM flicker
           if (qrData.rawQr && qrData.rawQr !== rawQrRef.current) {
             rawQrRef.current = qrData.rawQr;
             setRawQr(qrData.rawQr);
@@ -251,6 +260,43 @@ export default function SetupPage() {
               }}
             />
           </div>
+
+          {/* Dynamic AI Model Dropdown when valid key is provided */}
+          {keyStatus.models?.length > 0 && (
+            <div style={{ display: "grid", gap: 4, background: "#f8fafc", padding: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: 600, fontSize: 13, color: "#334155" }}>
+                  AI MODEL ({keyStatus.provider})
+                </span>
+                <span style={{ fontSize: 11, color: "#64748b" }}>
+                  {keyStatus.models.length} models available
+                </span>
+              </div>
+              <select
+                value={form.aiModel}
+                onChange={update("aiModel")}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 6,
+                  border: "1px solid #cbd5e1",
+                  background: "#fff",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: "#1e293b",
+                }}
+              >
+                {keyStatus.models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name || m.id}
+                  </option>
+                ))}
+              </select>
+              <small style={{ color: "#64748b", fontSize: 12 }}>
+                Selected model will generate all persona-aligned responses.
+              </small>
+            </div>
+          )}
 
           <div style={{ display: "grid", gap: 4 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
