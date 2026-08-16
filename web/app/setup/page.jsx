@@ -87,6 +87,13 @@ export default function SetupPage() {
     return () => clearInterval(timerIntervalRef.current);
   }, [step, linked]);
 
+  const [existingHash, setExistingHash] = useState("");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("wa_hash");
+    if (saved) setExistingHash(saved);
+  }, []);
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
@@ -105,6 +112,9 @@ export default function SetupPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "setup failed");
       setHash(data.hash);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("wa_hash", data.hash);
+      }
       setStep(2);
       await provisionQr(data.hash);
     } catch (err) {
@@ -206,9 +216,22 @@ export default function SetupPage() {
       )}
 
       {step === 1 && (
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 14 }}>
-          <label style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontWeight: 600 }}>OWNER_PHONE</span>
+        <div style={{ display: "grid", gap: 14 }}>
+          {existingHash && (
+            <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "10px 14px", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13, color: "#166534" }}>Existing Connection:</span>
+                <code style={{ fontWeight: 700, color: "#15803d", fontSize: 14 }}>{existingHash}</code>
+              </div>
+              <a href={`/?hash=${existingHash}`} style={{ color: "#2563eb", fontWeight: 600, fontSize: 13, textDecoration: "none" }}>
+                Open Control Panel →
+              </a>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} style={{ display: "grid", gap: 14 }}>
+            <label style={{ display: "grid", gap: 4 }}>
+              <span style={{ fontWeight: 600 }}>OWNER_PHONE</span>
             <input
               value={form.ownerPhone}
               onChange={update("ownerPhone")}
@@ -325,7 +348,8 @@ export default function SetupPage() {
             Continue
           </button>
         </form>
-      )}
+      </div>
+    )}
 
       {step === 2 && (
         <div style={{ textAlign: "center", display: "grid", gap: 14, justifyContent: "center" }}>
