@@ -848,30 +848,55 @@ func (t *Tenant) provision() (string, error) {
 }
 
 func (t *Tenant) pairLoop() {
-	qrChan, _ := t.client.GetQRChannel(context.Background())
-	if err := t.client.Connect(); err != nil {
-		t.logger.Errorf("Failed to connect for QR channel: %v", err)
-		return
-	}
-	for evt := range qrChan {
-		switch evt.Event {
-		case "code":
-			t.mu.Lock()
-			t.qrCode = evt.Code
-			t.qrUpdated = time.Now()
+	for {
+		t.mu.Lock()
+		if t.paired || !t.pairing {
 			t.mu.Unlock()
-			fmt.Printf("\nScan this QR code to link tenant %s:\n", t.Hash)
-			qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-		case "success":
-			t.mu.Lock()
-			t.paired = true
-			t.pairing = false
-			t.qrCode = ""
-			t.mu.Unlock()
-			t.logger.Infof("Tenant %s paired successfully", t.Hash)
 			return
-		case "timeout":
-			t.logger.Warnf("Tenant %s QR pairing timed out", t.Hash)
+		}
+		t.mu.Unlock()
+
+		qrChan, err := t.client.GetQRChannel(context.Background())
+		if err != nil {
+			t.logger.Errorf("Failed to get QR channel: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		if err := t.client.Connect(); err != nil {
+			t.logger.Errorf("Failed to connect for QR channel: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		paired := false
+		for evt := range qrChan {
+			switch evt.Event {
+			case whatsmeow.QRChannelEventCode:
+				t.mu.Lock()
+				t.qrCode = evt.Code
+				t.qrUpdated = time.Now()
+				t.mu.Unlock()
+				fmt.Printf("\nScan this QR code to link tenant %s:\n", t.Hash)
+				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
+			case whatsmeow.QRChannelSuccess.Event:
+				t.mu.Lock()
+				t.paired = true
+				t.pairing = false
+				t.qrCode = ""
+				t.mu.Unlock()
+				t.logger.Infof("Tenant %s paired successfully", t.Hash)
+				paired = true
+				return
+			case whatsmeow.QRChannelTimeout.Event:
+				t.logger.Infof("Tenant %s QR code expired, requesting a new one...", t.Hash)
+			case whatsmeow.QRChannelEventError:
+				t.logger.Errorf("Tenant %s pairing error: %v", t.Hash, evt.Error)
+			}
+		}
+
+		if !paired {
+			t.client.Disconnect()
+			time.Sleep(1 * time.Second)
 		}
 	}
 }
