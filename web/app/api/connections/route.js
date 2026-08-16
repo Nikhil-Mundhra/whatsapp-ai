@@ -5,9 +5,9 @@ export async function POST(req) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "invalid body" }, { status: 400 });
 
-  const coupon = process.env.COUPON;
-  const provided = String(body.coupon || "").trim().toLowerCase();
-  if (coupon && provided !== coupon.toLowerCase()) {
+  const expectedCoupon = (process.env.COUPON || "coupon").trim().toLowerCase();
+  const providedCoupon = String(body.coupon || "").trim().toLowerCase();
+  if (providedCoupon !== expectedCoupon) {
     return NextResponse.json(
       { error: "invalid coupon. Contact wa.me/+917060410033 to get one." },
       { status: 403 }
