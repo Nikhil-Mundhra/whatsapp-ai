@@ -1277,13 +1277,25 @@ func main() {
 	client.Disconnect()
 }
 
+func isAllDigits(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return true
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && r != '+' && r != '-' && r != ' ' {
+			return false
+		}
+	}
+	return true
+}
+
 // GetChatName determines the appropriate name for a chat based on JID and other info
 func GetChatName(ctx context.Context, client *whatsmeow.Client, messageStore *MessageStore, jid types.JID, chatJID string, conversation interface{}, sender string, logger waLog.Logger) string {
-	// First, check if chat already exists in database with a name
+	// First, check if chat already exists in database with a non-numeric name
 	var existingName string
 	err := messageStore.db.QueryRow("SELECT name FROM chats WHERE jid = ?", chatJID).Scan(&existingName)
-	if err == nil && existingName != "" {
-		// Chat exists with a name, use that
+	if err == nil && existingName != "" && !isAllDigits(existingName) {
 		logger.Infof("Using existing chat name for %s: %s", chatJID, existingName)
 		return existingName
 	}
@@ -1295,30 +1307,21 @@ func GetChatName(ctx context.Context, client *whatsmeow.Client, messageStore *Me
 		// This is a group chat
 		logger.Infof("Getting name for group: %s", chatJID)
 
-		// Use conversation data if provided (from history sync)
 		if conversation != nil {
-			// Extract name from conversation if available
-			// This uses type assertions to handle different possible types
 			var displayName, convName *string
-			// Try to extract the fields we care about regardless of the exact type
 			v := reflect.ValueOf(conversation)
 			if v.Kind() == reflect.Ptr && !v.IsNil() {
 				v = v.Elem()
-
-				// Try to find DisplayName field
 				if displayNameField := v.FieldByName("DisplayName"); displayNameField.IsValid() && displayNameField.Kind() == reflect.Ptr && !displayNameField.IsNil() {
 					dn := displayNameField.Elem().String()
 					displayName = &dn
 				}
-
-				// Try to find Name field
 				if nameField := v.FieldByName("Name"); nameField.IsValid() && nameField.Kind() == reflect.Ptr && !nameField.IsNil() {
 					n := nameField.Elem().String()
 					convName = &n
 				}
 			}
 
-			// Use the name we found
 			if displayName != nil && *displayName != "" {
 				name = *displayName
 			} else if convName != nil && *convName != "" {
@@ -1326,13 +1329,11 @@ func GetChatName(ctx context.Context, client *whatsmeow.Client, messageStore *Me
 			}
 		}
 
-		// If we didn't get a name, try group info
 		if name == "" {
 			groupInfo, err := client.GetGroupInfo(ctx, jid)
 			if err == nil && groupInfo.Name != "" {
 				name = groupInfo.Name
 			} else {
-				// Fallback name for groups
 				name = fmt.Sprintf("Group %s", jid.User)
 			}
 		}
@@ -1342,15 +1343,41 @@ func GetChatName(ctx context.Context, client *whatsmeow.Client, messageStore *Me
 		// This is an individual contact
 		logger.Infof("Getting name for contact: %s", chatJID)
 
-		// Just use contact info (full name)
-		contact, err := client.Store.Contacts.GetContact(ctx, jid)
-		if err == nil && contact.FullName != "" {
-			name = contact.FullName
-		} else if sender != "" {
-			// Fallback to sender
+		// 1. Check contact store by JID
+		if client != nil && client.Store != nil && client.Store.Contacts != nil {
+			if contact, err := client.Store.Contacts.GetContact(ctx, jid); err == nil {
+				if contact.FullName != "" {
+					name = contact.FullName
+				} else if contact.BusinessName != "" {
+					name = contact.BusinessName
+				} else if contact.PushName != "" && !isAllDigits(contact.PushName) {
+					name = contact.PushName
+				}
+			}
+
+			// 2. If JID is an LID, lookup Phone Number JID and check Contacts
+			if name == "" && jid.Server == "lid" && client.Store.LIDs != nil {
+				if pn, err := client.Store.LIDs.GetPNForLID(ctx, jid); err == nil && !pn.IsEmpty() {
+					if contact, err := client.Store.Contacts.GetContact(ctx, pn); err == nil {
+						if contact.FullName != "" {
+							name = contact.FullName
+						} else if contact.BusinessName != "" {
+							name = contact.BusinessName
+						} else if contact.PushName != "" && !isAllDigits(contact.PushName) {
+							name = contact.PushName
+						}
+					}
+				}
+			}
+		}
+
+		// 3. Fallback to sender if non-numeric
+		if name == "" && sender != "" && !isAllDigits(sender) {
 			name = sender
-		} else {
-			// Last fallback to JID
+		}
+
+		// 4. Last fallback to JID User
+		if name == "" {
 			name = jid.User
 		}
 

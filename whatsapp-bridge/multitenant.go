@@ -238,6 +238,80 @@ func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
 	return false
 }
 
+func (t *Tenant) resolveContactName(msg *events.Message) string {
+	ctx := context.Background()
+	senderJID := msg.Info.Sender
+	chatJID := msg.Info.Chat
+
+	// 1. Check PushName directly on the message
+	if msg.Info.PushName != "" && !isAllDigits(msg.Info.PushName) {
+		return msg.Info.PushName
+	}
+
+	// 2. Check contacts store with Phone Number JID
+	if t.client != nil && t.client.Store != nil {
+		var pnJID types.JID
+		if senderJID.Server == "lid" && t.client.Store.LIDs != nil {
+			if pn, err := t.client.Store.LIDs.GetPNForLID(ctx, senderJID); err == nil && !pn.IsEmpty() {
+				pnJID = pn
+			}
+		} else {
+			pnJID = senderJID
+		}
+
+		if !pnJID.IsEmpty() && t.client.Store.Contacts != nil {
+			if contact, err := t.client.Store.Contacts.GetContact(ctx, pnJID); err == nil {
+				if contact.FullName != "" {
+					return contact.FullName
+				}
+				if contact.BusinessName != "" {
+					return contact.BusinessName
+				}
+				if contact.PushName != "" && !isAllDigits(contact.PushName) {
+					return contact.PushName
+				}
+			}
+		}
+
+		// Also check senderJID directly in Contacts
+		if t.client.Store.Contacts != nil {
+			if contact, err := t.client.Store.Contacts.GetContact(ctx, senderJID); err == nil {
+				if contact.FullName != "" {
+					return contact.FullName
+				}
+				if contact.BusinessName != "" {
+					return contact.BusinessName
+				}
+				if contact.PushName != "" && !isAllDigits(contact.PushName) {
+					return contact.PushName
+				}
+			}
+		}
+	}
+
+	// 3. Check SQLite database chats table (only if not purely digits)
+	if t.messageStore != nil && t.messageStore.db != nil {
+		var name string
+		if err := t.messageStore.db.QueryRow("SELECT name FROM chats WHERE jid = ? OR jid = ?", chatJID.String(), senderJID.String()).Scan(&name); err == nil {
+			if name != "" && !isAllDigits(name) {
+				return name
+			}
+		}
+	}
+
+	// 4. Fallback to Phone Number if known instead of raw LID number
+	if t.client != nil && t.client.Store != nil && t.client.Store.LIDs != nil && senderJID.Server == "lid" {
+		if pn, err := t.client.Store.LIDs.GetPNForLID(ctx, senderJID); err == nil && !pn.IsEmpty() {
+			return "+" + pn.User
+		}
+	}
+
+	if senderJID.User != "" {
+		return senderJID.User
+	}
+	return "Contact"
+}
+
 // setupEventHandler wires message and poll events for this tenant.
 func (t *Tenant) setupEventHandler() {
 	t.client.AddEventHandler(func(evt interface{}) {
@@ -281,10 +355,7 @@ func (t *Tenant) setupEventHandler() {
 						t.logger.Infof("Active takeover grant for %s -> drafting AI reply immediately", t.Hash)
 						go t.replyToChat(v.Info.Chat)
 					} else if t.ownerPhone != "" {
-						chatName := GetChatName(context.Background(), t.client, t.messageStore, v.Info.Chat, v.Info.Chat.String(), nil, sender, t.logger)
-						if chatName == "" || chatName == sender {
-							chatName = sender
-						}
+						chatName := t.resolveContactName(v)
 						question := fmt.Sprintf("%s texted you. Take over?", chatName)
 						options := []string{"Send 1 text", "5 minutes", "2 hours", "Deny"}
 						ok, status, pollID := sendWhatsAppPoll(t.client, t.ownerPhone, question, options, 1)
