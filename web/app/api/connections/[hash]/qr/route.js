@@ -8,22 +8,33 @@ async function toQrImage(code) {
   return code ? QRCode.toDataURL(code, { width: 280, margin: 1 }) : null;
 }
 
-export async function POST(_req, props) {
+export async function POST(req, props) {
   const { hash } = await props.params;
-  const conn = await getConnection(hash);
-  if (!conn) return NextResponse.json({ error: "connection not found" }, { status: 404 });
+  if (!hash) return NextResponse.json({ error: "missing hash" }, { status: 400 });
   if (!BRIDGE_URL) {
     return NextResponse.json({ error: "BRIDGE_URL is not configured in Vercel" }, { status: 503 });
+  }
+
+  const conn = (await getConnection(hash)) || {};
+  let bodyPayload = {
+    ownerPhone: conn.ownerPhone || "",
+    allowedRecipients: conn.allowedRecipients || [],
+  };
+
+  // If client provided a body, merge it
+  const incomingBody = await req.json().catch(() => null);
+  if (incomingBody) {
+    bodyPayload = {
+      ownerPhone: incomingBody.ownerPhone || bodyPayload.ownerPhone,
+      allowedRecipients: incomingBody.allowedRecipients || bodyPayload.allowedRecipients,
+    };
   }
 
   try {
     const res = await fetch(`${BRIDGE_URL}/api/connections/${hash}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ownerPhone: conn.ownerPhone,
-        allowedRecipients: conn.allowedRecipients,
-      }),
+      body: JSON.stringify(bodyPayload),
       signal: AbortSignal.timeout(15000),
     });
 
@@ -35,7 +46,9 @@ export async function POST(_req, props) {
       );
     }
 
-    await updateConnection(hash, { status: "pairing" });
+    if (conn.hash) {
+      await updateConnection(hash, { status: "pairing" });
+    }
     const data = await res.json();
     const qrImage = await toQrImage(data.qr);
     return NextResponse.json({
@@ -54,8 +67,7 @@ export async function POST(_req, props) {
 
 export async function GET(_req, props) {
   const { hash } = await props.params;
-  const conn = await getConnection(hash);
-  if (!conn) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (!hash) return NextResponse.json({ error: "missing hash" }, { status: 400 });
   if (!BRIDGE_URL) return NextResponse.json({ qr: null }, { status: 503 });
 
   try {

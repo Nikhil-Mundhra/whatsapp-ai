@@ -47,7 +47,14 @@ export default function SetupPage() {
   async function provisionQr(h) {
     setSyncing(true);
     try {
-      const res = await fetch(`/api/connections/${h}/qr`, { method: "POST" });
+      const res = await fetch(`/api/connections/${h}/qr`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ownerPhone: form.ownerPhone,
+          allowedRecipients: form.allowedRecipients,
+        }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "failed to start pairing");
       setQr(data.qr);

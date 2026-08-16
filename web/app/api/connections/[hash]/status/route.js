@@ -5,25 +5,30 @@ const BRIDGE_URL = process.env.BRIDGE_URL || "";
 
 export async function GET(_req, props) {
   const { hash } = await props.params;
-  const conn = await getConnection(hash);
-  if (!conn) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (!hash) return NextResponse.json({ error: "missing hash" }, { status: 400 });
 
   let linked = false;
   let error = null;
+
   if (BRIDGE_URL) {
     try {
       const res = await fetch(`${BRIDGE_URL}/api/connections/${hash}/status`, {
         cache: "no-store",
         signal: AbortSignal.timeout(5000),
       });
-      const data = await res.json();
-      linked = Boolean(data.linked);
+      if (res.ok) {
+        const data = await res.json();
+        linked = Boolean(data.linked);
+      } else {
+        error = `bridge status error: ${res.status}`;
+      }
     } catch (e) {
       error = "bridge unreachable";
     }
   }
 
-  if (linked && conn.status !== "linked") {
+  const conn = await getConnection(hash);
+  if (conn && linked && conn.status !== "linked") {
     await updateConnection(hash, { status: "linked" });
   }
 

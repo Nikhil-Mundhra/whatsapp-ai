@@ -5,8 +5,9 @@ const BRIDGE_URL = process.env.BRIDGE_URL || "";
 
 export async function GET(_req, props) {
   const { hash } = await props.params;
-  const conn = await getConnection(hash);
-  if (!conn) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (!hash) return NextResponse.json({ error: "missing hash" }, { status: 400 });
+
+  const conn = (await getConnection(hash)) || { hash, status: "configuring" };
 
   let whatsapp = conn.status === "linked" ? "linked" : "configuring";
   let error = null;
@@ -16,8 +17,10 @@ export async function GET(_req, props) {
         cache: "no-store",
         signal: AbortSignal.timeout(5000),
       });
-      const data = await res.json();
-      whatsapp = data.linked ? "linked" : "configuring";
+      if (res.ok) {
+        const data = await res.json();
+        whatsapp = data.linked ? "linked" : "configuring";
+      }
     } catch (e) {
       error = "bridge unreachable";
     }
