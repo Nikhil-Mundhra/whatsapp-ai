@@ -16,14 +16,51 @@ export default function SetupPage() {
   const [rawQr, setRawQr] = useState("");
   const [timeLeft, setTimeLeft] = useState(20);
   const [linked, setLinked] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [keyStatus, setKeyStatus] = useState({ state: "idle", message: "", provider: "" }); // idle | checking | valid | invalid
+  const validateTimerRef = useRef(null);
 
   const rawQrRef = useRef("");
   const pollIntervalRef = useRef(null);
   const timerIntervalRef = useRef(null);
 
   function update(key) {
-    return (e) => setForm({ ...form, [key]: e.target.value });
+    return (e) => {
+      const val = e.target.value;
+      setForm((prev) => ({ ...prev, [key]: val }));
+      if (key === "aiApiKey") {
+        if (!val.trim()) {
+          setKeyStatus({ state: "idle", message: "", provider: "" });
+          return;
+        }
+        setKeyStatus({ state: "checking", message: "Checking API key...", provider: "" });
+        if (validateTimerRef.current) clearTimeout(validateTimerRef.current);
+        validateTimerRef.current = setTimeout(async () => {
+          try {
+            const res = await fetch("/api/validate-key", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ apiKey: val.trim() }),
+            });
+            const data = await res.json();
+            if (data.valid) {
+              setKeyStatus({
+                state: "valid",
+                message: data.warning || `Valid ${data.provider} Key ✓`,
+                provider: data.provider,
+              });
+            } else {
+              setKeyStatus({
+                state: "invalid",
+                message: data.error || "Invalid API key",
+                provider: "",
+              });
+            }
+          } catch {
+            setKeyStatus({ state: "idle", message: "", provider: "" });
+          }
+        }, 800);
+      }
+    };
   }
 
   // 1-second countdown timer for the active QR code
@@ -183,16 +220,37 @@ export default function SetupPage() {
             <small style={{ color: "#888" }}>Comma-separated contacts the AI may text.</small>
           </label>
 
-          <label style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontWeight: 600 }}>AI API KEY</span>
+          <div style={{ display: "grid", gap: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontWeight: 600 }}>AI API KEY</span>
+              {keyStatus.state === "checking" && (
+                <span style={{ fontSize: 12, color: "#6b7280" }}>⏳ Verifying key...</span>
+              )}
+              {keyStatus.state === "valid" && (
+                <span style={{ fontSize: 12, color: "#16a34a", fontWeight: 600 }}>{keyStatus.message}</span>
+              )}
+              {keyStatus.state === "invalid" && (
+                <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>❌ {keyStatus.message}</span>
+              )}
+            </div>
             <input
               type="password"
               value={form.aiApiKey}
               onChange={update("aiApiKey")}
-              placeholder="Your AI provider key"
-              style={{ padding: 10, borderRadius: 6, border: "1px solid #ccc" }}
+              placeholder="e.g. Gemini, OpenAI, Claude, Groq or OpenRouter key"
+              style={{
+                padding: 10,
+                borderRadius: 6,
+                border: `1px solid ${
+                  keyStatus.state === "valid"
+                    ? "#22c55e"
+                    : keyStatus.state === "invalid"
+                    ? "#ef4444"
+                    : "#ccc"
+                }`,
+              }}
             />
-          </label>
+          </div>
 
           <div style={{ display: "grid", gap: 4 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
