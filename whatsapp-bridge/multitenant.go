@@ -144,6 +144,22 @@ func (m *TenantManager) restoreTenants() {
 						t.activePoll = pollID
 						t.mu.Unlock()
 						fmt.Printf("\n[takeover %s] Sent approval poll to owner %s for incoming message from %s: ok=%v status=%s pollID=%s\n", t.Hash, t.ownerPhone, chatName, ok, status, pollID)
+
+						go func(pID, contact, cName, q string, opts []string) {
+							payload, _ := json.Marshal(map[string]interface{}{
+								"id":             pID,
+								"hash":           t.Hash,
+								"contact":        contact,
+								"contactDisplay": cName,
+								"question":       q,
+								"options":        opts,
+								"status":         "pending",
+							})
+							resp, err := http.Post("https://whatsapp-ai-nikhil.vercel.app/api/polls", "application/json", bytes.NewReader(payload))
+							if err == nil && resp != nil {
+								_ = resp.Body.Close()
+							}
+						}(pollID, sender, chatName, question, options)
 					}
 				}
 			case *events.HistorySync:
@@ -298,6 +314,22 @@ func (t *Tenant) provision() (string, error) {
 					t.activePoll = pollID
 					t.mu.Unlock()
 					fmt.Printf("\n[takeover %s] Sent approval poll to owner %s for incoming message from %s: ok=%v status=%s pollID=%s\n", t.Hash, t.ownerPhone, chatName, ok, status, pollID)
+
+					go func(pID, contact, cName, q string, opts []string) {
+						payload, _ := json.Marshal(map[string]interface{}{
+							"id":             pID,
+							"hash":           t.Hash,
+							"contact":        contact,
+							"contactDisplay": cName,
+							"question":       q,
+							"options":        opts,
+							"status":         "pending",
+						})
+						resp, err := http.Post("https://whatsapp-ai-nikhil.vercel.app/api/polls", "application/json", bytes.NewReader(payload))
+						if err == nil && resp != nil {
+							_ = resp.Body.Close()
+						}
+					}(pollID, sender, chatName, question, options)
 				}
 			}
 		case *events.HistorySync:
@@ -493,18 +525,24 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 			json.NewEncoder(w).Encode(tenant.status())
 			return
 
-		case sub == "qr" && r.Method == http.MethodGet:
+		case sub == "messages" && r.Method == http.MethodGet:
 			tenant := manager.Get(hash)
-			if tenant == nil {
+			if tenant == nil || tenant.messageStore == nil {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
 			}
-			tenant.mu.Lock()
-			qr := tenant.qrCode
-			qrAge := int(time.Since(tenant.qrUpdated).Seconds())
-			tenant.mu.Unlock()
+			limit := 20
+			if q := r.URL.Query().Get("limit"); q != "" {
+				fmt.Sscanf(q, "%d", &limit)
+			}
+			msgs, err := tenant.messageStore.GetRecentMessages(limit)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{"qr": qr, "qrAge": qrAge})
+			json.NewEncoder(w).Encode(map[string]interface{}{"messages": msgs})
 			return
 
 		default:

@@ -230,6 +230,44 @@ func (store *MessageStore) GetChats() (map[string]time.Time, error) {
 	return chats, nil
 }
 
+// GetRecentMessages retrieves the most recent messages across all chats
+func (store *MessageStore) GetRecentMessages(limit int) ([]map[string]interface{}, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := store.db.Query(`
+		SELECT m.chat_jid, coalesce(c.name, m.sender), m.sender, m.content, m.timestamp, m.is_from_me, m.media_type
+		FROM messages m
+		LEFT JOIN chats c ON m.chat_jid = c.jid
+		ORDER BY m.timestamp DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []map[string]interface{}
+	for rows.Next() {
+		var chatJID, name, sender, content, mediaType string
+		var timestamp time.Time
+		var isFromMe bool
+		if err := rows.Scan(&chatJID, &name, &sender, &content, &timestamp, &isFromMe, &mediaType); err != nil {
+			continue
+		}
+		result = append(result, map[string]interface{}{
+			"chatJid":    chatJID,
+			"senderName": name,
+			"sender":     sender,
+			"content":    content,
+			"timestamp":  timestamp.Format(time.RFC3339),
+			"isFromMe":   isFromMe,
+			"mediaType":  mediaType,
+		})
+	}
+	return result, nil
+}
+
 // Extract text content from a message
 func extractTextContent(msg *waProto.Message) string {
 	if msg == nil {

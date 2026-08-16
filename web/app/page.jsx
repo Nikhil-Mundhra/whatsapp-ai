@@ -8,6 +8,7 @@ export default function Home() {
   const [isEditingHash, setIsEditingHash] = useState(false);
   const [connInfo, setConnInfo] = useState(null);
   const [polls, setPolls] = useState([]);
+  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [votingId, setVotingId] = useState(null);
 
@@ -25,17 +26,17 @@ export default function Home() {
     }
   }, []);
 
-  // 2. Fetch live connection info and polls whenever hash changes
+  // 2. Fetch live connection info, polls, and messages whenever hash changes
   useEffect(() => {
     if (!hash) return;
     localStorage.setItem("wa_hash", hash);
 
     async function fetchData() {
       try {
-        // Fetch connection metadata & status
-        const [connRes, pollsRes] = await Promise.all([
+        const [connRes, pollsRes, msgsRes] = await Promise.all([
           fetch(`/api/connections/${hash}`, { cache: "no-store" }),
           fetch(`/api/polls?hash=${hash}&limit=50`, { cache: "no-store" }),
+          fetch(`/api/connections/${hash}/messages?limit=20`, { cache: "no-store" }),
         ]);
 
         if (connRes.ok) {
@@ -46,6 +47,11 @@ export default function Home() {
         if (pollsRes.ok) {
           const pollsData = await pollsRes.json();
           setPolls(pollsData.polls || []);
+        }
+
+        if (msgsRes.ok) {
+          const msgsData = await msgsRes.json();
+          setMessages(msgsData.messages || []);
         }
       } catch (err) {
         console.error("Failed to load dashboard data", err);
@@ -67,7 +73,6 @@ export default function Home() {
       localStorage.setItem("wa_hash", clean);
       setIsEditingHash(false);
       setLoading(true);
-      // Update URL query param without full reload
       window.history.replaceState(null, "", `?hash=${clean}`);
     }
   }
@@ -96,7 +101,7 @@ export default function Home() {
   const pending = polls.filter((p) => p.status === "pending");
 
   return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
+    <main style={{ maxWidth: 760, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -187,7 +192,7 @@ export default function Home() {
         <div style={{ background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 12, padding: 32, textAlign: "center", margin: "20px 0" }}>
           <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>Enter your Connection Code</h2>
           <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 16px" }}>
-            Enter your 6-character code (e.g. <code>VB552P</code>) to view live takeover polls and link status.
+            Enter your 6-character code (e.g. <code>VB552P</code>) to view live takeover polls, messages, and link status.
           </p>
           <form onSubmit={handleSaveHash} style={{ display: "inline-flex", gap: 8 }}>
             <input
@@ -231,7 +236,7 @@ export default function Home() {
             <span style={{ width: 10, height: 10, borderRadius: "50%", background: connInfo.whatsapp === "linked" ? "#22c55e" : "#eab308" }} />
             <div>
               <div style={{ fontWeight: 600, fontSize: 14, color: "#166534" }}>
-                {connInfo.whatsapp === "linked" ? "WhatsApp Connected & Ready" : "Pairing in progress..."}
+                {connInfo.whatsapp === "linked" ? "WhatsApp Connected & Live" : "Pairing in progress..."}
               </div>
               <div style={{ fontSize: 12, color: "#15803d" }}>
                 Owner: {connInfo.connection?.ownerPhone || "Configured"} | Recipient: {Array.isArray(connInfo.connection?.allowedRecipients) ? connInfo.connection.allowedRecipients.join(", ") : connInfo.connection?.allowedRecipients || "Active"}
@@ -290,11 +295,68 @@ export default function Home() {
             </section>
           )}
 
+          {/* Live Recent Messages from Contacts */}
+          <section style={{ marginBottom: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h2 style={{ fontSize: 16, margin: 0, color: "#1e293b" }}>💬 Live Recent Messages</h2>
+              <span style={{ fontSize: 12, color: "#64748b" }}>Auto-refreshing (3s)</span>
+            </div>
+
+            {messages.length === 0 ? (
+              <div style={{ padding: 20, textAlign: "center", background: "#f8fafc", borderRadius: 8, border: "1px solid #f1f5f9", color: "#64748b", fontSize: 13 }}>
+                No messages recorded yet. Live texts will stream here automatically.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {messages.slice(0, 10).map((m, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      border: "1px solid #e2e8f0",
+                      background: m.isFromMe ? "#f0fdf4" : "#ffffff",
+                      borderRadius: 8,
+                      padding: "10px 14px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                        <span style={{ fontWeight: 600, fontSize: 13, color: m.isFromMe ? "#166534" : "#1e293b" }}>
+                          {m.isFromMe ? "You (Me)" : m.senderName || m.sender}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            padding: "1px 6px",
+                            borderRadius: 4,
+                            background: m.isFromMe ? "#dcfce7" : "#e0e7ff",
+                            color: m.isFromMe ? "#15803d" : "#4338ca",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {m.isFromMe ? "OUTGOING →" : "INCOMING ←"}
+                        </span>
+                      </div>
+                      <div style={{ color: "#334155", fontSize: 14 }}>
+                        {m.content || (m.mediaType ? `[${m.mediaType}]` : "(no text)")}
+                      </div>
+                    </div>
+                    <span style={{ color: "#94a3b8", fontSize: 11, whiteSpace: "nowrap" }}>
+                      {m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
           {/* History Section */}
           <section>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <h2 style={{ fontSize: 16, margin: 0, color: "#334155" }}>Take-over History</h2>
-              <span style={{ fontSize: 12, color: "#64748b" }}>Live sync (every 3s)</span>
             </div>
 
             {loading && polls.length === 0 && (
@@ -302,8 +364,8 @@ export default function Home() {
             )}
 
             {!loading && polls.length === 0 && (
-              <div style={{ padding: 24, textAlign: "center", background: "#f8fafc", borderRadius: 8, border: "1px solid #f1f5f9", color: "#64748b", fontSize: 14 }}>
-                No takeover requests yet. Incoming messages from your allowed contacts will trigger polls here and on WhatsApp.
+              <div style={{ padding: 20, textAlign: "center", background: "#f8fafc", borderRadius: 8, border: "1px solid #f1f5f9", color: "#64748b", fontSize: 13 }}>
+                No past takeovers yet.
               </div>
             )}
 
