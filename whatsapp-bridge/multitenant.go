@@ -30,6 +30,8 @@ import (
 type TenantConfig struct {
 	OwnerPhone string   `json:"ownerPhone"`
 	Recipients []string `json:"recipients"`
+	AIApiKey   string   `json:"aiApiKey"`
+	AIModel    string   `json:"aiModel"`
 }
 
 // Tenant is a single linked WhatsApp account (one per setup hash).
@@ -42,12 +44,20 @@ type Tenant struct {
 	logger       waLog.Logger
 	ownerPhone   string
 	recipients   []string
+	aiApiKey     string
+	aiModel      string
 
 	qrCode     string
 	qrUpdated  time.Time
 	paired     bool
 	pairing    bool
 	activePoll string
+
+	// Takeover Grant State
+	grantKind      string    // "none" | "count" | "duration"
+	grantRemaining int       // count remaining
+	grantExpiresAt time.Time // expiry for duration grant
+	lastTargetJID  types.JID // target contact to reply to
 }
 
 // TenantManager holds all provisioned tenants keyed by setup hash.
@@ -70,10 +80,6 @@ func (m *TenantManager) Get(hash string) *Tenant {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.tenants[hash]
-}
-
-func (m *TenantManager) Has(hash string) bool {
-	return m.Get(hash) != nil
 }
 
 func (m *TenantManager) Add(t *Tenant) {
@@ -112,7 +118,6 @@ func (m *TenantManager) restoreTenants() {
 		}
 		deviceStore, err := container.GetFirstDevice(context.Background())
 		if err != nil || deviceStore == nil || deviceStore.ID == nil {
-			// Unauthenticated session, don't auto-start QR loop on boot
 			_ = container.Close()
 			continue
 		}
@@ -122,19 +127,159 @@ func (m *TenantManager) restoreTenants() {
 		ms, _ := NewMessageStore(filepath.Join(dir, "messages.db"))
 		t.messageStore = ms
 
-		t.client.AddEventHandler(func(evt interface{}) {
-			switch v := evt.(type) {
-			case *events.Message:
-				if v.Message.GetPollUpdateMessage() != nil {
-					handlePollVote(t.client, t.messageStore, v, t.logger)
-				} else {
-					handleMessage(t.client, t.messageStore, v, t.logger)
+		t.setupEventHandler()
 
-					sender := v.Info.Sender.User
-					isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
-					t.logger.Infof("Incoming message from %s [Chat: %s] (allowed=%v, owner=%s, recipients=%v)", v.Info.Sender, v.Info.Chat, isAllowed, t.ownerPhone, t.recipients)
+		if err := t.client.Connect(); err != nil {
+			m.logger.Warnf("Failed to connect restored tenant %s: %v", hash, err)
+		} else {
+			t.paired = true
+			m.Add(t)
+			m.logger.Infof("Auto-restored and connected tenant %s (owner=%s)", hash, t.ownerPhone)
+		}
+	}
+}
 
-					if !v.Info.IsFromMe && isAllowed && t.ownerPhone != "" {
+// dir returns the per-tenant data directory (e.g. store/tenants/<hash>).
+func (t *Tenant) dir() string {
+	return filepath.Join("store", "tenants", t.Hash)
+}
+
+func (t *Tenant) configFile() string {
+	return filepath.Join(t.dir(), "config.json")
+}
+
+func (t *Tenant) saveConfig() {
+	cfg := TenantConfig{
+		OwnerPhone: t.ownerPhone,
+		Recipients: t.recipients,
+		AIApiKey:   t.aiApiKey,
+		AIModel:    t.aiModel,
+	}
+	if data, err := json.MarshalIndent(cfg, "", "  "); err == nil {
+		_ = os.WriteFile(t.configFile(), data, 0644)
+	}
+}
+
+func (t *Tenant) loadConfig() {
+	data, err := os.ReadFile(t.configFile())
+	if err != nil {
+		return
+	}
+	var cfg TenantConfig
+	if err := json.Unmarshal(data, &cfg); err == nil {
+		t.ownerPhone = cfg.OwnerPhone
+		t.recipients = cfg.Recipients
+		t.aiApiKey = cfg.AIApiKey
+		t.aiModel = cfg.AIModel
+	}
+}
+
+func normalizePhone(phone string) string {
+	var out strings.Builder
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
+}
+
+func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
+	candidates := []string{
+		senderJID.User,
+		chatJID.User,
+	}
+
+	if t.client != nil && t.client.Store != nil {
+		if senderJID.Server == "lid" {
+			if pn, err := t.client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+				candidates = append(candidates, pn.User)
+			}
+		}
+		if chatJID.Server == "lid" {
+			if pn, err := t.client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+				candidates = append(candidates, pn.User)
+			}
+		}
+
+		for _, r := range t.recipients {
+			normR := normalizePhone(r)
+			if normR == "" {
+				continue
+			}
+			pnJID := types.NewJID(normR, types.DefaultUserServer)
+			if lid, err := t.client.Store.LIDs.GetLIDForPN(context.Background(), pnJID); err == nil && !lid.IsEmpty() {
+				if lid.User == senderJID.User || lid.User == chatJID.User {
+					return true
+				}
+				candidates = append(candidates, lid.User)
+			}
+		}
+	}
+
+	t.logger.Infof("Evaluating allowed recipient for sender %s (chat %s): candidates=%v allowed_recipients=%v", senderJID, chatJID, candidates, t.recipients)
+
+	for _, cand := range candidates {
+		normCand := normalizePhone(cand)
+		if normCand == "" {
+			continue
+		}
+		for _, r := range t.recipients {
+			normR := normalizePhone(r)
+			if normR == "" {
+				continue
+			}
+			if normR == normCand || strings.HasSuffix(normCand, normR) || strings.HasSuffix(normR, normCand) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// setupEventHandler wires message and poll events for this tenant.
+func (t *Tenant) setupEventHandler() {
+	t.client.AddEventHandler(func(evt interface{}) {
+		switch v := evt.(type) {
+		case *events.Message:
+			if v.Message.GetPollUpdateMessage() != nil {
+				t.handleTenantPollVote(v)
+			} else {
+				handleMessage(t.client, t.messageStore, v, t.logger)
+
+				sender := v.Info.Sender.User
+				isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
+
+				if v.Info.IsFromMe && isAllowed {
+					t.mu.Lock()
+					if t.grantKind != "none" {
+						t.grantKind = "none"
+						t.grantRemaining = 0
+						t.logger.Infof("Owner sent manual message -> reset takeover grant for %s", t.Hash)
+					}
+					t.mu.Unlock()
+					return
+				}
+
+				if !v.Info.IsFromMe && isAllowed {
+					t.mu.Lock()
+					t.lastTargetJID = v.Info.Chat
+					activeGrant := false
+					if t.grantKind == "duration" && time.Now().Before(t.grantExpiresAt) {
+						activeGrant = true
+					} else if t.grantKind == "count" && t.grantRemaining > 0 {
+						t.grantRemaining--
+						if t.grantRemaining == 0 {
+							t.grantKind = "none"
+						}
+						activeGrant = true
+					}
+					t.mu.Unlock()
+
+					if activeGrant {
+						t.logger.Infof("Active takeover grant for %s -> drafting AI reply immediately", t.Hash)
+						go t.replyToChat(v.Info.Chat)
+					} else if t.ownerPhone != "" {
 						chatName := GetChatName(context.Background(), t.client, t.messageStore, v.Info.Chat, v.Info.Chat.String(), nil, sender, t.logger)
 						if chatName == "" || chatName == sender {
 							chatName = sender
@@ -164,135 +309,196 @@ func (m *TenantManager) restoreTenants() {
 						}(pollID, sender, chatName, question, options)
 					}
 				}
-			case *events.HistorySync:
-				handleHistorySync(t.client, t.messageStore, v, t.logger)
-			case *events.Connected:
-				t.logger.Infof("Tenant %s connected", t.Hash)
-			case *events.LoggedOut:
-				t.logger.Warnf("Tenant %s logged out from WhatsApp. Wiping stored session and messages...", t.Hash)
-				t.mu.Lock()
-				t.paired = false
-				t.pairing = false
-				t.qrCode = ""
-				if t.client != nil {
-					t.client.Disconnect()
-				}
-				t.mu.Unlock()
-				_ = os.RemoveAll(t.dir())
-				t.logger.Infof("Tenant %s local data wiped.", t.Hash)
 			}
-		})
-
-		if err := t.client.Connect(); err != nil {
-			m.logger.Warnf("Failed to connect restored tenant %s: %v", hash, err)
-		} else {
-			t.paired = true
-			m.Add(t)
-			m.logger.Infof("Auto-restored and connected tenant %s (owner=%s)", hash, t.ownerPhone)
+		case *events.HistorySync:
+			handleHistorySync(t.client, t.messageStore, v, t.logger)
+		case *events.Connected:
+			t.logger.Infof("Tenant %s connected", t.Hash)
+		case *events.LoggedOut:
+			t.logger.Warnf("Tenant %s logged out from WhatsApp. Wiping stored session and messages...", t.Hash)
+			t.mu.Lock()
+			t.paired = false
+			t.pairing = false
+			t.qrCode = ""
+			if t.client != nil {
+				t.client.Disconnect()
+			}
+			t.mu.Unlock()
+			_ = os.RemoveAll(t.dir())
+			t.logger.Infof("Tenant %s local data wiped.", t.Hash)
 		}
-	}
+	})
 }
 
-// dir returns the per-tenant data directory (e.g. store/tenants/<hash>).
-func (t *Tenant) dir() string {
-	return filepath.Join("store", "tenants", t.Hash)
-}
-
-func (t *Tenant) configFile() string {
-	return filepath.Join(t.dir(), "config.json")
-}
-
-func (t *Tenant) saveConfig() {
-	cfg := TenantConfig{
-		OwnerPhone: t.ownerPhone,
-		Recipients: t.recipients,
-	}
-	if data, err := json.MarshalIndent(cfg, "", "  "); err == nil {
-		_ = os.WriteFile(t.configFile(), data, 0644)
-	}
-}
-
-func (t *Tenant) loadConfig() {
-	data, err := os.ReadFile(t.configFile())
-	if err != nil {
+// handleTenantPollVote handles incoming poll votes from the owner and activates takeover grants.
+func (t *Tenant) handleTenantPollVote(msg *events.Message) {
+	if msg.Message.GetPollUpdateMessage() == nil {
 		return
 	}
-	var cfg TenantConfig
-	if err := json.Unmarshal(data, &cfg); err == nil {
-		t.ownerPhone = cfg.OwnerPhone
-		t.recipients = cfg.Recipients
+	vote, err := t.client.DecryptPollVote(context.Background(), msg)
+	if err != nil {
+		t.logger.Warnf("Failed to decrypt poll vote: %v", err)
+		return
+	}
+	pollMsgID := msg.Message.GetPollUpdateMessage().GetPollCreationMessageKey().GetID()
+	question, selected := resolvePollOptions(pollMsgID, vote.GetSelectedOptions())
+	timestamp := msg.Info.Timestamp.Format("2006-01-02 15:04:05")
+	fmt.Printf("[%s] POLL VOTE from %s on %q: %v\n", timestamp, msg.Info.Sender, question, selected)
+	joined := strings.Join(selected, ", ")
+	_ = t.messageStore.StorePollVote(pollMsgID, msg.Info.Sender.String(), question, joined, msg.Info.Timestamp)
+
+	if len(selected) > 0 {
+		choice := selected[0]
+		t.mu.Lock()
+		targetJID := t.lastTargetJID
+		switch choice {
+		case "Send 1 text":
+			t.grantKind = "count"
+			t.grantRemaining = 1
+			t.logger.Infof("Takeover granted for %s: 1 text", t.Hash)
+			t.mu.Unlock()
+			go t.replyToChat(targetJID)
+		case "5 minutes":
+			t.grantKind = "duration"
+			t.grantExpiresAt = time.Now().Add(5 * time.Minute)
+			t.logger.Infof("Takeover granted for %s: 5 minutes (until %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"))
+			t.mu.Unlock()
+			go t.replyToChat(targetJID)
+		case "2 hours":
+			t.grantKind = "duration"
+			t.grantExpiresAt = time.Now().Add(2 * time.Hour)
+			t.logger.Infof("Takeover granted for %s: 2 hours (until %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"))
+			t.mu.Unlock()
+			go t.replyToChat(targetJID)
+		case "Deny":
+			t.grantKind = "none"
+			t.grantRemaining = 0
+			t.logger.Infof("Takeover denied for %s", t.Hash)
+			t.mu.Unlock()
+		default:
+			t.mu.Unlock()
+		}
 	}
 }
 
-func normalizePhone(phone string) string {
-	var out strings.Builder
-	for _, r := range phone {
-		if r >= '0' && r <= '9' {
-			out.WriteRune(r)
-		}
+// replyToChat drafts a persona-aligned reply using OpenRouter Qwen 3.8 27B and sends it via WhatsApp.
+func (t *Tenant) replyToChat(targetJID types.JID) {
+	if t.client == nil || !t.client.IsConnected() || targetJID.IsEmpty() {
+		return
 	}
-	return out.String()
+
+	chatJID := targetJID.String()
+	msgs, err := t.messageStore.GetMessages(chatJID, 20)
+	if err != nil || len(msgs) == 0 {
+		t.logger.Warnf("No chat history found for %s to generate reply", chatJID)
+		return
+	}
+
+	var historyBuilder strings.Builder
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := msgs[i]
+		prefix := "From: " + m.Sender
+		if m.IsFromMe {
+			prefix = "From: Me"
+		}
+		historyBuilder.WriteString(fmt.Sprintf("%s: %s\n", prefix, m.Content))
+	}
+	history := historyBuilder.String()
+
+	systemPrompt := `You are the person who writes the messages labeled 'From: Me' in the conversation history below. That is your own writing style: mirror your own message length, tone, capitalization, punctuation, slang, and emoji usage. If your messages are one-liners, reply with one-liners. If you use emojis, use emojis; if you don't, don't. Stay in the same language you use. Do NOT copy or mirror the other person's style.
+
+READ THE ROOM:
+- The last message from the other person is the one you are replying to. Answer what THEY just said and stay on that topic. Never reply with a generic or off-topic one-liner.
+- Never repeat a message you already sent in the history, and never send the same text twice in a row.
+- Never continue your own monologue: if the other person has not spoken since your last message, you have nothing to reply to.
+- Reply naturally and human. Don't mention that you're an AI. Don't use markdown. Output only the message text and nothing else.`
+
+	model := t.aiModel
+	if model == "" {
+		model = os.Getenv("AI_MODEL")
+	}
+	if model == "" {
+		model = "qwen/qwen3.8-27b"
+	}
+
+	apiKey := t.aiApiKey
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENROUTER_API_KEY")
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("AI_API_KEY")
+	}
+
+	if apiKey == "" {
+		t.logger.Warnf("No AI API key found for tenant %s. Skipping auto-reply.", t.Hash)
+		return
+	}
+
+	type Message struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	type Reasoning struct {
+		Enabled bool `json:"enabled"`
+	}
+	type RequestBody struct {
+		Model     string    `json:"model"`
+		Messages  []Message `json:"messages"`
+		Reasoning Reasoning `json:"reasoning"`
+	}
+
+	reqBody := RequestBody{
+		Model: model,
+		Messages: []Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: history},
+		},
+		Reasoning: Reasoning{Enabled: true},
+	}
+
+	jsonBytes, _ := json.Marshal(reqBody)
+	req, err := http.NewRequest("POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewReader(jsonBytes))
+	if err != nil {
+		t.logger.Errorf("Failed to build AI request: %v", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("HTTP-Referer", "https://github.com/Nikhil-Mundhra/whatsapp-ai")
+	req.Header.Set("X-Title", "WhatsApp TakeOver AI")
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.logger.Errorf("AI request failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var resData struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&resData); err != nil || len(resData.Choices) == 0 {
+		t.logger.Errorf("Failed to parse AI response: %v", err)
+		return
+	}
+
+	replyText := strings.TrimSpace(resData.Choices[0].Message.Content)
+	if replyText == "" {
+		return
+	}
+
+	t.logger.Infof("AI drafted reply for %s using %s: %q", targetJID, model, replyText)
+
+	ok, sendStatus := sendWhatsAppMessage(t.client, t.messageStore, targetJID.String(), replyText, "", t.logger)
+	t.logger.Infof("Sent AI reply to %s: ok=%v status=%s", targetJID, ok, sendStatus)
 }
 
-func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
-	candidates := []string{
-		senderJID.User,
-		chatJID.User,
-	}
-
-	if t.client != nil && t.client.Store != nil {
-		// 1. If sender is a LID, resolve to Phone Number
-		if senderJID.Server == "lid" {
-			if pn, err := t.client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
-				candidates = append(candidates, pn.User)
-			}
-		}
-		// 2. If chat is a LID, resolve to Phone Number
-		if chatJID.Server == "lid" {
-			if pn, err := t.client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
-				candidates = append(candidates, pn.User)
-			}
-		}
-
-		// 3. For each configured recipient phone number, resolve its LID and check direct match
-		for _, r := range t.recipients {
-			normR := normalizePhone(r)
-			if normR == "" {
-				continue
-			}
-			pnJID := types.NewJID(normR, types.DefaultUserServer)
-			if lid, err := t.client.Store.LIDs.GetLIDForPN(context.Background(), pnJID); err == nil && !lid.IsEmpty() {
-				if lid.User == senderJID.User || lid.User == chatJID.User {
-					return true
-				}
-				candidates = append(candidates, lid.User)
-			}
-		}
-	}
-
-	t.logger.Infof("Evaluating allowed recipient for sender %s (chat %s): candidates=%v allowed_recipients=%v", senderJID, chatJID, candidates, t.recipients)
-
-	// 4. Check candidate strings against allowed phone numbers
-	for _, cand := range candidates {
-		normCand := normalizePhone(cand)
-		if normCand == "" {
-			continue
-		}
-		for _, r := range t.recipients {
-			normR := normalizePhone(r)
-			if normR == "" {
-				continue
-			}
-			if normR == normCand || strings.HasSuffix(normCand, normR) || strings.HasSuffix(normR, normCand) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// provision creates (or reloads) the whatsmeow client for this tenant and
-// starts pairing if not yet linked. Returns the QR code to scan.
+// provision creates (or reloads) the whatsmeow client for this tenant and starts pairing.
 func (t *Tenant) provision() (string, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -334,65 +540,9 @@ func (t *Tenant) provision() (string, error) {
 	}
 	t.messageStore = ms
 
-	t.client.AddEventHandler(func(evt interface{}) {
-		switch v := evt.(type) {
-		case *events.Message:
-			if v.Message.GetPollUpdateMessage() != nil {
-				handlePollVote(t.client, t.messageStore, v, t.logger)
-			} else {
-				handleMessage(t.client, t.messageStore, v, t.logger)
-
-				// Trigger takeover poll if message is from an allowed contact
-				sender := v.Info.Sender.User
-				isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
-				t.logger.Infof("Incoming message from %s [Chat: %s] (allowed=%v, owner=%s, recipients=%v)", v.Info.Sender, v.Info.Chat, isAllowed, t.ownerPhone, t.recipients)
-
-				if !v.Info.IsFromMe && isAllowed && t.ownerPhone != "" {
-					chatName := GetChatName(context.Background(), t.client, t.messageStore, v.Info.Chat, v.Info.Chat.String(), nil, sender, t.logger)
-					if chatName == "" || chatName == sender {
-						chatName = sender
-					}
-					question := fmt.Sprintf("%s texted you. Take over?", chatName)
-					options := []string{"Send 1 text", "5 minutes", "2 hours", "Deny"}
-					ok, status, pollID := sendWhatsAppPoll(t.client, t.ownerPhone, question, options, 1)
-					t.mu.Lock()
-					t.activePoll = pollID
-					t.mu.Unlock()
-					fmt.Printf("\n[takeover %s] Sent approval poll to owner %s for incoming message from %s: ok=%v status=%s pollID=%s\n", t.Hash, t.ownerPhone, chatName, ok, status, pollID)
-
-					go func(pID, contact, cName, q string, opts []string) {
-						payload, _ := json.Marshal(map[string]interface{}{
-							"id":             pID,
-							"hash":           t.Hash,
-							"contact":        contact,
-							"contactDisplay": cName,
-							"question":       q,
-							"options":        opts,
-							"status":         "pending",
-						})
-						resp, err := http.Post("https://whatsapp-ai-nikhil.vercel.app/api/polls", "application/json", bytes.NewReader(payload))
-						if err == nil && resp != nil {
-							_ = resp.Body.Close()
-						}
-					}(pollID, sender, chatName, question, options)
-				}
-			}
-		case *events.HistorySync:
-			handleHistorySync(t.client, t.messageStore, v, t.logger)
-		case *events.Connected:
-			t.logger.Infof("Tenant %s connected", t.Hash)
-		case *events.LoggedOut:
-			t.logger.Warnf("Tenant %s logged out", t.Hash)
-			t.mu.Lock()
-			t.paired = false
-			t.pairing = false
-			t.qrCode = ""
-			t.mu.Unlock()
-		}
-	})
+	t.setupEventHandler()
 
 	if t.client.Store.ID != nil {
-		// Already linked in a previous run — just connect.
 		if err := t.client.Connect(); err != nil {
 			return "", fmt.Errorf("failed to connect: %v", err)
 		}
@@ -401,52 +551,45 @@ func (t *Tenant) provision() (string, error) {
 	}
 
 	t.pairing = true
-	// Fresh device: run the QR pairing loop in the background.
 	go t.pairLoop()
 	return t.qrCode, nil
 }
 
-// pairLoop requests QR codes until the user scans one and pairing succeeds.
 func (t *Tenant) pairLoop() {
-	defer func() {
-		t.mu.Lock()
-		t.pairing = false
-		t.mu.Unlock()
-	}()
-
-	for {
-		qrChan, err := t.client.GetQRChannel(context.Background())
-		if err != nil {
-			t.logger.Errorf("Tenant %s failed to get QR channel: %v", t.Hash, err)
-			time.Sleep(2 * time.Second)
-			continue
+	qrChan, _ := t.client.GetQRChannel(context.Background())
+	if err := t.client.Connect(); err != nil {
+		t.logger.Errorf("Failed to connect for QR channel: %v", err)
+		return
+	}
+	for evt := range qrChan {
+		switch evt.Event {
+		case "code":
+			t.mu.Lock()
+			t.qrCode = evt.Code
+			t.qrUpdated = time.Now()
+			t.mu.Unlock()
+			fmt.Printf("\nScan this QR code to link tenant %s:\n", t.Hash)
+			qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
+		case "success":
+			t.mu.Lock()
+			t.paired = true
+			t.pairing = false
+			t.qrCode = ""
+			t.mu.Unlock()
+			t.logger.Infof("Tenant %s paired successfully", t.Hash)
+			return
+		case "timeout":
+			t.logger.Warnf("Tenant %s QR pairing timed out", t.Hash)
 		}
-		if err := t.client.Connect(); err != nil {
-			t.logger.Errorf("Tenant %s failed to connect: %v", t.Hash, err)
-			time.Sleep(2 * time.Second)
-			continue
-		}
+	}
+}
 
-		for evt := range qrChan {
-			switch evt.Event {
-			case whatsmeow.QRChannelEventCode:
-				t.mu.Lock()
-				t.qrCode = evt.Code
-				t.qrUpdated = time.Now()
-				t.mu.Unlock()
-				fmt.Printf("\n[tenant %s] Scan this QR code with WhatsApp:\n", t.Hash)
-				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-			case whatsmeow.QRChannelEventError:
-				t.logger.Errorf("Tenant %s pairing error: %v", t.Hash, evt.Error)
-			case whatsmeow.QRChannelSuccess.Event:
-				t.mu.Lock()
-				t.paired = true
-				t.mu.Unlock()
-				fmt.Printf("\n[tenant %s] Linked and authenticated!\n", t.Hash)
-				return
-			case whatsmeow.QRChannelTimeout.Event:
-				t.logger.Infof("Tenant %s QR expired, requesting new one", t.Hash)
-			}
+func (t *Tenant) disconnect() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.client != nil {
+		if t.client.IsConnected() {
+			t.logger.Infof("Disconnecting tenant %s...", t.Hash)
 		}
 		t.client.Disconnect()
 	}
@@ -456,17 +599,17 @@ func (t *Tenant) status() map[string]interface{} {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return map[string]interface{}{
-		"hash":      t.Hash,
-		"linked":    t.paired,
-		"pairing":   t.pairing,
-		"connected": t.client != nil && t.client.IsConnected(),
-		"hasQR":     t.qrCode != "",
-		"qrAge":     int(time.Since(t.qrUpdated).Seconds()),
+		"hash":       t.Hash,
+		"linked":     t.paired,
+		"pairing":    t.pairing,
+		"connected":  t.client != nil && t.client.IsConnected(),
+		"hasQR":      t.qrCode != "",
+		"qrAge":      int(time.Since(t.qrUpdated).Seconds()),
 		"ownerPhone": t.ownerPhone,
+		"aiModel":    t.aiModel,
 	}
 }
 
-// sendToRecipient sends a plain text message from this tenant.
 func (t *Tenant) sendToRecipient(recipient, message string) (bool, string) {
 	if t.client == nil || !t.client.IsConnected() {
 		return false, "tenant not connected"
@@ -474,7 +617,6 @@ func (t *Tenant) sendToRecipient(recipient, message string) (bool, string) {
 	return sendWhatsAppMessage(t.client, t.messageStore, recipient, message, "", t.logger)
 }
 
-// sendPollToRecipient sends an interactive poll from this tenant.
 func (t *Tenant) sendPollToRecipient(recipient, question string, options []string, selectableCount int) (bool, string, string) {
 	if t.client == nil || !t.client.IsConnected() {
 		return false, "tenant not connected", ""
@@ -482,7 +624,6 @@ func (t *Tenant) sendPollToRecipient(recipient, question string, options []strin
 	return sendWhatsAppPoll(t.client, recipient, question, options, selectableCount)
 }
 
-// startMultiTenantServer wires the multi-tenant REST API and blocks forever.
 func startMultiTenantServer(port int, logger waLog.Logger) {
 	manager := NewTenantManager(logger)
 
@@ -504,6 +645,8 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 			var body struct {
 				OwnerPhone        string      `json:"ownerPhone"`
 				AllowedRecipients interface{} `json:"allowedRecipients"`
+				AIApiKey          string      `json:"aiApiKey"`
+				AIModel           string      `json:"aiModel"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 
@@ -532,6 +675,8 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 					logger:     waLog.Stdout(fmt.Sprintf("Tenant-%s", hash), "INFO", true),
 					ownerPhone: body.OwnerPhone,
 					recipients: recipients,
+					aiApiKey:   body.AIApiKey,
+					aiModel:    body.AIModel,
 				}
 				tenant.saveConfig()
 				manager.Add(tenant)
@@ -541,6 +686,12 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 				}
 				if len(recipients) > 0 {
 					tenant.recipients = recipients
+				}
+				if body.AIApiKey != "" {
+					tenant.aiApiKey = body.AIApiKey
+				}
+				if body.AIModel != "" {
+					tenant.aiModel = body.AIModel
 				}
 				tenant.saveConfig()
 			}
@@ -588,6 +739,20 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{"messages": msgs})
+			return
+
+		case sub == "qr" && r.Method == http.MethodGet:
+			tenant := manager.Get(hash)
+			if tenant == nil {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			tenant.mu.Lock()
+			qr := tenant.qrCode
+			qrAge := int(time.Since(tenant.qrUpdated).Seconds())
+			tenant.mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"qr": qr, "qrAge": qrAge})
 			return
 
 		default:

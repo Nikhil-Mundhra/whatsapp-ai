@@ -132,6 +132,8 @@ export default function SetupPage() {
         body: JSON.stringify({
           ownerPhone: form.ownerPhone,
           allowedRecipients: form.allowedRecipients,
+          aiApiKey: form.aiApiKey,
+          aiModel: form.aiModel,
         }),
       });
       const data = await res.json();

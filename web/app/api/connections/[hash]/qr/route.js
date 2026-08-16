@@ -25,10 +25,14 @@ export async function POST(req, props) {
 
   const ownerPhone = String(incomingBody?.ownerPhone || conn.ownerPhone || "").trim();
   const allowedRecipients = parseRecipients(incomingBody?.allowedRecipients || conn.allowedRecipients || []);
+  const aiApiKey = String(incomingBody?.aiApiKey || conn.aiApiKey || "").trim();
+  const aiModel = String(incomingBody?.aiModel || conn.aiModel || "qwen/qwen3.8-27b").trim();
 
   const bodyPayload = {
     ownerPhone,
     allowedRecipients,
+    aiApiKey,
+    aiModel,
   };
 
   try {
