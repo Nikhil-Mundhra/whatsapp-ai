@@ -129,8 +129,8 @@ func (m *TenantManager) restoreTenants() {
 					handleMessage(t.client, t.messageStore, v, t.logger)
 
 					sender := v.Info.Sender.User
-					isAllowed := t.isAllowedRecipient(sender)
-					t.logger.Infof("Incoming message from %s (allowed=%v, owner=%s, recipients=%v)", sender, isAllowed, t.ownerPhone, t.recipients)
+					isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
+					t.logger.Infof("Incoming message from %s [Chat: %s] (allowed=%v, owner=%s, recipients=%v)", v.Info.Sender, v.Info.Chat, isAllowed, t.ownerPhone, t.recipients)
 
 					if !v.Info.IsFromMe && isAllowed && t.ownerPhone != "" {
 						chatName := GetChatName(context.Background(), t.client, t.messageStore, v.Info.Chat, v.Info.Chat.String(), nil, sender, t.logger)
@@ -232,15 +232,56 @@ func normalizePhone(phone string) string {
 	return out.String()
 }
 
-func (t *Tenant) isAllowedRecipient(sender string) bool {
-	normSender := normalizePhone(sender)
-	if normSender == "" {
-		return false
+func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
+	candidates := []string{
+		senderJID.User,
+		chatJID.User,
 	}
-	for _, r := range t.recipients {
-		normR := normalizePhone(r)
-		if normR == normSender || strings.HasSuffix(normSender, normR) || strings.HasSuffix(normR, normSender) {
-			return true
+
+	if t.client != nil && t.client.Store != nil {
+		// 1. If sender is a LID, resolve to Phone Number
+		if senderJID.Server == "lid" {
+			if pn, err := t.client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+				candidates = append(candidates, pn.User)
+			}
+		}
+		// 2. If chat is a LID, resolve to Phone Number
+		if chatJID.Server == "lid" {
+			if pn, err := t.client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+				candidates = append(candidates, pn.User)
+			}
+		}
+
+		// 3. For each configured recipient phone number, resolve its LID and check direct match
+		for _, r := range t.recipients {
+			normR := normalizePhone(r)
+			if normR == "" {
+				continue
+			}
+			pnJID := types.NewJID(normR, types.DefaultUserServer)
+			if lid, err := t.client.Store.LIDs.GetLIDForPN(context.Background(), pnJID); err == nil && !lid.IsEmpty() {
+				if lid.User == senderJID.User || lid.User == chatJID.User {
+					return true
+				}
+				candidates = append(candidates, lid.User)
+			}
+		}
+	}
+
+	// 4. Check candidate strings against allowed phone numbers
+	for _, cand := range candidates {
+		normCand := normalizePhone(cand)
+		if normCand == "" {
+			continue
+		}
+		for _, r := range t.recipients {
+			normR := normalizePhone(r)
+			if normR == "" {
+				continue
+			}
+			if normR == normCand || strings.HasSuffix(normCand, normR) || strings.HasSuffix(normR, normCand) {
+				return true
+			}
 		}
 	}
 	return false
@@ -299,8 +340,8 @@ func (t *Tenant) provision() (string, error) {
 
 				// Trigger takeover poll if message is from an allowed contact
 				sender := v.Info.Sender.User
-				isAllowed := t.isAllowedRecipient(sender)
-				t.logger.Infof("Incoming message from %s (allowed=%v, owner=%s, recipients=%v)", sender, isAllowed, t.ownerPhone, t.recipients)
+				isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
+				t.logger.Infof("Incoming message from %s [Chat: %s] (allowed=%v, owner=%s, recipients=%v)", v.Info.Sender, v.Info.Chat, isAllowed, t.ownerPhone, t.recipients)
 
 				if !v.Info.IsFromMe && isAllowed && t.ownerPhone != "" {
 					chatName := GetChatName(context.Background(), t.client, t.messageStore, v.Info.Chat, v.Info.Chat.String(), nil, sender, t.logger)
