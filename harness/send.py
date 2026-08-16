@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Basic harness: text "her" using a local LLM (qwen3.5-32k via Ollama).
+"""Autonomous texting engine with OpenRouter (Qwen 3.8 27B / Qwen 2.5), reasoning, and persona style mirroring.
 
-Pulls the last N messages of a 1:1 chat, generates a reply with the local
-model, prints it, and sends it immediately.
+Pulls the last N messages of a 1:1 chat, generates a reply using OpenRouter/Ollama
+with thinking/reasoning token support, and sends it to the contact.
 
 Usage:
-    uv run harness/send.py <recipient> [--limit 20] [--model qwen3.5-32k]
+    uv run harness/send.py <recipient> [--limit 20] [--model qwen/qwen3.8-27b]
                            [--draft-only] [--loop] [--interval SECONDS]
 """
 
@@ -33,7 +33,10 @@ from whatsapp import (  # noqa: E402
     send_message,
 )
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("AI_API_KEY") or ""
+DEFAULT_MODEL = os.environ.get("AI_MODEL") or "qwen/qwen3.8-27b"
 
 
 def _parse_recipients(raw: str):
@@ -62,6 +65,7 @@ def normalize_recipient(recipient: str) -> str:
         digits = digits[2:]
     return digits.lstrip("0") or recipient
 
+
 SYSTEM_PROMPT = (
     "You are the person who writes the messages labeled 'From: Me' in the "
     "conversation history below. That is your own writing style: mirror your "
@@ -87,22 +91,61 @@ THINK_LIMIT = 20
 FAST_LIMIT = 8
 
 
-def generate_reply(history: str, model: str, think: bool = False) -> str:
-    resp = requests.post(
-        OLLAMA_URL,
-        json={
+def generate_reply(history: str, model: str = DEFAULT_MODEL, think: bool = True) -> str:
+    """Generate reply via OpenRouter (with reasoning enabled) or local Ollama."""
+    api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("AI_API_KEY") or ""
+
+    # 1. OpenRouter / Cloud API
+    if api_key:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/Nikhil-Mundhra/whatsapp-ai",
+            "X-Title": "WhatsApp TakeOver AI",
+        }
+        payload = {
             "model": model,
-            "think": think,
-            "stream": False,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": history},
             ],
-        },
-        timeout=300,
-    )
-    resp.raise_for_status()
-    return resp.json()["message"]["content"].strip()
+            "reasoning": {"enabled": think},
+        }
+
+        try:
+            resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            choice = data["choices"][0]["message"]
+            content = choice.get("content", "").strip()
+
+            # If reasoning details were returned, log them for transparency
+            if choice.get("reasoning_details"):
+                print(f"[reasoning] {choice['reasoning_details']}")
+
+            return content
+        except Exception as e:
+            print(f"[warn] OpenRouter request failed: {e}. Falling back...")
+
+    # 2. Local Ollama Fallback
+    try:
+        resp = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": model,
+                "think": think,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": history},
+                ],
+            },
+            timeout=300,
+        )
+        resp.raise_for_status()
+        return resp.json()["message"]["content"].strip()
+    except Exception as e:
+        raise RuntimeError(f"Failed to generate reply: {e}")
 
 
 def last_incoming_words(history: str) -> int:
@@ -121,7 +164,7 @@ def should_think(history: str) -> bool:
     return last_incoming_words(history) > THINK_MIN_WORDS
 
 
-def send_reply(recipient: str, model: str = "qwen3.5-32k", draft_only: bool = False) -> tuple:
+def send_reply(recipient: str, model: str = DEFAULT_MODEL, draft_only: bool = False) -> tuple:
     """Fetch history for a recipient, compose a reply, and send it.
 
     Returns (reply_text, (ok, status)) — status is None when draft_only.
@@ -136,14 +179,14 @@ def send_reply(recipient: str, model: str = "qwen3.5-32k", draft_only: bool = Fa
     think = should_think(history)
     if think:
         context = history
-        print(f"[thinking mode] last incoming > {THINK_MIN_WORDS} words — using {THINK_LIMIT} msgs")
+        print(f"[thinking/reasoning mode] last incoming > {THINK_MIN_WORDS} words — using {THINK_LIMIT} msgs")
     else:
         lines = [l for l in history.strip().splitlines() if l.strip()][:FAST_LIMIT]
         context = "\n".join(lines)
         print(f"[fast mode] using {len(lines)} msgs")
 
     reply = generate_reply(context, model, think=think)
-    print(reply)
+    print(f"[drafted reply] {reply}")
     if draft_only:
         return reply, None
 
@@ -166,7 +209,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("recipient", help="Phone number (country code, no +) or JID")
     parser.add_argument("--limit", type=int, default=20, help="Messages of context to use")
-    parser.add_argument("--model", default="qwen3.5-32k")
+    parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--draft-only", action="store_true", help="Print reply without sending")
     parser.add_argument("--loop", action="store_true", help="Keep drafting and sending recursively")
     parser.add_argument("--interval", type=float, default=3.0, help="Seconds between loop iterations")
