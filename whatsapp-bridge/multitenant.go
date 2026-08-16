@@ -490,7 +490,7 @@ func (t *Tenant) setupEventHandler() {
 				}
 			}
 		case *events.HistorySync:
-			handleHistorySync(t.client, t.messageStore, v, t.logger)
+			t.handleTenantHistorySync(v)
 		case *events.Connected:
 			t.logger.Infof("Tenant %s connected", t.Hash)
 		case *events.LoggedOut:
@@ -507,6 +507,144 @@ func (t *Tenant) setupEventHandler() {
 			t.logger.Infof("Tenant %s local data wiped.", t.Hash)
 		}
 	})
+}
+
+// handleTenantHistorySync processes WhatsApp history sync ONLY for targeted recipients, capping at 75 recent messages per chat.
+func (t *Tenant) handleTenantHistorySync(historySync *events.HistorySync) {
+	if historySync == nil || historySync.Data == nil {
+		return
+	}
+
+	totalConvs := len(historySync.Data.Conversations)
+	t.logger.Infof("Received history sync chunk with %d conversations. Filtering for targeted recipients...", totalConvs)
+
+	syncedConvs := 0
+	syncedMsgs := 0
+
+	for _, conversation := range historySync.Data.Conversations {
+		if conversation == nil || conversation.ID == nil {
+			continue
+		}
+
+		chatJID := *conversation.ID
+		jid, err := types.ParseJID(chatJID)
+		if err != nil {
+			continue
+		}
+
+		// Only sync history for allowed recipients (or owner chat)
+		isAllowed := t.isAllowedRecipient(jid, jid)
+		isOwner := t.ownerPhone != "" && (normalizePhone(jid.User) == normalizePhone(t.ownerPhone))
+		if len(t.recipients) > 0 && !isAllowed && !isOwner {
+			continue // Skip non-targeted chats entirely
+		}
+
+		name := GetChatName(context.Background(), t.client, t.messageStore, jid, chatJID, conversation, "", t.logger)
+		messages := conversation.Messages
+		if len(messages) == 0 {
+			continue
+		}
+
+		// Cap to latest 75 messages (between 50 and 100)
+		const maxHistoryPerChat = 75
+		if len(messages) > maxHistoryPerChat {
+			messages = messages[:maxHistoryPerChat]
+		}
+
+		latestMsg := messages[0]
+		if latestMsg != nil && latestMsg.Message != nil {
+			if ts := latestMsg.Message.GetMessageTimestamp(); ts != 0 {
+				t.messageStore.StoreChat(chatJID, name, time.Unix(int64(ts), 0))
+			}
+		}
+
+		for _, msg := range messages {
+			if msg == nil || msg.Message == nil {
+				continue
+			}
+
+			var content string
+			if msg.Message.Message != nil {
+				if conv := msg.Message.Message.GetConversation(); conv != "" {
+					content = conv
+				} else if ext := msg.Message.Message.GetExtendedTextMessage(); ext != nil {
+					content = ext.GetText()
+				}
+			}
+
+			repliedTo := ""
+			if msg.Message.Message != nil {
+				repliedTo = extractQuotedText(msg.Message.Message)
+			}
+
+			var mediaType, filename, url string
+			var mediaKey, fileSHA256, fileEncSHA256 []byte
+			var fileLength uint64
+			if msg.Message.Message != nil {
+				mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength = extractMediaInfo(msg.Message.Message)
+			}
+
+			if content == "" && mediaType == "" {
+				continue
+			}
+
+			var sender string
+			isFromMe := false
+			if msg.Message.Key != nil {
+				if msg.Message.Key.FromMe != nil {
+					isFromMe = *msg.Message.Key.FromMe
+				}
+				if !isFromMe && msg.Message.Key.Participant != nil && *msg.Message.Key.Participant != "" {
+					sender = *msg.Message.Key.Participant
+				} else if isFromMe {
+					if t.client != nil && t.client.Store != nil && t.client.Store.ID != nil {
+						sender = t.client.Store.ID.User
+					} else {
+						sender = "me"
+					}
+				} else {
+					sender = jid.User
+				}
+			} else {
+				sender = jid.User
+			}
+
+			msgID := ""
+			if msg.Message.Key != nil && msg.Message.Key.ID != nil {
+				msgID = *msg.Message.Key.ID
+			}
+
+			timestamp := time.Time{}
+			if ts := msg.Message.GetMessageTimestamp(); ts != 0 {
+				timestamp = time.Unix(int64(ts), 0)
+			} else {
+				continue
+			}
+
+			_ = t.messageStore.StoreMessage(
+				msgID,
+				chatJID,
+				sender,
+				content,
+				repliedTo,
+				timestamp,
+				isFromMe,
+				mediaType,
+				filename,
+				url,
+				mediaKey,
+				fileSHA256,
+				fileEncSHA256,
+				fileLength,
+				"remote",
+			)
+			syncedMsgs++
+		}
+		syncedConvs++
+		t.logger.Infof("History sync: Stored %d recent messages for targeted recipient %s (%s)", len(messages), name, chatJID)
+	}
+
+	t.logger.Infof("History sync completed: %d messages across %d targeted chats (filtered from %d total conversations)", syncedMsgs, syncedConvs, totalConvs)
 }
 
 // handleTenantPollVote handles incoming poll votes from the owner and activates takeover grants.
