@@ -24,6 +24,12 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
+// TenantConfig is persisted to store/tenants/<hash>/config.json.
+type TenantConfig struct {
+	OwnerPhone string   `json:"ownerPhone"`
+	Recipients []string `json:"recipients"`
+}
+
 // Tenant is a single linked WhatsApp account (one per setup hash).
 type Tenant struct {
 	Hash         string
@@ -35,10 +41,11 @@ type Tenant struct {
 	ownerPhone   string
 	recipients   []string
 
-	qrCode    string
-	qrUpdated time.Time
-	paired    bool
-	pairing   bool
+	qrCode     string
+	qrUpdated  time.Time
+	paired     bool
+	pairing    bool
+	activePoll string
 }
 
 // TenantManager holds all provisioned tenants keyed by setup hash.
@@ -49,10 +56,12 @@ type TenantManager struct {
 }
 
 func NewTenantManager(logger waLog.Logger) *TenantManager {
-	return &TenantManager{
+	m := &TenantManager{
 		tenants: make(map[string]*Tenant),
 		logger:  logger,
 	}
+	m.restoreTenants()
+	return m
 }
 
 func (m *TenantManager) Get(hash string) *Tenant {
@@ -71,9 +80,84 @@ func (m *TenantManager) Add(t *Tenant) {
 	m.tenants[t.Hash] = t
 }
 
+func (m *TenantManager) restoreTenants() {
+	tenantsDir := filepath.Join("store", "tenants")
+	entries, err := os.ReadDir(tenantsDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		hash := entry.Name()
+		t := &Tenant{
+			Hash:   hash,
+			logger: waLog.Stdout(fmt.Sprintf("Tenant-%s", hash), "INFO", true),
+		}
+		t.loadConfig()
+		if _, err := t.provision(); err != nil {
+			m.logger.Warnf("Failed to auto-restore tenant %s: %v", hash, err)
+		} else {
+			m.Add(t)
+			m.logger.Infof("Auto-restored tenant %s (owner=%s)", hash, t.ownerPhone)
+		}
+	}
+}
+
 // dir returns the per-tenant data directory (e.g. store/tenants/<hash>).
 func (t *Tenant) dir() string {
 	return filepath.Join("store", "tenants", t.Hash)
+}
+
+func (t *Tenant) configFile() string {
+	return filepath.Join(t.dir(), "config.json")
+}
+
+func (t *Tenant) saveConfig() {
+	cfg := TenantConfig{
+		OwnerPhone: t.ownerPhone,
+		Recipients: t.recipients,
+	}
+	if data, err := json.MarshalIndent(cfg, "", "  "); err == nil {
+		_ = os.WriteFile(t.configFile(), data, 0644)
+	}
+}
+
+func (t *Tenant) loadConfig() {
+	data, err := os.ReadFile(t.configFile())
+	if err != nil {
+		return
+	}
+	var cfg TenantConfig
+	if err := json.Unmarshal(data, &cfg); err == nil {
+		t.ownerPhone = cfg.OwnerPhone
+		t.recipients = cfg.Recipients
+	}
+}
+
+func normalizePhone(phone string) string {
+	var out strings.Builder
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
+}
+
+func (t *Tenant) isAllowedRecipient(sender string) bool {
+	normSender := normalizePhone(sender)
+	if normSender == "" {
+		return false
+	}
+	for _, r := range t.recipients {
+		normR := normalizePhone(r)
+		if normR == normSender || strings.HasSuffix(normSender, normR) || strings.HasSuffix(normR, normSender) {
+			return true
+		}
+	}
+	return false
 }
 
 // provision creates (or reloads) the whatsmeow client for this tenant and
@@ -88,12 +172,12 @@ func (t *Tenant) provision() (string, error) {
 	if t.pairing {
 		return t.qrCode, nil
 	}
-	t.pairing = true
 
 	dir := t.dir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create tenant dir: %v", err)
 	}
+	t.saveConfig()
 
 	dbLog := waLog.Stdout(fmt.Sprintf("Tenant-%s/DB", t.Hash), "INFO", true)
 	container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+filepath.Join(dir, "whatsapp.db")+"?_foreign_keys=on", dbLog)
@@ -126,6 +210,22 @@ func (t *Tenant) provision() (string, error) {
 				handlePollVote(t.client, t.messageStore, v, t.logger)
 			} else {
 				handleMessage(t.client, t.messageStore, v, t.logger)
+
+				// Trigger takeover poll if message is from an allowed contact
+				sender := v.Info.Sender.User
+				if !v.Info.IsFromMe && t.isAllowedRecipient(sender) && t.ownerPhone != "" {
+					chatName := GetChatName(context.Background(), t.client, t.messageStore, v.Info.Chat, v.Info.Chat.String(), nil, sender, t.logger)
+					if chatName == "" || chatName == sender {
+						chatName = sender
+					}
+					question := fmt.Sprintf("%s texted you. Take over?", chatName)
+					options := []string{"Send 1 text", "5 minutes", "2 hours", "Deny"}
+					ok, status, pollID := sendWhatsAppPoll(t.client, t.ownerPhone, question, options, 1)
+					t.mu.Lock()
+					t.activePoll = pollID
+					t.mu.Unlock()
+					fmt.Printf("\n[takeover %s] Sent approval poll to owner %s for incoming message from %s: ok=%v status=%s pollID=%s\n", t.Hash, t.ownerPhone, chatName, ok, status, pollID)
+				}
 			}
 		case *events.HistorySync:
 			handleHistorySync(t.client, t.messageStore, v, t.logger)
@@ -150,6 +250,7 @@ func (t *Tenant) provision() (string, error) {
 		return "", nil
 	}
 
+	t.pairing = true
 	// Fresh device: run the QR pairing loop in the background.
 	go t.pairLoop()
 	return t.qrCode, nil
@@ -205,12 +306,13 @@ func (t *Tenant) status() map[string]interface{} {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return map[string]interface{}{
-		"hash":       t.Hash,
-		"linked":     t.paired,
-		"pairing":    t.pairing,
-		"connected":  t.client != nil && t.client.IsConnected(),
-		"hasQR":      t.qrCode != "",
-		"qrAge":      int(time.Since(t.qrUpdated).Seconds()),
+		"hash":      t.Hash,
+		"linked":    t.paired,
+		"pairing":   t.pairing,
+		"connected": t.client != nil && t.client.IsConnected(),
+		"hasQR":     t.qrCode != "",
+		"qrAge":     int(time.Since(t.qrUpdated).Seconds()),
+		"ownerPhone": t.ownerPhone,
 	}
 }
 
@@ -281,6 +383,7 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 					ownerPhone: body.OwnerPhone,
 					recipients: recipients,
 				}
+				tenant.saveConfig()
 				manager.Add(tenant)
 			} else {
 				if body.OwnerPhone != "" {
@@ -289,6 +392,7 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 				if len(recipients) > 0 {
 					tenant.recipients = recipients
 				}
+				tenant.saveConfig()
 			}
 			qr, err := tenant.provision()
 			if err != nil {
@@ -322,27 +426,32 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
 			}
+			tenant.mu.Lock()
+			qr := tenant.qrCode
+			qrAge := int(time.Since(tenant.qrUpdated).Seconds())
+			tenant.mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"hash": hash,
-				"qr":   tenant.qrCode,
-			})
+			json.NewEncoder(w).Encode(map[string]interface{}{"qr": qr, "qrAge": qrAge})
 			return
 
 		default:
-			http.Error(w, "not found", http.StatusNotFound)
+			http.NotFound(w, r)
 		}
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", port)
-	fmt.Printf("Multi-tenant bridge listening on %s\n", addr)
+	logger.Infof("Multi-tenant bridge listening on %s", addr)
+
+	srv := &http.Server{Addr: addr}
 	go func() {
-		if err := http.ListenAndServe(addr, nil); err != nil {
-			fmt.Printf("Multi-tenant server error: %v\n", err)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Errorf("Server failed: %v", err)
 		}
 	}()
 
-	exitChan := make(chan os.Signal, 1)
-	signal.Notify(exitChan, syscall.SIGINT, syscall.SIGTERM)
-	<-exitChan
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	<-sig
+	logger.Infof("Shutting down multi-tenant bridge...")
+	_ = srv.Shutdown(context.Background())
 }
