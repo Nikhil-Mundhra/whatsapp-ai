@@ -25,6 +25,7 @@ export default function Home() {
   // Active Chat Selection & Filtering
   const [selectedContact, setSelectedContact] = useState("");
   const [selectedContactName, setSelectedContactName] = useState("");
+  const selectedContactRef = useRef("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("all");
 
@@ -169,11 +170,14 @@ export default function Home() {
         const connData = await connRes.json();
         setConnInfo(connData);
 
-        // Auto-select first chat or first recipient if none selected
-        if (!selectedContact) {
+        // Auto-select first chat or first recipient ONLY if none is currently selected
+        if (!selectedContactRef.current) {
           if (loadedChats.length > 0) {
-            setSelectedContact(loadedChats[0].jid || loadedChats[0].phone);
-            setSelectedContactName(loadedChats[0].name || "");
+            const first = loadedChats[0].jid || loadedChats[0].phone;
+            const firstName = loadedChats[0].name || "";
+            setSelectedContact(first);
+            setSelectedContactName(firstName);
+            selectedContactRef.current = first;
           } else if (connData?.connection?.allowedRecipients) {
             const recs = Array.isArray(connData.connection.allowedRecipients)
               ? connData.connection.allowedRecipients
@@ -182,6 +186,7 @@ export default function Home() {
               : [];
             if (recs.length > 0 && recs[0]) {
               setSelectedContact(recs[0]);
+              selectedContactRef.current = recs[0];
             }
           }
         }
@@ -238,6 +243,7 @@ export default function Home() {
 
   // Handle Logout / Disconnect
   function handleLogout() {
+    selectedContactRef.current = "";
     localStorage.removeItem("wa_hash");
     setHash("");
     setConnInfo(null);
@@ -507,6 +513,7 @@ export default function Home() {
             onSelectContact={(c, name) => {
               setSelectedContact(c);
               setSelectedContactName(name || "");
+              selectedContactRef.current = c;
             }}
             polls={polls}
             messages={messages}
