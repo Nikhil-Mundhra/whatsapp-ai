@@ -10,6 +10,7 @@ import { ChatInputBar } from "./components/Chat/ChatInputBar";
 import { SettingsDrawer } from "./components/Modals/SettingsDrawer";
 import { ConnectionSwitcherModal } from "./components/Modals/ConnectionSwitcherModal";
 import { QRPairingModal } from "./components/Modals/QRPairingModal";
+import { CreatePollModal } from "./components/Modals/CreatePollModal";
 import { LockIcon, RobotIcon } from "./components/Icons/WhatsAppIcons";
 
 export default function Home() {
@@ -33,6 +34,7 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [isPollModalOpen, setIsPollModalOpen] = useState(false);
 
   // QR Code State
   const [qrDataUrl, setQrDataUrl] = useState("");
@@ -279,8 +281,8 @@ export default function Home() {
     }
   }
 
-  // 6. Handle Creating Real Take-Over Poll
-  async function handleCreateTakeOverPoll() {
+  // 6. Handle Creating Real Take-Over Poll via Form
+  async function handleSendCustomPoll({ question, options, allowMultiple = false }) {
     if (!selectedContact || !hash) return;
     try {
       const res = await fetch(`/api/polls`, {
@@ -291,8 +293,9 @@ export default function Home() {
           hash,
           contact: selectedContact,
           contactDisplay: selectedContactName || selectedContact,
-          question: "Permission to take over conversation?",
-          options: ["Send 1 text", "5 minutes", "2 hours", "Deny"],
+          question,
+          options,
+          allowMultiple,
           createdAt: Date.now(),
         }),
       });
@@ -535,7 +538,7 @@ export default function Home() {
               <ChatInputBar
                 contact={selectedContact}
                 onSendManual={handleSendManual}
-                onRequestPoll={handleCreateTakeOverPoll}
+                onRequestPoll={() => setIsPollModalOpen(true)}
               />
             </>
           ) : (
@@ -589,6 +592,15 @@ export default function Home() {
         success={configSuccess}
         keyStatus={keyStatus}
         onApiKeyChange={handleApiKeyChange}
+      />
+
+      {/* Create Take-Over Poll Modal */}
+      <CreatePollModal
+        isOpen={isPollModalOpen}
+        onClose={() => setIsPollModalOpen(false)}
+        onSubmit={handleSendCustomPoll}
+        contact={selectedContact}
+        contactName={selectedContactName}
       />
 
       {/* Connection Hash Switcher Modal */}
