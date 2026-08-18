@@ -210,21 +210,29 @@ def handle_vote(state: dict, contact_display: str, recipient: str, model: str, n
         return
     print(f"[poll] vote: {vote!r}")
     granted = False
-    if vote in GRANT_DURATIONS:
+    norm_vote = (vote or "").strip().lower()
+    if "5 min" in norm_vote:
         state["mode"] = "granted"
         state["grant_kind"] = "duration"
-        state["grant_expires_at"] = (now + GRANT_DURATIONS[vote]).isoformat()
+        state["grant_expires_at"] = (now + timedelta(minutes=5)).isoformat()
         state["poll_id"] = None
         granted = True
-        print(f"[grant] {vote} until {state['grant_expires_at']}")
-    elif vote == "Send 1 text":
+        print(f"[grant] 5 minutes until {state['grant_expires_at']}")
+    elif "2 hour" in norm_vote or "2 hr" in norm_vote:
+        state["mode"] = "granted"
+        state["grant_kind"] = "duration"
+        state["grant_expires_at"] = (now + timedelta(hours=2)).isoformat()
+        state["poll_id"] = None
+        granted = True
+        print(f"[grant] 2 hours until {state['grant_expires_at']}")
+    elif "1 text" in norm_vote or "1" in norm_vote or "send 1 text" in norm_vote:
         state["mode"] = "granted"
         state["grant_kind"] = "count"
         state["grant_remaining"] = 1
         state["poll_id"] = None
         granted = True
         print("[grant] 1 text remaining")
-    elif vote == "Deny":
+    elif "deny" in norm_vote:
         expire_grant(state)
         print("[deny] no grant")
     if granted:

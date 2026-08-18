@@ -11,6 +11,7 @@ import { SettingsDrawer } from "./components/Modals/SettingsDrawer";
 import { ConnectionSwitcherModal } from "./components/Modals/ConnectionSwitcherModal";
 import { QRPairingModal } from "./components/Modals/QRPairingModal";
 import { CreatePollModal } from "./components/Modals/CreatePollModal";
+import { UnlistedContactConfirmModal } from "./components/Modals/UnlistedContactConfirmModal";
 import { LockIcon, RobotIcon } from "./components/Icons/WhatsAppIcons";
 
 export default function Home() {
@@ -35,6 +36,9 @@ export default function Home() {
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
+  const [isUnlistedModalOpen, setIsUnlistedModalOpen] = useState(false);
+  const [pendingTakeoverAction, setPendingTakeoverAction] = useState(null);
+  const [unlistedActionDesc, setUnlistedActionDesc] = useState("take over conversation");
 
   // QR Code State
   const [qrDataUrl, setQrDataUrl] = useState("");
@@ -274,14 +278,44 @@ export default function Home() {
     window.history.replaceState(null, "", window.location.pathname);
   }
 
-  // 5. Handle Voting on Take-Over Polls
-  async function handleVote(pollId, option) {
+  // Allowed contacts list
+  const allowedRecipients = Array.isArray(connInfo?.connection?.allowedRecipients)
+    ? connInfo.connection.allowedRecipients
+    : typeof connInfo?.connection?.allowedRecipients === "string"
+    ? connInfo.connection.allowedRecipients.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+
+  const isSelectedWhitelisted = allowedRecipients.some((r) => {
+    const cleanR = String(r).replace(/\D/g, "");
+    const cleanSel = (selectedContact || "").replace(/\D/g, "");
+    return (
+      (cleanR && cleanSel && cleanR === cleanSel) ||
+      (selectedContact && String(selectedContact).includes(String(r))) ||
+      (r && String(r).includes(selectedContact))
+    );
+  });
+
+  // Active Autonomy Grants State (by contact JID/phone)
+  const [activeGrants, setActiveGrants] = useState({});
+
+  // Poll Configuration Template
+  const [pollConfig, setPollConfig] = useState({
+    question: "Permission to take over conversation?",
+    options: ["Send 1 text", "5 minutes", "2 hours", "Deny"],
+  });
+
+  // 5. Execute Voting on Take-Over Polls
+  async function executeVote(pollId, option, contact = selectedContact) {
     setVotingId(pollId);
     try {
       const res = await fetch(`/api/polls/${pollId}?hash=${hash}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ option, source: "panel" }),
+        body: JSON.stringify({
+          option,
+          source: "panel",
+          contact: contact || selectedContact,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -296,39 +330,43 @@ export default function Home() {
     }
   }
 
-  // Active Autonomy Grants State (by contact JID/phone)
-  const [activeGrants, setActiveGrants] = useState({});
+  // Handle Voting on Take-Over Polls (with Unlisted Contact Interception)
+  async function handleVote(pollId, option) {
+    const isDeny = (option || "").toLowerCase().includes("deny");
+    if (!isSelectedWhitelisted && !isDeny) {
+      setUnlistedActionDesc(`grant "${option}"`);
+      setPendingTakeoverAction({ type: "vote", pollId, option });
+      setIsUnlistedModalOpen(true);
+      return;
+    }
+    await executeVote(pollId, option);
+  }
 
-  // Poll Configuration Template
-  const [pollConfig, setPollConfig] = useState({
-    question: "Permission to take over conversation?",
-    options: ["Send 1 text", "5 minutes", "2 hours", "Deny"],
-  });
-
-  // 6. Handle Direct Quick Vote from Overlay
-  async function handleQuickVote(option, question, options) {
-    if (!selectedContact || !hash) return;
+  // Execute Direct Quick Vote
+  async function executeQuickVote(option, question, options, targetContact = selectedContact) {
+    if (!targetContact || !hash) return;
 
     // Optimistic grant activation
-    if (option === "5 minutes") {
+    const optLower = (option || "").toLowerCase();
+    if (optLower.includes("5 min")) {
       setActiveGrants((prev) => ({
         ...prev,
-        [selectedContact]: { type: "duration", expiresAt: Date.now() + 5 * 60 * 1000 },
+        [targetContact]: { type: "duration", expiresAt: Date.now() + 5 * 60 * 1000 },
       }));
-    } else if (option === "2 hours") {
+    } else if (optLower.includes("2 hour") || optLower.includes("2 hr")) {
       setActiveGrants((prev) => ({
         ...prev,
-        [selectedContact]: { type: "duration", expiresAt: Date.now() + 2 * 60 * 60 * 1000 },
+        [targetContact]: { type: "duration", expiresAt: Date.now() + 2 * 60 * 60 * 1000 },
       }));
-    } else if (option === "Send 1 text") {
+    } else if (optLower.includes("1 text") || optLower.includes("1") || optLower.includes("send 1")) {
       setActiveGrants((prev) => ({
         ...prev,
-        [selectedContact]: { type: "count", remainingCount: 1 },
+        [targetContact]: { type: "count", remainingCount: 1 },
       }));
     } else {
       setActiveGrants((prev) => ({
         ...prev,
-        [selectedContact]: { type: "none" },
+        [targetContact]: { type: "none" },
       }));
     }
 
@@ -340,8 +378,8 @@ export default function Home() {
         body: JSON.stringify({
           id: pollId,
           hash,
-          contact: selectedContact,
-          contactDisplay: selectedContactName || selectedContact,
+          contact: targetContact,
+          contactDisplay: selectedContactName || targetContact,
           question: question || pollConfig.question,
           options: options || pollConfig.options,
           createdAt: Date.now(),
@@ -350,12 +388,24 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         if (data.poll?.id) {
-          await handleVote(data.poll.id, option);
+          await executeVote(data.poll.id, option, targetContact);
         }
       }
     } catch (err) {
       console.error("Quick vote failed", err);
     }
+  }
+
+  // 6. Handle Direct Quick Vote from Overlay (with Unlisted Contact Interception)
+  async function handleQuickVote(option, question, options) {
+    const isDeny = (option || "").toLowerCase().includes("deny");
+    if (!isSelectedWhitelisted && !isDeny) {
+      setUnlistedActionDesc(`grant "${option}"`);
+      setPendingTakeoverAction({ type: "quick_vote", option, question, options });
+      setIsUnlistedModalOpen(true);
+      return;
+    }
+    await executeQuickVote(option, question, options);
   }
 
   // 7. Handle Revoking Take-Over Autonomy
@@ -368,16 +418,15 @@ export default function Home() {
 
     if (notifyBridge && hash) {
       try {
-        await handleQuickVote("Deny");
+        await executeQuickVote("Deny");
       } catch (err) {
         console.warn("Revoke failed", err);
       }
     }
   }
 
-  // 8. Handle Saving/Sending Customized Poll from Editor
-  async function handleSaveCustomPoll({ question, options, allowMultiple = false }) {
-    setPollConfig({ question, options });
+  // Execute Saving/Sending Custom Poll
+  async function executeSaveCustomPoll({ question, options, allowMultiple = false }) {
     if (!selectedContact || !hash) return;
     try {
       const res = await fetch(`/api/polls`, {
@@ -402,6 +451,57 @@ export default function Home() {
       }
     } catch (err) {
       console.error("Failed to create take-over poll", err);
+    }
+  }
+
+  // 8. Handle Saving/Sending Customized Poll from Editor (with Unlisted Contact Interception)
+  async function handleSaveCustomPoll({ question, options, allowMultiple = false }) {
+    setPollConfig({ question, options });
+    if (!isSelectedWhitelisted) {
+      setUnlistedActionDesc("send a custom take-over poll");
+      setPendingTakeoverAction({
+        type: "custom_poll",
+        params: { question, options, allowMultiple },
+      });
+      setIsUnlistedModalOpen(true);
+      return;
+    }
+    await executeSaveCustomPoll({ question, options, allowMultiple });
+  }
+
+  // Handle Confirmation of Take-Over for Unlisted Contact
+  async function handleConfirmUnlistedTakeover({ addToWhitelist }) {
+    const contactToGrant = selectedContact;
+    if (addToWhitelist && contactToGrant) {
+      const nextAllowed = Array.from(new Set([...allowedRecipients, contactToGrant]));
+      try {
+        await fetch(`/api/connections/${hash}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ allowedRecipients: nextAllowed }),
+        });
+        setConnInfo((prev) => ({
+          ...prev,
+          connection: {
+            ...prev?.connection,
+            allowedRecipients: nextAllowed,
+          },
+        }));
+      } catch (err) {
+        console.warn("Failed to update allowed recipients", err);
+      }
+    }
+
+    if (!pendingTakeoverAction) return;
+    const action = pendingTakeoverAction;
+    setPendingTakeoverAction(null);
+
+    if (action.type === "quick_vote") {
+      await executeQuickVote(action.option, action.question, action.options, contactToGrant);
+    } else if (action.type === "vote") {
+      await executeVote(action.pollId, action.option, contactToGrant);
+    } else if (action.type === "custom_poll") {
+      await executeSaveCustomPoll(action.params);
     }
   }
 
@@ -565,13 +665,6 @@ export default function Home() {
     }
   }
 
-  // Allowed contacts list
-  const allowedRecipients = Array.isArray(connInfo?.connection?.allowedRecipients)
-    ? connInfo.connection.allowedRecipients
-    : typeof connInfo?.connection?.allowedRecipients === "string"
-    ? connInfo.connection.allowedRecipients.split(",").map((s) => s.trim()).filter(Boolean)
-    : [];
-
   // Filter messages for selected contact / chatJid
   const cleanSelected = selectedContact.replace(/\D/g, "");
   const currentChatMessages = messages.filter((m) => {
@@ -598,10 +691,6 @@ export default function Home() {
 
   const pendingPollsCount = polls.filter((p) => p.status === "pending").length;
   const currentPendingPolls = currentChatPolls.filter((p) => p.status === "pending").length;
-
-  const isSelectedWhitelisted = allowedRecipients.some(
-    (r) => String(r).replace(/\D/g, "") === cleanSelected || selectedContact.includes(String(r))
-  );
 
   return (
     <main className="wa-container" data-theme={theme}>
@@ -765,6 +854,19 @@ export default function Home() {
         qrDataUrl={qrDataUrl}
         timeLeft={qrTimeLeft}
         onRefreshQr={fetchQrCode}
+      />
+
+      {/* Unlisted Contact Take-Over Confirmation Warning Modal */}
+      <UnlistedContactConfirmModal
+        isOpen={isUnlistedModalOpen}
+        onClose={() => {
+          setIsUnlistedModalOpen(false);
+          setPendingTakeoverAction(null);
+        }}
+        onConfirm={handleConfirmUnlistedTakeover}
+        contact={selectedContact}
+        contactName={selectedContactName}
+        actionDescription={unlistedActionDesc}
       />
     </main>
   );

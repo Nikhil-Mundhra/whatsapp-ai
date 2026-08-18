@@ -60,6 +60,7 @@ type Tenant struct {
 	grantRemaining int       // count remaining
 	grantExpiresAt time.Time // expiry for duration grant
 	lastTargetJID  types.JID // target contact to reply to
+	grantTargetJID types.JID // explicitly granted target chat for take-over
 
 	apiSentMu     sync.Mutex
 	apiSentMsgIDs map[string]time.Time
@@ -249,6 +250,23 @@ func (t *Tenant) resolveGroupName(chatJID types.JID) string {
 }
 
 func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
+	// If an active takeover grant was explicitly armed for this contact/chat, allow it!
+	t.mu.Lock()
+	activeGrant := false
+	if t.grantKind == "duration" && time.Now().Before(t.grantExpiresAt) {
+		activeGrant = true
+	} else if t.grantKind == "count" && t.grantRemaining > 0 {
+		activeGrant = true
+	}
+	grantTarget := t.grantTargetJID
+	t.mu.Unlock()
+
+	if activeGrant && !grantTarget.IsEmpty() {
+		if chatJID.User == grantTarget.User || senderJID.User == grantTarget.User || chatJID.String() == grantTarget.String() {
+			return true
+		}
+	}
+
 	// If it's a group chat, check group JID and group name
 	if chatJID.Server == "g.us" {
 		groupName := strings.ToLower(t.resolveGroupName(chatJID))
@@ -476,7 +494,6 @@ func (t *Tenant) setupEventHandler() {
 			} else {
 				handleMessage(t.client, t.messageStore, v, t.logger)
 
-				sender := v.Info.Sender.User
 				isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
 				isGroup := v.Info.Chat.Server == "g.us"
 
@@ -500,6 +517,7 @@ func (t *Tenant) setupEventHandler() {
 						if t.grantKind != "none" {
 							t.grantKind = "none"
 							t.grantRemaining = 0
+							t.grantTargetJID = types.EmptyJID
 							t.logger.Infof("Owner sent manual message -> reset takeover grant for %s", t.Hash)
 						}
 						var oldPollID string
@@ -631,7 +649,7 @@ func (t *Tenant) setupEventHandler() {
 							if err == nil && resp != nil {
 								_ = resp.Body.Close()
 							}
-						}(pollID, sender, chatName, question, options)
+						}(pollID, recipientKey, chatName, question, options)
 					}
 				}
 			}
@@ -825,31 +843,40 @@ func (t *Tenant) handleTenantPollVote(msg *events.Message) {
 				}
 			}
 		}
-		switch choice {
-		case "Send 1 text":
+		normChoice := strings.TrimSpace(strings.ToLower(choice))
+		isOneText := strings.Contains(normChoice, "1") || strings.Contains(normChoice, "1 text") || normChoice == "send 1 text"
+		is5Min := strings.Contains(normChoice, "5 min") || strings.Contains(normChoice, "5 minutes")
+		is2Hours := strings.Contains(normChoice, "2 hour") || strings.Contains(normChoice, "2 hr") || strings.Contains(normChoice, "2 hours")
+		isDeny := strings.Contains(normChoice, "deny")
+
+		if isOneText {
 			t.grantKind = "count"
 			t.grantRemaining = 1
-			t.logger.Infof("Takeover granted for %s: 1 text", t.Hash)
+			t.grantTargetJID = targetJID
+			t.logger.Infof("Takeover granted for %s: 1 text (target %s)", t.Hash, targetJID)
 			t.mu.Unlock()
 			go t.replyToChat(targetJID)
-		case "5 minutes":
+		} else if is5Min {
 			t.grantKind = "duration"
 			t.grantExpiresAt = time.Now().Add(5 * time.Minute)
-			t.logger.Infof("Takeover granted for %s: 5 minutes (until %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"))
+			t.grantTargetJID = targetJID
+			t.logger.Infof("Takeover granted for %s: 5 minutes (until %s, target %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"), targetJID)
 			t.mu.Unlock()
 			go t.replyToChat(targetJID)
-		case "2 hours":
+		} else if is2Hours {
 			t.grantKind = "duration"
 			t.grantExpiresAt = time.Now().Add(2 * time.Hour)
-			t.logger.Infof("Takeover granted for %s: 2 hours (until %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"))
+			t.grantTargetJID = targetJID
+			t.logger.Infof("Takeover granted for %s: 2 hours (until %s, target %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"), targetJID)
 			t.mu.Unlock()
 			go t.replyToChat(targetJID)
-		case "Deny":
+		} else if isDeny {
 			t.grantKind = "none"
 			t.grantRemaining = 0
+			t.grantTargetJID = types.EmptyJID
 			t.logger.Infof("Takeover denied for %s", t.Hash)
 			t.mu.Unlock()
-		default:
+		} else {
 			t.mu.Unlock()
 		}
 	}
@@ -871,38 +898,53 @@ func (t *Tenant) applyWebGrant(choice, contact string) {
 			}
 		}
 	}
+	if targetJID.IsEmpty() && !t.lastTargetJID.IsEmpty() {
+		targetJID = t.lastTargetJID
+	}
 
-	switch choice {
-	case "Send 1 text":
+	normChoice := strings.TrimSpace(strings.ToLower(choice))
+	isOneText := strings.Contains(normChoice, "1") || strings.Contains(normChoice, "1 text") || normChoice == "send 1 text"
+	is5Min := strings.Contains(normChoice, "5 min") || strings.Contains(normChoice, "5 minutes")
+	is2Hours := strings.Contains(normChoice, "2 hour") || strings.Contains(normChoice, "2 hr") || strings.Contains(normChoice, "2 hours")
+	isDeny := strings.Contains(normChoice, "deny")
+
+	if isOneText {
 		t.grantKind = "count"
 		t.grantRemaining = 1
-		t.logger.Infof("Web Takeover granted for %s: 1 text", t.Hash)
+		t.grantTargetJID = targetJID
+		t.lastTargetJID = targetJID
+		t.logger.Infof("Web Takeover granted for %s: 1 text (target %s)", t.Hash, targetJID)
 		t.mu.Unlock()
 		if !targetJID.IsEmpty() {
 			go t.replyToChat(targetJID)
 		}
-	case "5 minutes":
+	} else if is5Min {
 		t.grantKind = "duration"
 		t.grantExpiresAt = time.Now().Add(5 * time.Minute)
-		t.logger.Infof("Web Takeover granted for %s: 5 minutes (until %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"))
+		t.grantTargetJID = targetJID
+		t.lastTargetJID = targetJID
+		t.logger.Infof("Web Takeover granted for %s: 5 minutes (until %s, target %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"), targetJID)
 		t.mu.Unlock()
 		if !targetJID.IsEmpty() {
 			go t.replyToChat(targetJID)
 		}
-	case "2 hours":
+	} else if is2Hours {
 		t.grantKind = "duration"
 		t.grantExpiresAt = time.Now().Add(2 * time.Hour)
-		t.logger.Infof("Web Takeover granted for %s: 2 hours (until %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"))
+		t.grantTargetJID = targetJID
+		t.lastTargetJID = targetJID
+		t.logger.Infof("Web Takeover granted for %s: 2 hours (until %s, target %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"), targetJID)
 		t.mu.Unlock()
 		if !targetJID.IsEmpty() {
 			go t.replyToChat(targetJID)
 		}
-	case "Deny":
+	} else if isDeny {
 		t.grantKind = "none"
 		t.grantRemaining = 0
+		t.grantTargetJID = types.EmptyJID
 		t.logger.Infof("Web Takeover denied for %s", t.Hash)
 		t.mu.Unlock()
-	default:
+	} else {
 		t.mu.Unlock()
 	}
 }
@@ -1099,6 +1141,7 @@ READ THE ROOM:
 						}
 						if t.grantRemaining <= 0 {
 							t.grantKind = "none"
+							t.grantTargetJID = types.EmptyJID
 						}
 					}
 					t.mu.Unlock()
@@ -1221,6 +1264,7 @@ READ THE ROOM:
 			}
 			if t.grantRemaining <= 0 {
 				t.grantKind = "none"
+				t.grantTargetJID = types.EmptyJID
 			}
 		}
 		t.mu.Unlock()
