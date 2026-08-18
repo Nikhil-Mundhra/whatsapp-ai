@@ -115,15 +115,18 @@ export default function Home() {
 
   // 2. Fetch live connection info, chats, polls, and messages
   async function fetchDashboardData(isManual = false) {
+    if (!hash) {
+      setLoading(false);
+      return;
+    }
     if (isManual) setRefreshing(true);
 
     try {
-      const activeHash = hash || "default";
       const [connRes, chatsRes, pollsRes, msgsRes] = await Promise.all([
-        fetch(`/api/connections/${activeHash}`, { cache: "no-store" }),
+        fetch(`/api/connections/${hash}`, { cache: "no-store" }),
         fetch(`/api/chats?limit=50`, { cache: "no-store" }),
-        fetch(`/api/polls?hash=${activeHash}&limit=50`, { cache: "no-store" }),
-        fetch(`/api/connections/${activeHash}/messages?limit=200`, { cache: "no-store" }),
+        fetch(`/api/polls?hash=${hash}&limit=50`, { cache: "no-store" }),
+        fetch(`/api/connections/${hash}/messages?limit=200`, { cache: "no-store" }),
       ]);
 
       let loadedChats = [];
@@ -207,6 +210,21 @@ export default function Home() {
       setLoading(true);
       window.history.replaceState(null, "", `?hash=${clean}`);
     }
+  }
+
+  // Handle Logout / Disconnect
+  function handleLogout() {
+    localStorage.removeItem("wa_hash");
+    setHash("");
+    setConnInfo(null);
+    setChats([]);
+    setMessages([]);
+    setPolls([]);
+    setSelectedContact("");
+    setSelectedContactName("");
+    setIsSettingsOpen(false);
+    setLoading(false);
+    window.history.replaceState(null, "", window.location.pathname);
   }
 
   // 5. Handle Voting on Take-Over Polls
@@ -556,6 +574,7 @@ export default function Home() {
         configForm={configForm}
         setConfigForm={setConfigForm}
         onSave={handleSaveConfig}
+        onLogout={handleLogout}
         saving={savingConfig}
         error={configError}
         success={configSuccess}

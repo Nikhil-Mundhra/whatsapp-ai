@@ -8,6 +8,7 @@ export function SettingsDrawer({
   configForm,
   setConfigForm,
   onSave,
+  onLogout,
   saving = false,
   error = "",
   success = "",
@@ -235,6 +236,36 @@ export function SettingsDrawer({
             <RobotIcon size={16} color="#ffffff" />
             <span>{saving ? "Saving Configuration..." : "Save & Sync with Bridge"}</span>
           </button>
+
+          {/* Log Out Connection Card */}
+          <div className="wa-card" style={{ marginTop: 12, border: "1px solid #fee2e2" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: "#b91c1c" }}>Log Out Connection</div>
+                <div style={{ fontSize: 11, color: "#64748b" }}>Disconnect and clear this connection code</div>
+              </div>
+              <button
+                type="button"
+                onClick={onLogout}
+                style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  color: "#dc2626",
+                  padding: "8px 14px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span>Log Out</span>
+              </button>
+            </div>
+          </div>
         </form>
       </div>
     </div>
