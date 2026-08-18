@@ -1,12 +1,20 @@
+import "./styles/whatsapp.css";
+
 export const metadata = {
-  title: "Take-over control panel",
-  description: "Approve or deny AI takeover polls from WhatsApp",
+  title: "WhatsApp AI Take-Over Control Panel",
+  description: "Autonomous WhatsApp AI texting companion and permission gating control panel",
+  icons: {
+    icon: "/logo.svg",
+  },
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body style={{ margin: 0 }}>{children}</body>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+      </head>
+      <body>{children}</body>
     </html>
   );
 }

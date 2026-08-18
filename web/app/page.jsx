@@ -1,19 +1,41 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { SidebarHeader } from "./components/Sidebar/SidebarHeader";
+import { SearchBar } from "./components/Sidebar/SearchBar";
+import { ContactList } from "./components/Sidebar/ContactList";
+import { ChatHeader } from "./components/Chat/ChatHeader";
+import { ChatTimeline } from "./components/Chat/ChatTimeline";
+import { ChatInputBar } from "./components/Chat/ChatInputBar";
+import { SettingsDrawer } from "./components/Modals/SettingsDrawer";
+import { ConnectionSwitcherModal } from "./components/Modals/ConnectionSwitcherModal";
+import { QRPairingModal } from "./components/Modals/QRPairingModal";
+import { LockIcon, RobotIcon } from "./components/Icons/WhatsAppIcons";
 
 export default function Home() {
   const [hash, setHash] = useState("");
-  const [inputHash, setInputHash] = useState("");
-  const [isEditingHash, setIsEditingHash] = useState(false);
   const [connInfo, setConnInfo] = useState(null);
   const [polls, setPolls] = useState([]);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [votingId, setVotingId] = useState(null);
 
-  // Edit Settings Modal State
-  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  // Active Chat Selection & Filtering
+  const [selectedContact, setSelectedContact] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState("all");
+
+  // Modals & Drawers
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+
+  // QR Code State
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [qrTimeLeft, setQrTimeLeft] = useState(20);
+
+  // Settings Form State
   const [configForm, setConfigForm] = useState({
     ownerPhone: "",
     allowedRecipients: "",
@@ -26,7 +48,7 @@ export default function Home() {
   const [keyStatus, setKeyStatus] = useState({ state: "idle", message: "", provider: "", models: [] });
   const validateTimerRef = useRef(null);
 
-  // 1. Initialize hash from URL searchParams or localStorage
+  // 1. Initialize hash from URL query or localStorage
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlHash = params.get("hash");
@@ -34,63 +56,98 @@ export default function Home() {
     const active = urlHash || storedHash || "";
     if (active) {
       setHash(active.toUpperCase());
-      setInputHash(active.toUpperCase());
     } else {
       setLoading(false);
     }
   }, []);
 
-  // 2. Fetch live connection info, polls, and messages whenever hash changes
+  // 2. Fetch live connection info, polls, and messages
+  async function fetchDashboardData(isManual = false) {
+    if (!hash) return;
+    if (isManual) setRefreshing(true);
+
+    try {
+      const [connRes, pollsRes, msgsRes] = await Promise.all([
+        fetch(`/api/connections/${hash}`, { cache: "no-store" }),
+        fetch(`/api/polls?hash=${hash}&limit=50`, { cache: "no-store" }),
+        fetch(`/api/connections/${hash}/messages?limit=50`, { cache: "no-store" }),
+      ]);
+
+      if (connRes.ok) {
+        const connData = await connRes.json();
+        setConnInfo(connData);
+
+        // Auto-select first contact if none selected
+        if (!selectedContact && connData?.connection?.allowedRecipients) {
+          const recs = Array.isArray(connData.connection.allowedRecipients)
+            ? connData.connection.allowedRecipients
+            : typeof connData.connection.allowedRecipients === "string"
+            ? connData.connection.allowedRecipients.split(",").map((s) => s.trim())
+            : [];
+          if (recs.length > 0 && recs[0]) {
+            setSelectedContact(recs[0]);
+          }
+        }
+
+        // Trigger QR modal if waiting for QR
+        if (connData?.connection?.status === "waiting_qr" && !qrDataUrl) {
+          fetchQrCode();
+        }
+      }
+
+      if (pollsRes.ok) {
+        const pollsData = await pollsRes.json();
+        setPolls(pollsData.polls || []);
+      }
+
+      if (msgsRes.ok) {
+        const msgsData = await msgsRes.json();
+        setMessages(msgsData.messages || []);
+      }
+    } catch (err) {
+      console.error("Dashboard poll failed", err);
+    } finally {
+      setLoading(false);
+      if (isManual) setTimeout(() => setRefreshing(false), 500);
+    }
+  }
+
+  // 3. Fetch QR Code for pairing
+  async function fetchQrCode() {
+    if (!hash) return;
+    try {
+      const res = await fetch(`/api/connections/${hash}/qr`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.qr) {
+          setQrDataUrl(data.qr);
+          setQrTimeLeft(data.ttl || 20);
+        }
+      }
+    } catch {}
+  }
+
   useEffect(() => {
     if (!hash) return;
     localStorage.setItem("wa_hash", hash);
-
-    async function fetchData() {
-      try {
-        const [connRes, pollsRes, msgsRes] = await Promise.all([
-          fetch(`/api/connections/${hash}`, { cache: "no-store" }),
-          fetch(`/api/polls?hash=${hash}&limit=50`, { cache: "no-store" }),
-          fetch(`/api/connections/${hash}/messages?limit=20`, { cache: "no-store" }),
-        ]);
-
-        if (connRes.ok) {
-          const connData = await connRes.json();
-          setConnInfo(connData);
-        }
-
-        if (pollsRes.ok) {
-          const pollsData = await pollsRes.json();
-          setPolls(pollsData.polls || []);
-        }
-
-        if (msgsRes.ok) {
-          const msgsData = await msgsRes.json();
-          setMessages(msgsData.messages || []);
-        }
-      } catch (err) {
-        console.error("Failed to load dashboard data", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchData();
-    const interval = setInterval(fetchData, 3000);
+    fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, 3000);
     return () => clearInterval(interval);
   }, [hash]);
 
-  function handleSaveHash(e) {
-    e?.preventDefault();
-    const clean = inputHash.trim().toUpperCase();
+  // 4. Handle Switching Connection Code
+  function handleSwitchHash(newHash) {
+    const clean = newHash.trim().toUpperCase();
     if (clean) {
       setHash(clean);
+      setSelectedContact("");
       localStorage.setItem("wa_hash", clean);
-      setIsEditingHash(false);
       setLoading(true);
       window.history.replaceState(null, "", `?hash=${clean}`);
     }
   }
 
+  // 5. Handle Voting on Take-Over Polls
   async function handleVote(pollId, option) {
     setVotingId(pollId);
     try {
@@ -112,7 +169,70 @@ export default function Home() {
     }
   }
 
-  function openEditModal() {
+  // 6. Handle Quick Autonomy Grant
+  async function handleQuickGrant(durationOption = "5 minutes") {
+    if (!selectedContact) return;
+    // Creates an optimistic poll or executes a grant
+    try {
+      const res = await fetch(`/api/polls`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: `poll-${Date.now()}`,
+          hash,
+          contact: selectedContact,
+          question: `Quick Take-Over Grant (${durationOption})`,
+          options: ["Send 1 text", "5 minutes", "2 hours", "Deny"],
+          createdAt: Date.now(),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.poll?.id) {
+          handleVote(data.poll.id, durationOption);
+        }
+      }
+    } catch (err) {
+      console.error("Quick grant error", err);
+    }
+  }
+
+  // 7. Handle Revoking Autonomy
+  async function handleRevoke() {
+    if (!selectedContact) return;
+    handleQuickGrant("Deny");
+  }
+
+  // 8. Handle Manual Messaging / Drafting
+  function handleSendManual(text) {
+    // Optimistic message append
+    const newMsg = {
+      id: `msg-${Date.now()}`,
+      sender: "me",
+      recipient: selectedContact,
+      body: text,
+      timestamp: new Date().toISOString(),
+      isFromMe: true,
+      isAi: false,
+    };
+    setMessages((prev) => [...prev, newMsg]);
+  }
+
+  function handleTriggerDraft() {
+    const newMsg = {
+      id: `msg-${Date.now()}`,
+      sender: "ai",
+      recipient: selectedContact,
+      body: "Drafting autonomous response mirroring your texting persona...",
+      timestamp: new Date().toISOString(),
+      isFromMe: true,
+      isAi: true,
+    };
+    setMessages((prev) => [...prev, newMsg]);
+  }
+
+  // 9. Settings Modal Handlers
+  function openSettings() {
     setConfigForm({
       ownerPhone: connInfo?.connection?.ownerPhone || "",
       allowedRecipients: Array.isArray(connInfo?.connection?.allowedRecipients)
@@ -124,7 +244,7 @@ export default function Home() {
     setKeyStatus({ state: "idle", message: "", provider: "", models: [] });
     setConfigError("");
     setConfigSuccess("");
-    setIsConfigOpen(true);
+    setIsSettingsOpen(true);
   }
 
   function handleApiKeyChange(e) {
@@ -203,10 +323,10 @@ export default function Home() {
         }));
       }
 
-      setConfigSuccess("Configuration updated & synced with bridge! ✓");
+      setConfigSuccess("Configuration updated & synced! ✓");
       setTimeout(() => {
-        setIsConfigOpen(false);
-      }, 1000);
+        setIsSettingsOpen(false);
+      }, 900);
     } catch (err) {
       setConfigError(err.message || "Failed to update configuration");
     } finally {
@@ -214,502 +334,194 @@ export default function Home() {
     }
   }
 
-  const pending = polls.filter((p) => p.status === "pending");
-  const history = polls.filter((p) => p.status !== "pending");
+  // Allowed contacts list
+  const allowedRecipients = Array.isArray(connInfo?.connection?.allowedRecipients)
+    ? connInfo.connection.allowedRecipients
+    : typeof connInfo?.connection?.allowedRecipients === "string"
+    ? connInfo.connection.allowedRecipients.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
 
-  function formatPollTime(timestamp) {
-    if (!timestamp) return "";
-    const d = new Date(timestamp);
-    const now = new Date();
-    const isToday = d.toDateString() === now.toDateString();
-    if (isToday) {
-      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    }
-    return d.toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  }
+  // Filter messages for selected contact
+  const cleanSelected = selectedContact.replace(/\D/g, "");
+  const currentChatMessages = messages.filter((m) => {
+    const s = (m.sender || "").replace(/\D/g, "");
+    const r = (m.recipient || "").replace(/\D/g, "");
+    return s === cleanSelected || r === cleanSelected;
+  });
+
+  // Filter polls for selected contact
+  const currentChatPolls = polls.filter((p) => {
+    const c = (p.contact || "").replace(/\D/g, "");
+    return c === cleanSelected || p.contact === selectedContact;
+  });
+
+  const pendingPollsCount = polls.filter((p) => p.status === "pending").length;
+  const currentPendingPolls = currentChatPolls.filter((p) => p.status === "pending").length;
 
   return (
-    <main style={{ maxWidth: 760, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <img src="/logo.svg" alt="WhatsApp AI" style={{ width: 44, height: 44 }} />
-          <div>
-            <h1 style={{ fontSize: 22, margin: 0 }}>Take-Over Control Panel</h1>
-            <p style={{ margin: "2px 0 0" }}>
-              <a href="/setup" style={{ color: "#2b6cb0", fontSize: 13, textDecoration: "none", fontWeight: 500 }}>
-                + New Connection Setup
-              </a>
-            </p>
-          </div>
+    <main className="wa-container">
+      <div className="wa-app-window">
+        {/* Left Sidebar */}
+        <div className="wa-sidebar">
+          <SidebarHeader
+            hash={hash}
+            connInfo={connInfo}
+            onOpenSettings={openSettings}
+            onOpenSwitcher={() => setIsSwitcherOpen(true)}
+            onRefresh={() => fetchDashboardData(true)}
+            refreshing={refreshing}
+          />
+
+          <SearchBar
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            filterType={filterType}
+            setFilterType={setFilterType}
+            pendingCount={pendingPollsCount}
+          />
+
+          <ContactList
+            contacts={allowedRecipients}
+            selectedContact={selectedContact}
+            onSelectContact={(c) => setSelectedContact(c)}
+            polls={polls}
+            messages={messages}
+            searchQuery={searchQuery}
+            filterType={filterType}
+          />
         </div>
 
-        {/* Quick Connection Code Switcher */}
-        <div style={{ background: "#f8fafc", padding: "6px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13 }}>
-          {isEditingHash || !hash ? (
-            <form onSubmit={handleSaveHash} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input
-                value={inputHash}
-                onChange={(e) => setInputHash(e.target.value.toUpperCase())}
-                placeholder="e.g. VB552P"
-                maxLength={8}
+        {/* Right Active Chat Area */}
+        <div className="wa-chat-area">
+          {!hash ? (
+            <div className="wa-empty-state">
+              <div
                 style={{
-                  width: 90,
-                  padding: "4px 8px",
-                  borderRadius: 4,
-                  border: "1px solid #cbd5e1",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  textTransform: "uppercase",
+                  width: 80,
+                  height: 80,
+                  borderRadius: "50%",
+                  background: "#e2e8f0",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
-                autoFocus
-              />
+              >
+                <RobotIcon size={40} color="#008069" />
+              </div>
+              <h2>Welcome to Take-Over Control Panel</h2>
+              <p>
+                Enter your 6-character connection code to access your live WhatsApp AI take-over polls, persona texting stream, and smartwatch grants.
+              </p>
               <button
-                type="submit"
+                onClick={() => setIsSwitcherOpen(true)}
                 style={{
-                  background: "#2563eb",
-                  color: "#fff",
+                  marginTop: 18,
+                  background: "#00a884",
+                  color: "#ffffff",
                   border: "none",
-                  padding: "4px 10px",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  fontSize: 12,
+                  borderRadius: 8,
+                  padding: "10px 20px",
                   fontWeight: 600,
-                }}
-              >
-                Load
-              </button>
-              {hash && (
-                <button
-                  type="button"
-                  onClick={() => setIsEditingHash(false)}
-                  style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 12 }}
-                >
-                  Cancel
-                </button>
-              )}
-            </form>
-          ) : (
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ color: "#64748b" }}>Code:</span>
-              <code style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>{hash}</code>
-              <button
-                onClick={() => {
-                  setInputHash(hash);
-                  setIsEditingHash(true);
-                }}
-                style={{
-                  background: "none",
-                  border: "1px solid #cbd5e1",
-                  padding: "2px 6px",
-                  borderRadius: 4,
-                  fontSize: 11,
-                  color: "#475569",
+                  fontSize: 14,
                   cursor: "pointer",
+                  boxShadow: "0 2px 4px rgba(0, 168, 132, 0.3)",
                 }}
               >
-                Switch
+                Enter Connection Code →
               </button>
+            </div>
+          ) : selectedContact ? (
+            <>
+              <ChatHeader
+                contact={selectedContact}
+                pendingCount={currentPendingPolls}
+                isAutonomyActive={false}
+                onQuickGrant={handleQuickGrant}
+                onRevoke={handleRevoke}
+              />
+
+              <ChatTimeline
+                messages={currentChatMessages}
+                polls={currentChatPolls}
+                onVote={handleVote}
+                votingId={votingId}
+                contact={selectedContact}
+              />
+
+              <ChatInputBar
+                contact={selectedContact}
+                onSendManual={handleSendManual}
+                onTriggerDraft={handleTriggerDraft}
+              />
+            </>
+          ) : (
+            <div className="wa-empty-state">
+              <div
+                style={{
+                  width: 72,
+                  height: 72,
+                  borderRadius: "50%",
+                  background: "#ffffff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                }}
+              >
+                <RobotIcon size={36} color="#00a884" />
+              </div>
+              <h2>WhatsApp AI Take-Over</h2>
+              <p>
+                Select an allowed contact from the left sidebar to view live take-over permission polls, messages, and autonomous replies.
+              </p>
+              <div
+                style={{
+                  marginTop: 28,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  color: "#8696a0",
+                  fontSize: 12,
+                }}
+              >
+                <LockIcon size={13} color="#8696a0" />
+                <span>End-to-end encrypted autonomous texting companion</span>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* No Connection Entered State */}
-      {!hash && (
-        <div style={{ background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 12, padding: 32, textAlign: "center", margin: "20px 0" }}>
-          <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>Enter your Connection Code</h2>
-          <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 16px" }}>
-            Enter your 6-character code (e.g. <code>VB552P</code>) to view live takeover polls, messages, and link status.
-          </p>
-          <form onSubmit={handleSaveHash} style={{ display: "inline-flex", gap: 8 }}>
-            <input
-              value={inputHash}
-              onChange={(e) => setInputHash(e.target.value.toUpperCase())}
-              placeholder="e.g. VB552P"
-              maxLength={8}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 6,
-                border: "1px solid #cbd5e1",
-                fontSize: 16,
-                fontWeight: 700,
-                letterSpacing: 1,
-                textAlign: "center",
-                width: 140,
-              }}
-            />
-            <button
-              type="submit"
-              style={{
-                background: "#2563eb",
-                color: "#fff",
-                border: "none",
-                padding: "8px 18px",
-                borderRadius: 6,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              Open Panel →
-            </button>
-          </form>
-        </div>
-      )}
+      {/* Slide-out Settings Drawer */}
+      <SettingsDrawer
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        configForm={configForm}
+        setConfigForm={setConfigForm}
+        onSave={handleSaveConfig}
+        saving={savingConfig}
+        error={configError}
+        success={configSuccess}
+        keyStatus={keyStatus}
+        onApiKeyChange={handleApiKeyChange}
+      />
 
-      {/* Connection Info Banner */}
-      {hash && connInfo && (
-        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "12px 16px", marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ width: 10, height: 10, borderRadius: "50%", background: connInfo.whatsapp === "linked" ? "#22c55e" : "#eab308" }} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 14, color: "#166534" }}>
-                {connInfo.whatsapp === "linked" ? "WhatsApp Connected & Live" : "Pairing in progress..."}
-              </div>
-              <div style={{ fontSize: 12, color: "#15803d" }}>
-                Owner: {connInfo.connection?.ownerPhone || "Configured"} | Recipient: {Array.isArray(connInfo.connection?.allowedRecipients) ? connInfo.connection.allowedRecipients.join(", ") : connInfo.connection?.allowedRecipients || "Active"}
-              </div>
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {connInfo.connection?.aiModel && (
-              <span style={{ fontSize: 12, background: "#dcfce7", color: "#15803d", padding: "4px 8px", borderRadius: 6, fontWeight: 500 }}>
-                {connInfo.connection.aiModel}
-              </span>
-            )}
-            <button
-              onClick={openEditModal}
-              style={{
-                background: "#ffffff",
-                border: "1px solid #86efac",
-                color: "#166534",
-                padding: "4px 10px",
-                borderRadius: 6,
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              ⚙️ Edit Config
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Connection Hash Switcher Modal */}
+      <ConnectionSwitcherModal
+        isOpen={isSwitcherOpen}
+        onClose={() => setIsSwitcherOpen(false)}
+        currentHash={hash}
+        onSwitchHash={handleSwitchHash}
+      />
 
-      {/* Edit Config Modal */}
-      {isConfigOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-          <div style={{ background: "#fff", borderRadius: 12, padding: 24, maxWidth: 500, width: "100%", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h2 style={{ fontSize: 18, margin: 0 }}>⚙️ Edit Connection Settings</h2>
-              <button
-                onClick={() => setIsConfigOpen(false)}
-                style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#64748b" }}
-              >
-                ✕
-              </button>
-            </div>
-
-            {configError && (
-              <div style={{ color: "#b91c1c", background: "#fef2f2", padding: "8px 12px", borderRadius: 6, fontSize: 13, marginBottom: 12 }}>
-                {configError}
-              </div>
-            )}
-            {configSuccess && (
-              <div style={{ color: "#15803d", background: "#f0fdf4", padding: "8px 12px", borderRadius: 6, fontSize: 13, marginBottom: 12 }}>
-                {configSuccess}
-              </div>
-            )}
-
-            <form onSubmit={handleSaveConfig} style={{ display: "grid", gap: 12 }}>
-              <label style={{ display: "grid", gap: 4 }}>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>OWNER_PHONE</span>
-                <input
-                  value={configForm.ownerPhone}
-                  onChange={(e) => setConfigForm({ ...configForm, ownerPhone: e.target.value })}
-                  placeholder="e.g. 917060410033"
-                  style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc", fontSize: 14 }}
-                />
-              </label>
-
-              <label style={{ display: "grid", gap: 4 }}>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>ALLOWED_RECIPIENTS</span>
-                <input
-                  value={configForm.allowedRecipients}
-                  onChange={(e) => setConfigForm({ ...configForm, allowedRecipients: e.target.value })}
-                  placeholder="e.g. 917893472546"
-                  style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc", fontSize: 14 }}
-                />
-              </label>
-
-              <div style={{ display: "grid", gap: 4 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>AI API KEY (OpenRouter, Gemini, OpenAI)</span>
-                  {keyStatus.state === "checking" && (
-                    <span style={{ fontSize: 11, color: "#6b7280" }}>⏳ Verifying...</span>
-                  )}
-                  {keyStatus.state === "valid" && (
-                    <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>{keyStatus.message}</span>
-                  )}
-                  {keyStatus.state === "invalid" && (
-                    <span style={{ fontSize: 11, color: "#dc2626", fontWeight: 600 }}>❌ {keyStatus.message}</span>
-                  )}
-                </div>
-                <input
-                  type="password"
-                  value={configForm.aiApiKey}
-                  onChange={handleApiKeyChange}
-                  placeholder="Paste your API key to update"
-                  style={{
-                    padding: 8,
-                    borderRadius: 6,
-                    border: `1px solid ${
-                      keyStatus.state === "valid"
-                        ? "#22c55e"
-                        : keyStatus.state === "invalid"
-                        ? "#ef4444"
-                        : "#ccc"
-                    }`,
-                    fontSize: 14,
-                  }}
-                />
-                <small style={{ color: "#64748b", fontSize: 11 }}>
-                  Leave empty if you don't want to change the existing key.
-                </small>
-              </div>
-
-              {keyStatus.models?.length > 0 ? (
-                <div style={{ display: "grid", gap: 4 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>AI MODEL</span>
-                  <select
-                    value={configForm.aiModel}
-                    onChange={(e) => setConfigForm({ ...configForm, aiModel: e.target.value })}
-                    style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc", fontSize: 14, background: "#fff" }}
-                  >
-                    {keyStatus.models.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name || m.id}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <label style={{ display: "grid", gap: 4 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>AI MODEL</span>
-                  <input
-                    value={configForm.aiModel}
-                    onChange={(e) => setConfigForm({ ...configForm, aiModel: e.target.value })}
-                    placeholder="e.g. qwen/qwen3.8-27b"
-                    style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc", fontSize: 14 }}
-                  />
-                </label>
-              )}
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setIsConfigOpen(false)}
-                  style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #ccc", background: "#fff", cursor: "pointer" }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingConfig}
-                  style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: "pointer" }}
-                >
-                  {savingConfig ? "Saving..." : "Save Changes"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Pending Polls Section */}
-      {hash && (
-        <>
-          {pending.length > 0 && (
-            <section style={{ marginBottom: 24 }}>
-              <h2 style={{ fontSize: 16, display: "flex", alignItems: "center", gap: 8, color: "#1e293b", margin: "0 0 12px" }}>
-                <span>🔥 Pending Takeovers ({pending.length})</span>
-              </h2>
-              {pending.map((p) => (
-                <div key={p.id} style={{ border: "1px solid #bfdbfe", background: "#eff6ff", borderRadius: 10, padding: 18, marginBottom: 12, boxShadow: "0 2px 4px rgba(0,0,0,0.02)" }}>
-                  <div style={{ fontWeight: 700, fontSize: 16, color: "#1e3a8a" }}>
-                    💬 {p.contactDisplay} texted you
-                  </div>
-                  <div style={{ color: "#334155", margin: "6px 0 14px", fontSize: 15 }}>
-                    {p.question}
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8 }}>
-                    {(p.options || ["Send 1 text", "5 minutes", "2 hours", "Deny"]).map((opt) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        disabled={votingId === p.id}
-                        onClick={() => handleVote(p.id, opt)}
-                        style={{
-                          padding: "10px 14px",
-                          borderRadius: 6,
-                          border: opt === "Deny" ? "1px solid #fecaca" : "1px solid #93c5fd",
-                          background: opt === "Deny" ? "#fef2f2" : "#ffffff",
-                          color: opt === "Deny" ? "#dc2626" : "#1d4ed8",
-                          fontWeight: 600,
-                          fontSize: 13,
-                          cursor: "pointer",
-                          transition: "all 0.15s ease",
-                        }}
-                      >
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </section>
-          )}
-
-          {/* Live Recent Messages from Contacts */}
-          <section style={{ marginBottom: 24 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h2 style={{ fontSize: 16, margin: 0, color: "#1e293b" }}>💬 Live Recent Messages</h2>
-              <span style={{ fontSize: 12, color: "#64748b" }}>Auto-refreshing (3s)</span>
-            </div>
-
-            {messages.length === 0 ? (
-              <div style={{ padding: 20, textAlign: "center", background: "#f8fafc", borderRadius: 8, border: "1px solid #f1f5f9", color: "#64748b", fontSize: 13 }}>
-                No messages recorded yet. Live texts will stream here automatically.
-              </div>
-            ) : (
-              <div style={{ display: "grid", gap: 8 }}>
-                {messages.slice(0, 10).map((m, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      background: m.isFromMe ? "#f0fdf4" : "#ffffff",
-                      borderRadius: 8,
-                      padding: "10px 14px",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      gap: 12,
-                    }}
-                  >
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                        <span style={{ fontWeight: 600, fontSize: 13, color: m.isFromMe ? "#166534" : "#1e293b" }}>
-                          {m.isFromMe ? "You (Me)" : m.senderName || m.sender}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: 10,
-                            padding: "1px 6px",
-                            borderRadius: 4,
-                            background: m.isFromMe ? "#dcfce7" : "#e0e7ff",
-                            color: m.isFromMe ? "#15803d" : "#4338ca",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {m.isFromMe ? "OUTGOING →" : "INCOMING ←"}
-                        </span>
-                      </div>
-                      <div style={{ color: "#334155", fontSize: 14 }}>
-                        {m.content || (m.mediaType ? `[${m.mediaType}]` : "(no text)")}
-                      </div>
-                    </div>
-                    <span style={{ color: "#94a3b8", fontSize: 11, whiteSpace: "nowrap" }}>
-                      {m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* History Section */}
-          <section style={{ marginTop: 24 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h2 style={{ fontSize: 16, margin: 0, color: "#1e293b", fontWeight: 600 }}>Take-over History</h2>
-              <span style={{ fontSize: 12, color: "#64748b" }}>
-                {history.length} {history.length === 1 ? "past event" : "past events"}
-              </span>
-            </div>
-
-            {loading && history.length === 0 && (
-              <p style={{ color: "#64748b", fontSize: 14 }}>Loading history...</p>
-            )}
-
-            {!loading && history.length === 0 && (
-              <div style={{ padding: 20, textAlign: "center", background: "#f8fafc", borderRadius: 8, border: "1px solid #f1f5f9", color: "#64748b", fontSize: 13 }}>
-                No past takeovers recorded yet.
-              </div>
-            )}
-
-            <div style={{ display: "grid", gap: 8 }}>
-              {history.map((p) => {
-                const isDenied = p.status === "answered" && p.selectedOption?.toLowerCase() === "deny";
-                const isGranted = p.status === "answered" && !isDenied;
-                const isExpired = p.status === "expired";
-
-                const badgeStyle = isGranted
-                  ? { bg: "#dcfce7", text: "#15803d", border: "#bbf7d0", label: `✓ Granted: ${p.selectedOption}` }
-                  : isDenied
-                  ? { bg: "#fef2f2", text: "#b91c1c", border: "#fecaca", label: "✕ Denied" }
-                  : { bg: "#fff7ed", text: "#c2410c", border: "#ffedd5", label: "⏱ Expired / Fallback" };
-
-                const sourceLabel = p.source === "panel" ? "web panel" : p.source === "watch" ? "smartwatch" : p.source;
-
-                return (
-                  <div
-                    key={p.id}
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      background: "#ffffff",
-                      borderRadius: 8,
-                      padding: "12px 16px",
-                      boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                      <strong style={{ fontSize: 14, color: "#0f172a" }}>
-                        {p.contactDisplay || p.contact || "Unknown Contact"}
-                      </strong>
-                      <span style={{ color: "#64748b", fontSize: 12 }}>
-                        {formatPollTime(p.createdAt)}
-                      </span>
-                    </div>
-                    <div style={{ color: "#334155", margin: "4px 0 8px", fontSize: 13, wordBreak: "break-word" }}>
-                      {p.question}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: "2px 8px",
-                          borderRadius: 9999,
-                          background: badgeStyle.bg,
-                          color: badgeStyle.text,
-                          border: `1px solid ${badgeStyle.border}`,
-                        }}
-                      >
-                        {badgeStyle.label}
-                      </span>
-                      {sourceLabel && (
-                        <span style={{ fontSize: 11, color: "#64748b" }}>
-                          via {sourceLabel}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        </>
-      )}
+      {/* QR Pairing Modal */}
+      <QRPairingModal
+        isOpen={isQrModalOpen}
+        onClose={() => setIsQrModalOpen(false)}
+        qrDataUrl={qrDataUrl}
+        timeLeft={qrTimeLeft}
+        onRefreshQr={fetchQrCode}
+      />
     </main>
   );
 }
