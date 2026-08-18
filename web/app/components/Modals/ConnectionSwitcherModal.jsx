@@ -24,44 +24,38 @@ export function ConnectionSwitcherModal({
 
   return (
     <div
+      className="wa-drawer-backdrop"
+      onClick={onClose}
       style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: "rgba(11, 20, 26, 0.5)",
-        zIndex: 100,
-        display: "flex",
         alignItems: "center",
         justifyContent: "center",
         padding: 20,
       }}
-      onClick={onClose}
     >
       <div
         style={{
-          backgroundColor: "#ffffff",
+          backgroundColor: "var(--wa-modal-bg)",
           borderRadius: 12,
           padding: 24,
           maxWidth: 420,
           width: "100%",
-          boxShadow: "0 10px 25px rgba(0, 0, 0, 0.2)",
+          border: "1px solid var(--wa-modal-border)",
+          boxShadow: "0 10px 30px rgba(0, 0, 0, 0.4)",
           position: "relative",
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 18, color: "#0f172a" }}>Switch Connection</h3>
+          <h3 style={{ margin: 0, fontSize: 18, color: "var(--wa-text-primary)" }}>Switch Connection</h3>
           <button
             onClick={onClose}
             style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}
           >
-            <CloseIcon size={20} color="#64748b" />
+            <CloseIcon size={20} color="var(--wa-text-secondary)" />
           </button>
         </div>
 
-        <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 16px", lineHeight: 1.4 }}>
+        <p style={{ fontSize: 13, color: "var(--wa-text-secondary)", margin: "0 0 16px", lineHeight: 1.4 }}>
           Enter your 6-character connection code to load your Take-Over polls and messages.
         </p>
 
@@ -76,7 +70,9 @@ export function ConnectionSwitcherModal({
             style={{
               padding: "10px 14px",
               borderRadius: 8,
-              border: "1px solid #cbd5e1",
+              border: "1px solid var(--wa-border-strong)",
+              backgroundColor: "var(--wa-input-bg)",
+              color: "var(--wa-text-primary)",
               fontSize: 16,
               fontWeight: 700,
               letterSpacing: 1.5,
@@ -89,7 +85,7 @@ export function ConnectionSwitcherModal({
           <button
             type="submit"
             style={{
-              background: "#00a884",
+              background: "var(--wa-teal)",
               color: "#ffffff",
               border: "none",
               borderRadius: 8,
@@ -102,15 +98,6 @@ export function ConnectionSwitcherModal({
             Switch to Connection
           </button>
         </form>
-
-        <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #f1f5f9", textAlign: "center" }}>
-          <a
-            href="/setup"
-            style={{ color: "#008069", fontSize: 13, textDecoration: "none", fontWeight: 600 }}
-          >
-            + Create New Connection Setup
-          </a>
-        </div>
       </div>
     </div>
   );

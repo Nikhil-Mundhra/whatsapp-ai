@@ -66,16 +66,24 @@ export function CreatePollModal({
   const displayName = contactName || contact;
 
   return (
-    <div className="wa-modal-backdrop" onClick={onClose}>
+    <div className="wa-drawer-backdrop" onClick={onClose}>
       <div
-        className="wa-modal"
-        style={{ maxWidth: 460, width: "92%", borderRadius: 12, overflow: "hidden" }}
+        style={{
+          maxWidth: 460,
+          width: "92%",
+          borderRadius: 12,
+          overflow: "hidden",
+          background: "var(--wa-modal-bg)",
+          border: "1px solid var(--wa-modal-border)",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
+          margin: "auto",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div
           style={{
-            background: "#008069",
+            background: "var(--wa-teal-dark)",
             color: "#ffffff",
             padding: "16px 20px",
             display: "flex",
@@ -106,13 +114,13 @@ export function CreatePollModal({
         {/* Body Form */}
         <form onSubmit={handleSubmit} style={{ padding: "20px 24px", display: "grid", gap: 18 }}>
           {/* Target Contact Display */}
-          <div style={{ fontSize: 13, color: "#64748b" }}>
-            Target Contact: <strong style={{ color: "#0f172a" }}>{displayName}</strong>
+          <div style={{ fontSize: 13, color: "var(--wa-text-secondary)" }}>
+            Target Contact: <strong style={{ color: "var(--wa-text-primary)" }}>{displayName}</strong>
           </div>
 
           {/* Question Input */}
           <div style={{ display: "grid", gap: 6 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>
+            <label style={{ fontSize: 13, fontWeight: 600, color: "var(--wa-text-primary)" }}>
               Question
             </label>
             <input
@@ -125,7 +133,9 @@ export function CreatePollModal({
                 width: "100%",
                 padding: "10px 14px",
                 borderRadius: 8,
-                border: "1px solid #cbd5e1",
+                border: "1px solid var(--wa-border-strong)",
+                background: "var(--wa-input-bg)",
+                color: "var(--wa-text-primary)",
                 fontSize: 14,
                 outline: "none",
                 boxSizing: "border-box",
@@ -135,7 +145,7 @@ export function CreatePollModal({
 
           {/* Options Inputs */}
           <div style={{ display: "grid", gap: 10 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>
+            <label style={{ fontSize: 13, fontWeight: 600, color: "var(--wa-text-primary)" }}>
               Options ({options.filter(Boolean).length})
             </label>
 
@@ -145,7 +155,7 @@ export function CreatePollModal({
                   style={{
                     width: 22,
                     fontSize: 12,
-                    color: "#94a3b8",
+                    color: "var(--wa-text-muted)",
                     textAlign: "center",
                     fontWeight: 600,
                   }}
@@ -162,7 +172,9 @@ export function CreatePollModal({
                     flex: 1,
                     padding: "8px 12px",
                     borderRadius: 6,
-                    border: "1px solid #cbd5e1",
+                    border: "1px solid var(--wa-border-strong)",
+                    background: "var(--wa-input-bg)",
+                    color: "var(--wa-text-primary)",
                     fontSize: 13.5,
                     outline: "none",
                     boxSizing: "border-box",
@@ -175,7 +187,7 @@ export function CreatePollModal({
                     style={{
                       background: "none",
                       border: "none",
-                      color: "#94a3b8",
+                      color: "var(--wa-text-muted)",
                       cursor: "pointer",
                       fontSize: 16,
                       padding: "0 4px",
@@ -194,14 +206,14 @@ export function CreatePollModal({
                 onClick={handleAddOption}
                 style={{
                   background: "none",
-                  border: "1px dashed #cbd5e1",
+                  border: "1px dashed var(--wa-border-strong)",
                   borderRadius: 6,
                   padding: "8px",
                   fontSize: 13,
-                  color: "#008069",
-                  fontWeight: 600,
+                  color: "var(--wa-teal)",
                   cursor: "pointer",
-                  marginTop: 4,
+                  fontWeight: 600,
+                  transition: "all 0.15s ease",
                 }}
               >
                 + Add Option
@@ -209,41 +221,19 @@ export function CreatePollModal({
             )}
           </div>
 
-          {/* Allow Multiple Answers Toggle */}
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              cursor: "pointer",
-              padding: "10px 0",
-              borderTop: "1px solid #f1f5f9",
-            }}
-          >
-            <span style={{ fontSize: 13, color: "#334155", fontWeight: 500 }}>
-              Allow multiple answers
-            </span>
-            <input
-              type="checkbox"
-              checked={allowMultiple}
-              onChange={(e) => setAllowMultiple(e.target.checked)}
-              style={{ width: 16, height: 16, accentColor: "#008069", cursor: "pointer" }}
-            />
-          </label>
-
-          {/* Modal Footer Actions */}
+          {/* Buttons */}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 }}>
             <button
               type="button"
               onClick={onClose}
               style={{
-                background: "#f1f5f9",
-                border: "none",
-                borderRadius: 8,
-                padding: "10px 16px",
-                fontSize: 13.5,
+                padding: "9px 16px",
+                borderRadius: 6,
+                border: "1px solid var(--wa-border-strong)",
+                background: "transparent",
+                color: "var(--wa-text-secondary)",
+                fontSize: 13,
                 fontWeight: 600,
-                color: "#475569",
                 cursor: "pointer",
               }}
             >
@@ -254,22 +244,22 @@ export function CreatePollModal({
               type="submit"
               disabled={submitting || !question.trim() || options.filter(Boolean).length < 2}
               style={{
-                background: "#008069",
-                color: "#ffffff",
+                padding: "9px 20px",
+                borderRadius: 6,
                 border: "none",
-                borderRadius: 8,
-                padding: "10px 20px",
-                fontSize: 13.5,
+                background: "var(--wa-teal)",
+                color: "#ffffff",
+                fontSize: 13,
                 fontWeight: 600,
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 gap: 6,
-                boxShadow: "0 2px 4px rgba(0, 128, 105, 0.25)",
+                boxShadow: "0 2px 4px rgba(0, 168, 132, 0.3)",
               }}
             >
               <SendIcon size={14} color="#ffffff" />
-              <span>{submitting ? "Creating..." : "Send Poll"}</span>
+              <span>{submitting ? "Sending..." : "Create Poll"}</span>
             </button>
           </div>
         </form>

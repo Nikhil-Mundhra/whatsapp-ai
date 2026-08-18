@@ -60,10 +60,10 @@ export function ChatHeader({
       {/* Header Actions */}
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <button className="wa-icon-btn" title="Search in chat">
-          <SearchIcon size={18} color="#54656f" />
+          <SearchIcon size={18} color="var(--wa-icon-color)" />
         </button>
         <button className="wa-icon-btn" title="Menu">
-          <MoreVertIcon size={18} color="#54656f" />
+          <MoreVertIcon size={18} color="var(--wa-icon-color)" />
         </button>
       </div>
     </div>

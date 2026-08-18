@@ -13,15 +13,8 @@ export function QRPairingModal({
 
   return (
     <div
+      className="wa-drawer-backdrop"
       style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: "rgba(11, 20, 26, 0.6)",
-        zIndex: 100,
-        display: "flex",
         alignItems: "center",
         justifyContent: "center",
         padding: 20,
@@ -30,12 +23,13 @@ export function QRPairingModal({
     >
       <div
         style={{
-          backgroundColor: "#ffffff",
+          backgroundColor: "var(--wa-modal-bg)",
           borderRadius: 12,
           padding: 28,
           maxWidth: 520,
           width: "100%",
-          boxShadow: "0 10px 30px rgba(0, 0, 0, 0.25)",
+          border: "1px solid var(--wa-modal-border)",
+          boxShadow: "0 10px 30px rgba(0, 0, 0, 0.4)",
           position: "relative",
           textAlign: "center",
         }}
@@ -52,21 +46,21 @@ export function QRPairingModal({
             cursor: "pointer",
           }}
         >
-          <CloseIcon size={20} color="#64748b" />
+          <CloseIcon size={20} color="var(--wa-text-secondary)" />
         </button>
 
-        <h3 style={{ fontSize: 20, margin: "0 0 8px", color: "#0f172a" }}>
+        <h3 style={{ fontSize: 20, margin: "0 0 8px", color: "var(--wa-text-primary)" }}>
           Link WhatsApp with Take-Over
         </h3>
-        <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 20px" }}>
+        <p style={{ fontSize: 13, color: "var(--wa-text-secondary)", margin: "0 0 20px" }}>
           Scan the QR code with WhatsApp on your phone to link your session.
         </p>
 
         {/* QR Code Frame */}
         <div
           style={{
-            background: "#f8fafc",
-            border: "1px solid #e2e8f0",
+            background: "#ffffff",
+            border: "1px solid var(--wa-border)",
             borderRadius: 12,
             padding: 16,
             display: "inline-block",
@@ -87,7 +81,7 @@ export function QRPairingModal({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: "#64748b",
+                color: "var(--wa-text-secondary)",
                 fontSize: 13,
               }}
             >
@@ -100,38 +94,44 @@ export function QRPairingModal({
         <ol
           style={{
             textAlign: "left",
-            fontSize: 13,
-            color: "#334155",
-            margin: "0 auto 16px",
-            maxWidth: 360,
+            margin: "0 auto 20px",
             paddingLeft: 20,
+            fontSize: 13,
+            color: "var(--wa-text-secondary)",
+            maxWidth: 380,
             lineHeight: 1.6,
           }}
         >
           <li>Open WhatsApp on your phone</li>
-          <li>Tap <strong>Settings</strong> or <strong>Menu</strong> &gt; <strong>Linked Devices</strong></li>
-          <li>Tap <strong>Link a Device</strong> and point your camera here</li>
+          <li>Tap <strong>Menu</strong> (Android) or <strong>Settings</strong> (iPhone)</li>
+          <li>Tap <strong>Linked Devices</strong> and then <strong>Link a Device</strong></li>
+          <li>Point your phone at this screen to capture the code</li>
         </ol>
 
-        <button
-          onClick={onRefreshQr}
-          style={{
-            background: "#f0f2f5",
-            border: "1px solid #cbd5e1",
-            borderRadius: 6,
-            padding: "6px 14px",
-            fontSize: 12,
-            fontWeight: 600,
-            color: "#475569",
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
-          <RefreshIcon size={14} color="#475569" />
-          <span>Refresh QR ({timeLeft}s)</span>
-        </button>
+        {/* Refresh Timer */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
+          <span style={{ fontSize: 12, color: "var(--wa-text-secondary)" }}>
+            Code refreshes in {timeLeft}s
+          </span>
+          <button
+            onClick={onRefreshQr}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              background: "var(--wa-btn-secondary-bg)",
+              border: "1px solid var(--wa-btn-secondary-border)",
+              borderRadius: 6,
+              padding: "6px 12px",
+              fontSize: 12,
+              color: "var(--wa-text-primary)",
+              cursor: "pointer",
+            }}
+          >
+            <RefreshIcon size={14} color="var(--wa-text-primary)" />
+            <span>Refresh Now</span>
+          </button>
+        </div>
       </div>
     </div>
   );

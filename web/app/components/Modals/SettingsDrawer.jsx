@@ -14,6 +14,8 @@ export function SettingsDrawer({
   success = "",
   keyStatus,
   onApiKeyChange,
+  theme = "light",
+  onThemeChange,
 }) {
   if (!isOpen) return null;
 
@@ -42,9 +44,9 @@ export function SettingsDrawer({
           {success && (
             <div
               style={{
-                background: "#ecfdf5",
-                color: "#065f46",
-                border: "1px solid #a7f3d0",
+                background: "rgba(16, 185, 129, 0.15)",
+                color: "#10b981",
+                border: "1px solid rgba(16, 185, 129, 0.3)",
                 padding: "10px 14px",
                 borderRadius: 8,
                 fontSize: 13,
@@ -58,9 +60,9 @@ export function SettingsDrawer({
           {error && (
             <div
               style={{
-                background: "#fef2f2",
-                color: "#b91c1c",
-                border: "1px solid #fecaca",
+                background: "rgba(239, 68, 68, 0.15)",
+                color: "#ef4444",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
                 padding: "10px 14px",
                 borderRadius: 8,
                 fontSize: 13,
@@ -70,10 +72,72 @@ export function SettingsDrawer({
             </div>
           )}
 
+          {/* Theme Selector Card */}
+          <div className="wa-card">
+            <div style={{ display: "grid", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontWeight: 600, fontSize: 13, color: "var(--wa-text-primary)" }}>
+                  Theme Mode
+                </span>
+                <span style={{ fontSize: 11, color: "var(--wa-text-secondary)" }}>
+                  {theme === "dark" ? "Dark Theme" : "Light Theme"}
+                </span>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {/* Light Option */}
+                <button
+                  type="button"
+                  onClick={() => onThemeChange?.("light")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: theme === "light" ? "2px solid #00a884" : "1px solid var(--wa-border-strong)",
+                    background: theme === "light" ? "var(--wa-selected-bg)" : "var(--wa-card-bg)",
+                    color: "var(--wa-text-primary)",
+                    fontWeight: theme === "light" ? 700 : 500,
+                    fontSize: 13,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span>☀️ Light</span>
+                </button>
+
+                {/* Dark Option */}
+                <button
+                  type="button"
+                  onClick={() => onThemeChange?.("dark")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: theme === "dark" ? "2px solid #00a884" : "1px solid var(--wa-border-strong)",
+                    background: theme === "dark" ? "var(--wa-selected-bg)" : "var(--wa-card-bg)",
+                    color: "var(--wa-text-primary)",
+                    fontWeight: theme === "dark" ? 700 : 500,
+                    fontSize: 13,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span>🌙 Dark</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Owner Phone Card */}
           <div className="wa-card">
             <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontWeight: 600, fontSize: 13, color: "#0f172a" }}>
+              <span style={{ fontWeight: 600, fontSize: 13, color: "var(--wa-text-primary)" }}>
                 OWNER_PHONE
               </span>
               <input
@@ -86,12 +150,14 @@ export function SettingsDrawer({
                 style={{
                   padding: "8px 12px",
                   borderRadius: 6,
-                  border: "1px solid #cbd5e1",
+                  border: "1px solid var(--wa-border-strong)",
                   fontSize: 14,
                   outline: "none",
+                  backgroundColor: "var(--wa-input-bg)",
+                  color: "var(--wa-text-primary)",
                 }}
               />
-              <span style={{ fontSize: 11, color: "#64748b" }}>
+              <span style={{ fontSize: 11, color: "var(--wa-text-secondary)" }}>
                 The WhatsApp phone number that receives native Take-Over approval polls.
               </span>
             </label>
@@ -100,79 +166,95 @@ export function SettingsDrawer({
           {/* Allowed Recipients Card */}
           <div className="wa-card">
             <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontWeight: 600, fontSize: 13, color: "#0f172a" }}>
+              <span style={{ fontWeight: 600, fontSize: 13, color: "var(--wa-text-primary)" }}>
                 ALLOWED_RECIPIENTS
               </span>
               <input
                 type="text"
                 value={configForm.allowedRecipients}
                 onChange={(e) =>
-                  setConfigForm({ ...configForm, allowedRecipients: e.target.value })
+                  setConfigForm({
+                    ...configForm,
+                    allowedRecipients: e.target.value,
+                  })
                 }
-                placeholder="e.g. 14155550199, 447123456789"
+                placeholder="comma-separated phone numbers"
                 style={{
                   padding: "8px 12px",
                   borderRadius: 6,
-                  border: "1px solid #cbd5e1",
+                  border: "1px solid var(--wa-border-strong)",
                   fontSize: 14,
                   outline: "none",
+                  backgroundColor: "var(--wa-input-bg)",
+                  color: "var(--wa-text-primary)",
                 }}
               />
-              <span style={{ fontSize: 11, color: "#64748b" }}>
-                Comma-separated contacts permitted for AI take-over.
+              <span style={{ fontSize: 11, color: "var(--wa-text-secondary)" }}>
+                Phones authorized for AI autonomous take-over reply.
               </span>
             </label>
           </div>
 
-          {/* AI Key & Model Card */}
+          {/* AI Provider & API Key Card */}
           <div className="wa-card">
             <div style={{ display: "grid", gap: 12 }}>
-              <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontWeight: 600, fontSize: 13, color: "#0f172a" }}>
-                    AI API KEY
-                  </span>
-                  {keyStatus?.state === "checking" && (
-                    <span style={{ fontSize: 11, color: "#64748b" }}>⏳ Checking key...</span>
-                  )}
-                  {keyStatus?.state === "valid" && (
-                    <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>
-                      ✓ {keyStatus.message}
-                    </span>
-                  )}
-                  {keyStatus?.state === "invalid" && (
-                    <span style={{ fontSize: 11, color: "#dc2626", fontWeight: 600 }}>
-                      ✗ {keyStatus.message}
-                    </span>
-                  )}
-                </div>
+              <span style={{ fontWeight: 600, fontSize: 13, color: "var(--wa-text-primary)" }}>
+                AI Persona Provider & Model
+              </span>
 
+              {/* API Key */}
+              <div>
+                <label style={{ fontSize: 12, color: "var(--wa-text-secondary)", display: "block", marginBottom: 4 }}>
+                  API Key (OpenRouter, OpenAI, Claude, or Gemini)
+                </label>
                 <input
                   type="password"
                   value={configForm.aiApiKey}
-                  onChange={onApiKeyChange}
-                  placeholder="Gemini, OpenAI, Claude, or OpenRouter Key"
+                  onChange={(e) => {
+                    const key = e.target.value;
+                    setConfigForm({ ...configForm, aiApiKey: key });
+                    onApiKeyChange?.(key);
+                  }}
+                  placeholder="Enter API Key"
                   style={{
+                    width: "100%",
                     padding: "8px 12px",
                     borderRadius: 6,
                     border: `1px solid ${
-                      keyStatus?.state === "valid"
-                        ? "#22c55e"
-                        : keyStatus?.state === "invalid"
+                      keyStatus?.valid
+                        ? "#10b981"
+                        : keyStatus?.error
                         ? "#ef4444"
-                        : "#cbd5e1"
+                        : "var(--wa-border-strong)"
                     }`,
-                    fontSize: 14,
+                    fontSize: 13,
                     outline: "none",
+                    backgroundColor: "var(--wa-input-bg)",
+                    color: "var(--wa-text-primary)",
                   }}
                 />
+                {keyStatus?.validating && (
+                  <span style={{ fontSize: 11, color: "var(--wa-text-secondary)", marginTop: 3, display: "block" }}>
+                    Validating key...
+                  </span>
+                )}
+                {keyStatus?.valid && (
+                  <span style={{ fontSize: 11, color: "#10b981", marginTop: 3, display: "block", fontWeight: 600 }}>
+                    ✓ Valid {keyStatus.provider} Key
+                  </span>
+                )}
+                {keyStatus?.error && (
+                  <span style={{ fontSize: 11, color: "#ef4444", marginTop: 3, display: "block" }}>
+                    {keyStatus.error}
+                  </span>
+                )}
               </div>
 
-              {/* AI Model Selector */}
-              <div style={{ display: "grid", gap: 6 }}>
-                <span style={{ fontWeight: 600, fontSize: 13, color: "#0f172a" }}>
-                  AI INFERENCE MODEL
-                </span>
+              {/* AI Model */}
+              <div>
+                <label style={{ fontSize: 12, color: "var(--wa-text-secondary)", display: "block", marginBottom: 4 }}>
+                  AI Model
+                </label>
                 {keyStatus?.models && keyStatus.models.length > 0 ? (
                   <select
                     value={configForm.aiModel}
@@ -180,11 +262,13 @@ export function SettingsDrawer({
                       setConfigForm({ ...configForm, aiModel: e.target.value })
                     }
                     style={{
+                      width: "100%",
                       padding: "8px 12px",
                       borderRadius: 6,
-                      border: "1px solid #cbd5e1",
+                      border: "1px solid var(--wa-border-strong)",
                       fontSize: 13,
-                      background: "#ffffff",
+                      backgroundColor: "var(--wa-input-bg)",
+                      color: "var(--wa-text-primary)",
                     }}
                   >
                     {keyStatus.models.map((m) => (
@@ -202,10 +286,13 @@ export function SettingsDrawer({
                     }
                     placeholder="e.g. qwen3.5-32k or gpt-4o-mini"
                     style={{
+                      width: "100%",
                       padding: "8px 12px",
                       borderRadius: 6,
-                      border: "1px solid #cbd5e1",
+                      border: "1px solid var(--wa-border-strong)",
                       fontSize: 13,
+                      backgroundColor: "var(--wa-input-bg)",
+                      color: "var(--wa-text-primary)",
                     }}
                   />
                 )}
@@ -249,11 +336,11 @@ export function SettingsDrawer({
             aria-label="Log out and disconnect this session"
             style={{
               width: "100%",
-              marginTop: 10,
+              marginTop: 6,
               padding: "12px 18px",
-              background: "#fff1f2",
-              border: "1px solid #fecdd3",
-              color: "#e11d48",
+              background: "rgba(239, 68, 68, 0.12)",
+              border: "1px solid rgba(239, 68, 68, 0.3)",
+              color: "#ef4444",
               borderRadius: 8,
               fontSize: 14,
               fontWeight: 600,

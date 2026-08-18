@@ -59,6 +59,21 @@ export default function Home() {
   const isDraggingRef = useRef(false);
   const appWindowRef = useRef(null);
 
+  // Theme State (Dark / Light)
+  const [theme, setTheme] = useState("dark");
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("wa_theme") || "dark";
+    setTheme(savedTheme);
+    document.documentElement.setAttribute("data-theme", savedTheme);
+  }, []);
+
+  function handleThemeChange(newTheme) {
+    setTheme(newTheme);
+    localStorage.setItem("wa_theme", newTheme);
+    document.documentElement.setAttribute("data-theme", newTheme);
+  }
+
   // 1. Initialize hash and sidebar width from URL query or localStorage
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -589,7 +604,7 @@ export default function Home() {
   );
 
   return (
-    <main className="wa-container">
+    <main className="wa-container" data-theme={theme}>
       <div className="wa-app-window" ref={appWindowRef}>
         {/* Left Sidebar */}
         <div
@@ -676,14 +691,15 @@ export default function Home() {
                   width: 72,
                   height: 72,
                   borderRadius: "50%",
-                  background: "#ffffff",
+                  background: "var(--wa-card-bg)",
+                  border: "1px solid var(--wa-border)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
                 }}
               >
-                <RobotIcon size={36} color="#00a884" />
+                <RobotIcon size={36} color="var(--wa-teal)" />
               </div>
               <h2>WhatsApp AI Take-Over</h2>
               <p>
@@ -695,11 +711,11 @@ export default function Home() {
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
-                  color: "#8696a0",
+                  color: "var(--wa-text-muted)",
                   fontSize: 12,
                 }}
               >
-                <LockIcon size={13} color="#8696a0" />
+                <LockIcon size={13} color="var(--wa-text-muted)" />
                 <span>End-to-end encrypted autonomous texting companion</span>
               </div>
             </div>
@@ -720,6 +736,8 @@ export default function Home() {
         success={configSuccess}
         keyStatus={keyStatus}
         onApiKeyChange={handleApiKeyChange}
+        theme={theme}
+        onThemeChange={handleThemeChange}
       />
 
       {/* Create / Edit Take-Over Poll Modal */}

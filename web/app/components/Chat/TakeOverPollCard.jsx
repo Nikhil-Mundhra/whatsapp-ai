@@ -21,7 +21,7 @@ export function TakeOverPollCard({
       {/* Header */}
       <div className="wa-poll-header">
         <div className="wa-poll-title">
-          <PollIcon size={18} color="#00a884" />
+          <PollIcon size={18} color="var(--wa-teal)" />
           <span>Take-Over Permission Poll</span>
         </div>
         <span className={`wa-poll-badge ${isPending ? "pending" : "resolved"}`}>
@@ -31,7 +31,7 @@ export function TakeOverPollCard({
 
       {/* Question */}
       <div className="wa-poll-question">
-        <span style={{ fontWeight: 600, color: "#0f172a" }}>Question: </span>
+        <span style={{ fontWeight: 600, color: "var(--wa-text-primary)" }}>Question: </span>
         {poll.question || "Allow AI to reply on your behalf?"}
       </div>
 
@@ -51,15 +51,15 @@ export function TakeOverPollCard({
                 borderColor: isSelected
                   ? isDeny
                     ? "#ef4444"
-                    : "#10b981"
+                    : "var(--wa-teal)"
                   : isPending
-                  ? "#cbd5e1"
-                  : "#e2e8f0",
+                  ? "var(--wa-poll-option-border)"
+                  : "var(--wa-border)",
                 background: isSelected
                   ? isDeny
-                    ? "#fef2f2"
-                    : "#ecfdf5"
-                  : "#f8fafc",
+                    ? "rgba(239, 68, 68, 0.2)"
+                    : "var(--wa-poll-option-selected)"
+                  : "var(--wa-poll-option-bg)",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -73,8 +73,8 @@ export function TakeOverPollCard({
                       isSelected
                         ? isDeny
                           ? "#ef4444"
-                          : "#10b981"
-                        : "#94a3b8"
+                          : "var(--wa-teal)"
+                        : "var(--wa-text-muted)"
                     }`,
                     display: "flex",
                     alignItems: "center",
@@ -82,7 +82,7 @@ export function TakeOverPollCard({
                     background: isSelected
                       ? isDeny
                         ? "#ef4444"
-                        : "#10b981"
+                        : "var(--wa-teal)"
                       : "transparent",
                   }}
                 >
@@ -98,13 +98,13 @@ export function TakeOverPollCard({
                   )}
                 </div>
 
-                <span style={{ color: isSelected ? (isDeny ? "#991b1b" : "#065f46") : "#1e293b" }}>
+                <span style={{ color: isSelected ? (isDeny ? "#ef4444" : "var(--wa-teal)") : "var(--wa-text-primary)" }}>
                   {opt}
                 </span>
               </div>
 
               {isSelected && (
-                <span style={{ fontSize: 11, fontWeight: 700, color: isDeny ? "#dc2626" : "#16a34a" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: isDeny ? "#ef4444" : "var(--wa-teal)" }}>
                   {isDeny ? "Denied ✗" : "Granted ✓"}
                 </span>
               )}
@@ -116,7 +116,7 @@ export function TakeOverPollCard({
       {/* Footer Details */}
       <div className="wa-poll-footer">
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <RobotIcon size={12} color="#64748b" />
+          <RobotIcon size={12} color="var(--wa-text-secondary)" />
           <span>{poll.source ? `Source: ${poll.source}` : "Auto-generated poll"}</span>
         </div>
         <span>{formatPollTime(poll.createdAt)}</span>
