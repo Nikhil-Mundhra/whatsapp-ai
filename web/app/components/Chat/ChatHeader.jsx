@@ -18,13 +18,16 @@ function formatPhoneDisplay(num = "") {
 
 export function ChatHeader({
   contact,
+  contactName,
   pendingCount = 0,
   isAutonomyActive = false,
+  isWhitelisted = false,
   onQuickGrant,
   onRevoke,
   actionLoading = false,
 }) {
-  const initial = contact ? contact.replace(/\D/g, "").slice(-2) : "";
+  const displayName = contactName || formatPhoneDisplay(contact);
+  const initial = displayName ? displayName.slice(0, 2).toUpperCase() : "";
 
   return (
     <div className="wa-chat-header">
@@ -34,7 +37,7 @@ export function ChatHeader({
           {initial}
         </div>
         <div>
-          <div className="wa-chat-contact-title">{formatPhoneDisplay(contact)}</div>
+          <div className="wa-chat-contact-title">{displayName}</div>
           <div className="wa-chat-contact-subtitle">
             {pendingCount > 0 ? (
               <>
@@ -50,10 +53,15 @@ export function ChatHeader({
                   AI Autonomy Active
                 </span>
               </>
+            ) : isWhitelisted ? (
+              <>
+                <span className="wa-status-dot green" />
+                <span>AI Whitelisted (Idle)</span>
+              </>
             ) : (
               <>
                 <span className="wa-status-dot grey" />
-                <span>Idle (Human Controlled)</span>
+                <span>WhatsApp Contact</span>
               </>
             )}
           </div>

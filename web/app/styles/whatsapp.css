@@ -109,9 +109,6 @@ body {
 
 /* Left Sidebar */
 .wa-sidebar {
-  width: 35%;
-  min-width: 340px;
-  max-width: 460px;
   height: 100%;
   background-color: var(--wa-panel-bg);
   border-right: 1px solid var(--wa-border);
@@ -120,6 +117,35 @@ body {
   flex-shrink: 0;
   position: relative;
   z-index: 3;
+  min-width: 0;
+}
+
+/* Draggable Splitter Divider */
+.wa-resizer {
+  width: 5px;
+  cursor: col-resize;
+  background-color: transparent;
+  border-left: 1px solid var(--wa-border);
+  position: relative;
+  z-index: 4;
+  user-select: none;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease;
+}
+
+.wa-resizer:hover,
+.wa-resizer.dragging {
+  background-color: var(--wa-teal);
+  border-left-color: var(--wa-teal);
+}
+
+.wa-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  right: -3px;
 }
 
 /* Sidebar Top Header */

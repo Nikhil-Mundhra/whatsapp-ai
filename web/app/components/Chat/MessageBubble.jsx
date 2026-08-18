@@ -5,14 +5,15 @@ import { DoubleCheckIcon, RobotIcon } from "../Icons/WhatsAppIcons";
 function formatTime(timestamp) {
   if (!timestamp) return "";
   const d = new Date(timestamp);
+  if (isNaN(d.getTime())) return "";
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 export function MessageBubble({ message }) {
-  const isOutgoing = message.isFromMe || message.fromMe || message.direction === "outbound";
-  const isAi = message.isAi || message.aiGenerated || message.sender === "ai";
-  const text = message.body || message.text || message.message || "";
-  const time = formatTime(message.timestamp || message.createdAt);
+  const isOutgoing = Boolean(message.isFromMe || message.is_from_me || message.fromMe || message.direction === "outbound");
+  const isAi = Boolean(message.isAi || message.aiGenerated || message.sender === "ai" || message.origin === "ai" || message.origin === "takeover");
+  const text = message.content || message.body || message.text || message.message || "";
+  const time = formatTime(message.timestamp || message.createdAt || message.time);
 
   return (
     <div className={`wa-bubble-wrapper ${isOutgoing ? "outgoing" : "incoming"}`}>

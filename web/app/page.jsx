@@ -15,6 +15,7 @@ import { LockIcon, RobotIcon } from "./components/Icons/WhatsAppIcons";
 export default function Home() {
   const [hash, setHash] = useState("");
   const [connInfo, setConnInfo] = useState(null);
+  const [chats, setChats] = useState([]);
   const [polls, setPolls] = useState([]);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +24,7 @@ export default function Home() {
 
   // Active Chat Selection & Filtering
   const [selectedContact, setSelectedContact] = useState("");
+  const [selectedContactName, setSelectedContactName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("all");
 
@@ -48,7 +50,13 @@ export default function Home() {
   const [keyStatus, setKeyStatus] = useState({ state: "idle", message: "", provider: "", models: [] });
   const validateTimerRef = useRef(null);
 
-  // 1. Initialize hash from URL query or localStorage
+  // Resizable Sidebar State (15% to 50%)
+  const [sidebarWidth, setSidebarWidth] = useState(30);
+  const [isDragging, setIsDragging] = useState(false);
+  const isDraggingRef = useRef(false);
+  const appWindowRef = useRef(null);
+
+  // 1. Initialize hash and sidebar width from URL query or localStorage
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlHash = params.get("hash");
@@ -59,33 +67,90 @@ export default function Home() {
     } else {
       setLoading(false);
     }
+
+    const savedWidth = localStorage.getItem("wa_sidebar_width");
+    if (savedWidth) {
+      const parsed = parseFloat(savedWidth);
+      if (!isNaN(parsed) && parsed >= 15 && parsed <= 50) {
+        setSidebarWidth(parsed);
+      }
+    }
   }, []);
 
-  // 2. Fetch live connection info, polls, and messages
+  // Handle Dragging Divider (Clamped between 15% and 50%)
+  function handleMouseDown(e) {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handleMouseMove = (moveEvent) => {
+      if (!isDraggingRef.current || !appWindowRef.current) return;
+      const rect = appWindowRef.current.getBoundingClientRect();
+      const newWidthPx = moveEvent.clientX - rect.left;
+      const newWidthPct = (newWidthPx / rect.width) * 100;
+      const clamped = Math.min(Math.max(newWidthPct, 15), 50);
+      setSidebarWidth(clamped);
+    };
+
+    const handleMouseUp = () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        setIsDragging(false);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        setSidebarWidth((latest) => {
+          localStorage.setItem("wa_sidebar_width", String(latest));
+          return latest;
+        });
+      }
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  }
+
+  // 2. Fetch live connection info, chats, polls, and messages
   async function fetchDashboardData(isManual = false) {
-    if (!hash) return;
     if (isManual) setRefreshing(true);
 
     try {
-      const [connRes, pollsRes, msgsRes] = await Promise.all([
-        fetch(`/api/connections/${hash}`, { cache: "no-store" }),
-        fetch(`/api/polls?hash=${hash}&limit=50`, { cache: "no-store" }),
-        fetch(`/api/connections/${hash}/messages?limit=50`, { cache: "no-store" }),
+      const activeHash = hash || "default";
+      const [connRes, chatsRes, pollsRes, msgsRes] = await Promise.all([
+        fetch(`/api/connections/${activeHash}`, { cache: "no-store" }),
+        fetch(`/api/chats?limit=50`, { cache: "no-store" }),
+        fetch(`/api/polls?hash=${activeHash}&limit=50`, { cache: "no-store" }),
+        fetch(`/api/connections/${activeHash}/messages?limit=200`, { cache: "no-store" }),
       ]);
+
+      let loadedChats = [];
+      if (chatsRes.ok) {
+        const chatsData = await chatsRes.json();
+        loadedChats = chatsData.chats || [];
+        setChats(loadedChats);
+      }
 
       if (connRes.ok) {
         const connData = await connRes.json();
         setConnInfo(connData);
 
-        // Auto-select first contact if none selected
-        if (!selectedContact && connData?.connection?.allowedRecipients) {
-          const recs = Array.isArray(connData.connection.allowedRecipients)
-            ? connData.connection.allowedRecipients
-            : typeof connData.connection.allowedRecipients === "string"
-            ? connData.connection.allowedRecipients.split(",").map((s) => s.trim())
-            : [];
-          if (recs.length > 0 && recs[0]) {
-            setSelectedContact(recs[0]);
+        // Auto-select first chat or first recipient if none selected
+        if (!selectedContact) {
+          if (loadedChats.length > 0) {
+            setSelectedContact(loadedChats[0].jid || loadedChats[0].phone);
+            setSelectedContactName(loadedChats[0].name || "");
+          } else if (connData?.connection?.allowedRecipients) {
+            const recs = Array.isArray(connData.connection.allowedRecipients)
+              ? connData.connection.allowedRecipients
+              : typeof connData.connection.allowedRecipients === "string"
+              ? connData.connection.allowedRecipients.split(",").map((s) => s.trim())
+              : [];
+            if (recs.length > 0 && recs[0]) {
+              setSelectedContact(recs[0]);
+            }
           }
         }
 
@@ -128,8 +193,6 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (!hash) return;
-    localStorage.setItem("wa_hash", hash);
     fetchDashboardData();
     const interval = setInterval(fetchDashboardData, 3000);
     return () => clearInterval(interval);
@@ -140,7 +203,6 @@ export default function Home() {
     const clean = newHash.trim().toUpperCase();
     if (clean) {
       setHash(clean);
-      setSelectedContact("");
       localStorage.setItem("wa_hash", clean);
       setLoading(true);
       window.history.replaceState(null, "", `?hash=${clean}`);
@@ -172,7 +234,6 @@ export default function Home() {
   // 6. Handle Quick Autonomy Grant
   async function handleQuickGrant(durationOption = "5 minutes") {
     if (!selectedContact) return;
-    // Creates an optimistic poll or executes a grant
     try {
       const res = await fetch(`/api/polls`, {
         method: "POST",
@@ -181,6 +242,7 @@ export default function Home() {
           id: `poll-${Date.now()}`,
           hash,
           contact: selectedContact,
+          contactDisplay: selectedContactName || selectedContact,
           question: `Quick Take-Over Grant (${durationOption})`,
           options: ["Send 1 text", "5 minutes", "2 hours", "Deny"],
           createdAt: Date.now(),
@@ -205,12 +267,11 @@ export default function Home() {
 
   // 8. Handle Manual Messaging / Drafting
   function handleSendManual(text) {
-    // Optimistic message append
     const newMsg = {
       id: `msg-${Date.now()}`,
       sender: "me",
-      recipient: selectedContact,
-      body: text,
+      chatJid: selectedContact,
+      content: text,
       timestamp: new Date().toISOString(),
       isFromMe: true,
       isAi: false,
@@ -222,8 +283,8 @@ export default function Home() {
     const newMsg = {
       id: `msg-${Date.now()}`,
       sender: "ai",
-      recipient: selectedContact,
-      body: "Drafting autonomous response mirroring your texting persona...",
+      chatJid: selectedContact,
+      content: "Drafting autonomous response mirroring your texting persona...",
       timestamp: new Date().toISOString(),
       isFromMe: true,
       isAi: true,
@@ -297,7 +358,7 @@ export default function Home() {
     setConfigSuccess("");
 
     try {
-      const res = await fetch(`/api/connections/${hash}`, {
+      const res = await fetch(`/api/connections/${hash || "default"}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -341,28 +402,45 @@ export default function Home() {
     ? connInfo.connection.allowedRecipients.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
 
-  // Filter messages for selected contact
+  // Filter messages for selected contact / chatJid
   const cleanSelected = selectedContact.replace(/\D/g, "");
   const currentChatMessages = messages.filter((m) => {
-    const s = (m.sender || "").replace(/\D/g, "");
-    const r = (m.recipient || "").replace(/\D/g, "");
-    return s === cleanSelected || r === cleanSelected;
+    const chatJid = (m.chatJid || m.chat_jid || "");
+    const sender = (m.sender || "");
+    const recipient = (m.recipient || "");
+    return (
+      chatJid === selectedContact ||
+      (cleanSelected && chatJid.includes(cleanSelected)) ||
+      (cleanSelected && sender.includes(cleanSelected)) ||
+      (cleanSelected && recipient.includes(cleanSelected))
+    );
   });
 
   // Filter polls for selected contact
   const currentChatPolls = polls.filter((p) => {
     const c = (p.contact || "").replace(/\D/g, "");
-    return c === cleanSelected || p.contact === selectedContact;
+    return (
+      p.contact === selectedContact ||
+      (cleanSelected && c === cleanSelected) ||
+      (cleanSelected && (p.contact || "").includes(cleanSelected))
+    );
   });
 
   const pendingPollsCount = polls.filter((p) => p.status === "pending").length;
   const currentPendingPolls = currentChatPolls.filter((p) => p.status === "pending").length;
 
+  const isSelectedWhitelisted = allowedRecipients.some(
+    (r) => String(r).replace(/\D/g, "") === cleanSelected || selectedContact.includes(String(r))
+  );
+
   return (
     <main className="wa-container">
-      <div className="wa-app-window">
+      <div className="wa-app-window" ref={appWindowRef}>
         {/* Left Sidebar */}
-        <div className="wa-sidebar">
+        <div
+          className="wa-sidebar"
+          style={{ width: `${sidebarWidth}%` }}
+        >
           <SidebarHeader
             hash={hash}
             connInfo={connInfo}
@@ -381,9 +459,13 @@ export default function Home() {
           />
 
           <ContactList
-            contacts={allowedRecipients}
+            chats={chats}
+            allowedRecipients={allowedRecipients}
             selectedContact={selectedContact}
-            onSelectContact={(c) => setSelectedContact(c)}
+            onSelectContact={(c, name) => {
+              setSelectedContact(c);
+              setSelectedContactName(name || "");
+            }}
             polls={polls}
             messages={messages}
             searchQuery={searchQuery}
@@ -391,51 +473,26 @@ export default function Home() {
           />
         </div>
 
+        {/* Draggable Resizer Divider (15% - 50%) */}
+        <div
+          className={`wa-resizer ${isDragging ? "dragging" : ""}`}
+          onMouseDown={handleMouseDown}
+          title="Drag to resize sidebar (15% - 50%)"
+        />
+
         {/* Right Active Chat Area */}
-        <div className="wa-chat-area">
-          {!hash ? (
-            <div className="wa-empty-state">
-              <div
-                style={{
-                  width: 80,
-                  height: 80,
-                  borderRadius: "50%",
-                  background: "#e2e8f0",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <RobotIcon size={40} color="#008069" />
-              </div>
-              <h2>Welcome to Take-Over Control Panel</h2>
-              <p>
-                Enter your 6-character connection code to access your live WhatsApp AI take-over polls, persona texting stream, and smartwatch grants.
-              </p>
-              <button
-                onClick={() => setIsSwitcherOpen(true)}
-                style={{
-                  marginTop: 18,
-                  background: "#00a884",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: 8,
-                  padding: "10px 20px",
-                  fontWeight: 600,
-                  fontSize: 14,
-                  cursor: "pointer",
-                  boxShadow: "0 2px 4px rgba(0, 168, 132, 0.3)",
-                }}
-              >
-                Enter Connection Code →
-              </button>
-            </div>
-          ) : selectedContact ? (
+        <div
+          className="wa-chat-area"
+          style={{ width: `calc(${100 - sidebarWidth}% - 5px)` }}
+        >
+          {selectedContact ? (
             <>
               <ChatHeader
                 contact={selectedContact}
+                contactName={selectedContactName}
                 pendingCount={currentPendingPolls}
                 isAutonomyActive={false}
+                isWhitelisted={isSelectedWhitelisted}
                 onQuickGrant={handleQuickGrant}
                 onRevoke={handleRevoke}
               />
@@ -472,7 +529,7 @@ export default function Home() {
               </div>
               <h2>WhatsApp AI Take-Over</h2>
               <p>
-                Select an allowed contact from the left sidebar to view live take-over permission polls, messages, and autonomous replies.
+                Select a chat from the left sidebar to view live take-over permission polls, messages, and autonomous replies.
               </p>
               <div
                 style={{
