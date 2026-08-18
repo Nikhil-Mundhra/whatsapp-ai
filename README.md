@@ -31,7 +31,7 @@ sequenceDiagram
 
     User->>Web: Opens https://whatsapp-ai-nikhil.vercel.app/setup
     User->>Web: Submits 3 Keys (Owner Phone, Allowed Contacts, AI Key) + Coupon
-    Web->>Web: Verifies coupon (Contact wa.me/+917060410033)
+    Web->>Web: Verifies coupon (Contact wa.me/+91XXXXXXXXXX)
     Web->>KV: Saves connection & generates 6-character Hash (e.g. "K9X2P4")
     Web->>Bridge: Provisions WhatsApp Web pairing QR
     Web-->>User: Displays WhatsApp QR code on screen
@@ -137,10 +137,10 @@ Configure your numbers (country code without `+`):
 
 ```env
 # Your personal phone number that receives approval polls
-OWNER_PHONE=917060410033
+OWNER_PHONE=91XXXXXXXXXX
 
 # Comma-separated list of contact numbers permitted for AI take-over
-ALLOWED_RECIPIENTS=917893472546,14155550199
+ALLOWED_RECIPIENTS=91XXXXXXXXXX,14155550199
 ```
 
 ---
@@ -176,10 +176,10 @@ You can also run one-off drafts directly:
 
 ```bash
 # Draft a reply without sending
-uv run harness/send.py 917893472546 --draft-only
+uv run harness/send.py 91XXXXXXXXXX --draft-only
 
 # Generate and send a reply directly
-uv run harness/send.py 917893472546 --model qwen3.5-32k
+uv run harness/send.py 91XXXXXXXXXX --model qwen3.5-32k
 ```
 
 ---
@@ -195,7 +195,7 @@ uv run harness/send.py 917893472546 --model qwen3.5-32k
 2. **Access Setup**: Open `http://localhost:3000/setup` in your browser.
 3. **Enter Details & Coupon**:
    * Supply `OWNER_PHONE`, `ALLOWED_RECIPIENTS`, and `AI_API_KEY`.
-   * Enter your access coupon (Contact [wa.me/+917060410033](https://wa.me/+917060410033) for a coupon).
+   * Enter your access coupon (Contact [wa.me/+91XXXXXXXXXX](https://wa.me/+91XXXXXXXXXX) for a coupon).
 4. **Scan WhatsApp QR**: Scan the on-screen QR code to authenticate the bridge session.
 5. **Get Pairing Hash**: Copy the 6-character pairing code (e.g. `K9X2P4`).
 6. **Pair Smartwatch**:
