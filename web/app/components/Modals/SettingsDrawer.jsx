@@ -237,35 +237,41 @@ export function SettingsDrawer({
             <span>{saving ? "Saving Configuration..." : "Save & Sync with Bridge"}</span>
           </button>
 
-          {/* Log Out Connection Card */}
-          <div className="wa-card" style={{ marginTop: 12, border: "1px solid #fee2e2" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13, color: "#b91c1c" }}>Log Out Connection</div>
-                <div style={{ fontSize: 11, color: "#64748b" }}>Disconnect and clear this connection code</div>
-              </div>
-              <button
-                type="button"
-                onClick={onLogout}
-                style={{
-                  background: "#fef2f2",
-                  border: "1px solid #fecaca",
-                  color: "#dc2626",
-                  padding: "8px 14px",
-                  borderRadius: 6,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <span>Log Out</span>
-              </button>
-            </div>
-          </div>
+          {/* Large Log Out Button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm("Are you sure you want to log out and disconnect this session?")) {
+                onLogout?.();
+              }
+            }}
+            title="Log out and disconnect this session"
+            aria-label="Log out and disconnect this session"
+            style={{
+              width: "100%",
+              marginTop: 10,
+              padding: "12px 18px",
+              background: "#fff1f2",
+              border: "1px solid #fecdd3",
+              color: "#e11d48",
+              borderRadius: 8,
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              transition: "all 0.15s ease",
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+            <span>Log Out</span>
+          </button>
         </form>
       </div>
     </div>
