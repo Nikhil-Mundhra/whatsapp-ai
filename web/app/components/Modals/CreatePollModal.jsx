@@ -9,14 +9,17 @@ export function CreatePollModal({
   onSubmit,
   contact,
   contactName,
+  initialConfig = {
+    question: "Permission to take over conversation?",
+    options: ["Send 1 text", "5 minutes", "2 hours", "Deny"],
+  },
 }) {
-  const [question, setQuestion] = useState("Permission to take over conversation?");
-  const [options, setOptions] = useState([
-    "Send 1 text",
-    "5 minutes",
-    "2 hours",
-    "Deny",
-  ]);
+  const [question, setQuestion] = useState(initialConfig.question || "Permission to take over conversation?");
+  const [options, setOptions] = useState(
+    initialConfig.options && initialConfig.options.length >= 2
+      ? initialConfig.options
+      : ["Send 1 text", "5 minutes", "2 hours", "Deny"]
+  );
   const [allowMultiple, setAllowMultiple] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 

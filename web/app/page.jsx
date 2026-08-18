@@ -281,8 +281,44 @@ export default function Home() {
     }
   }
 
-  // 6. Handle Creating Real Take-Over Poll via Form
-  async function handleSendCustomPoll({ question, options, allowMultiple = false }) {
+  // Poll Configuration Template
+  const [pollConfig, setPollConfig] = useState({
+    question: "Permission to take over conversation?",
+    options: ["Send 1 text", "5 minutes", "2 hours", "Deny"],
+  });
+
+  // 6. Handle Direct Quick Vote from Overlay
+  async function handleQuickVote(option, question, options) {
+    if (!selectedContact || !hash) return;
+    try {
+      const pollId = `poll-${Date.now()}`;
+      const res = await fetch(`/api/polls`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: pollId,
+          hash,
+          contact: selectedContact,
+          contactDisplay: selectedContactName || selectedContact,
+          question: question || pollConfig.question,
+          options: options || pollConfig.options,
+          createdAt: Date.now(),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.poll?.id) {
+          await handleVote(data.poll.id, option);
+        }
+      }
+    } catch (err) {
+      console.error("Quick vote failed", err);
+    }
+  }
+
+  // 7. Handle Saving/Sending Customized Poll from Editor
+  async function handleSaveCustomPoll({ question, options, allowMultiple = false }) {
+    setPollConfig({ question, options });
     if (!selectedContact || !hash) return;
     try {
       const res = await fetch(`/api/polls`, {
@@ -310,7 +346,7 @@ export default function Home() {
     }
   }
 
-  // 7. Handle Manual Messaging
+  // 8. Handle Manual Messaging
   function handleSendManual(text) {
     const newMsg = {
       id: `msg-${Date.now()}`,
@@ -538,7 +574,9 @@ export default function Home() {
               <ChatInputBar
                 contact={selectedContact}
                 onSendManual={handleSendManual}
-                onRequestPoll={() => setIsPollModalOpen(true)}
+                onQuickVote={handleQuickVote}
+                onOpenPollEditor={() => setIsPollModalOpen(true)}
+                pollConfig={pollConfig}
               />
             </>
           ) : (
@@ -594,13 +632,14 @@ export default function Home() {
         onApiKeyChange={handleApiKeyChange}
       />
 
-      {/* Create Take-Over Poll Modal */}
+      {/* Create / Edit Take-Over Poll Modal */}
       <CreatePollModal
         isOpen={isPollModalOpen}
         onClose={() => setIsPollModalOpen(false)}
-        onSubmit={handleSendCustomPoll}
+        onSubmit={handleSaveCustomPoll}
         contact={selectedContact}
         contactName={selectedContactName}
+        initialConfig={pollConfig}
       />
 
       {/* Connection Hash Switcher Modal */}
