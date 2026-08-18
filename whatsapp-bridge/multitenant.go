@@ -855,6 +855,58 @@ func (t *Tenant) handleTenantPollVote(msg *events.Message) {
 	}
 }
 
+// applyWebGrant activates a takeover grant triggered from the Web Dashboard.
+func (t *Tenant) applyWebGrant(choice, contact string) {
+	t.mu.Lock()
+	var targetJID types.JID
+	if contact != "" {
+		if strings.HasSuffix(contact, "@g.us") || strings.HasSuffix(contact, "@s.whatsapp.net") || strings.HasSuffix(contact, "@lid") {
+			if jid, err := types.ParseJID(contact); err == nil {
+				targetJID = jid
+			}
+		} else {
+			clean := normalizePhone(contact)
+			if clean != "" {
+				targetJID = types.NewJID(clean, types.DefaultUserServer)
+			}
+		}
+	}
+
+	switch choice {
+	case "Send 1 text":
+		t.grantKind = "count"
+		t.grantRemaining = 1
+		t.logger.Infof("Web Takeover granted for %s: 1 text", t.Hash)
+		t.mu.Unlock()
+		if !targetJID.IsEmpty() {
+			go t.replyToChat(targetJID)
+		}
+	case "5 minutes":
+		t.grantKind = "duration"
+		t.grantExpiresAt = time.Now().Add(5 * time.Minute)
+		t.logger.Infof("Web Takeover granted for %s: 5 minutes (until %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"))
+		t.mu.Unlock()
+		if !targetJID.IsEmpty() {
+			go t.replyToChat(targetJID)
+		}
+	case "2 hours":
+		t.grantKind = "duration"
+		t.grantExpiresAt = time.Now().Add(2 * time.Hour)
+		t.logger.Infof("Web Takeover granted for %s: 2 hours (until %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"))
+		t.mu.Unlock()
+		if !targetJID.IsEmpty() {
+			go t.replyToChat(targetJID)
+		}
+	case "Deny":
+		t.grantKind = "none"
+		t.grantRemaining = 0
+		t.logger.Infof("Web Takeover denied for %s", t.Hash)
+		t.mu.Unlock()
+	default:
+		t.mu.Unlock()
+	}
+}
+
 // replyToChat drafts a persona-aligned reply using OpenRouter Qwen 3.8 27B and sends it via WhatsApp.
 func (t *Tenant) replyToChat(targetJID types.JID) {
 	if t.client == nil || !t.client.IsConnected() || targetJID.IsEmpty() {
@@ -1465,6 +1517,25 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 			tenant.mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{"qr": qr, "qrAge": qrAge})
+			return
+
+		case sub == "grant" && r.Method == http.MethodPost:
+			tenant := manager.Get(hash)
+			if tenant == nil {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			var body struct {
+				Option  string `json:"option"`
+				Contact string `json:"contact"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			tenant.applyWebGrant(body.Option, body.Contact)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": tenant.status()})
 			return
 
 		default:

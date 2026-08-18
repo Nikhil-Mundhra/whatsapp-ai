@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { getPoll, voteOnPoll } from "../../../../lib/polls";
+import { getBridgeHeaders } from "../../../../lib/connections";
+
+const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
 
 export async function GET(req, props) {
   const { id } = await props.params;
@@ -15,13 +18,17 @@ export async function POST(req, props) {
   const contentType = req.headers.get("content-type") || "";
   let option = null;
   let source = "api";
+  let contact = "";
+
   if (contentType.includes("application/json")) {
     const body = await req.json().catch(() => null);
     option = body?.option;
     source = body?.source || "api";
+    contact = body?.contact || "";
   } else {
     const form = await req.formData().catch(() => null);
     option = form?.get("option");
+    contact = form?.get("contact") || "";
     source = "panel";
   }
 
@@ -32,6 +39,27 @@ export async function POST(req, props) {
     return NextResponse.json({ error: "option is required" }, { status: 400 });
   }
 
+  const targetContact = contact || poll.contact || "";
+
+  // 1. Update poll in KV store
   const updated = await voteOnPoll(hash, id, option, source);
+
+  // 2. Notify WhatsApp Bridge to activate grant & trigger immediate reply
+  if (BRIDGE_URL && hash && hash !== "default") {
+    try {
+      await fetch(`${BRIDGE_URL}/api/connections/${hash}/grant`, {
+        method: "POST",
+        headers: getBridgeHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          option,
+          contact: targetContact,
+        }),
+        signal: AbortSignal.timeout(4000),
+      });
+    } catch (err) {
+      console.warn("Failed to notify bridge of poll grant:", err.message);
+    }
+  }
+
   return NextResponse.json({ poll: updated });
 }
