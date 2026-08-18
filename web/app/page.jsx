@@ -124,7 +124,7 @@ export default function Home() {
     try {
       const [connRes, chatsRes, pollsRes, msgsRes] = await Promise.all([
         fetch(`/api/connections/${hash}`, { cache: "no-store" }),
-        fetch(`/api/chats?limit=50`, { cache: "no-store" }),
+        fetch(`/api/chats?hash=${hash}&limit=50`, { cache: "no-store" }),
         fetch(`/api/polls?hash=${hash}&limit=50`, { cache: "no-store" }),
         fetch(`/api/connections/${hash}/messages?limit=200`, { cache: "no-store" }),
       ]);
@@ -133,8 +133,37 @@ export default function Home() {
       if (chatsRes.ok) {
         const chatsData = await chatsRes.json();
         loadedChats = chatsData.chats || [];
-        setChats(loadedChats);
       }
+
+      let loadedMessages = [];
+      if (msgsRes.ok) {
+        const msgsData = await msgsRes.json();
+        loadedMessages = msgsData.messages || [];
+        setMessages(loadedMessages);
+      }
+
+      // If /api/chats returned empty (e.g. cloud VM), dynamically derive chat list from loadedMessages
+      if (loadedChats.length === 0 && loadedMessages.length > 0) {
+        const chatMap = new Map();
+        for (const m of loadedMessages) {
+          const jid = m.chatJid || m.chat_jid || m.sender || "";
+          if (!jid || jid === "status@broadcast") continue;
+          if (!chatMap.has(jid)) {
+            const num = jid.split("@")[0];
+            chatMap.set(jid, {
+              jid,
+              name: m.senderName || num,
+              phone: num,
+              lastMessage: m.content || m.body || "",
+              lastMessageTime: m.timestamp || null,
+              lastIsFromMe: Boolean(m.isFromMe || m.is_from_me),
+              isGroup: jid.endsWith("@g.us"),
+            });
+          }
+        }
+        loadedChats = Array.from(chatMap.values());
+      }
+      setChats(loadedChats);
 
       if (connRes.ok) {
         const connData = await connRes.json();
@@ -166,11 +195,6 @@ export default function Home() {
       if (pollsRes.ok) {
         const pollsData = await pollsRes.json();
         setPolls(pollsData.polls || []);
-      }
-
-      if (msgsRes.ok) {
-        const msgsData = await msgsRes.json();
-        setMessages(msgsData.messages || []);
       }
     } catch (err) {
       console.error("Dashboard poll failed", err);
