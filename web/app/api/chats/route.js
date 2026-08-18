@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
-import { getLocalChats } from "../../../lib/sqlite";
-import { getBridgeHeaders } from "../../../lib/connections";
+import { NextResponse } from "next/server.js";
+import { getLocalChats } from "../../../lib/sqlite.js";
+import { getBridgeHeaders } from "../../../lib/connections.js";
 
 const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
 

@@ -193,8 +193,3 @@ func main() {
 	// Disconnect client
 	client.Disconnect()
 }
-
-
-
-
-

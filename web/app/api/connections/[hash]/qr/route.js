@@ -1,8 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from "next/server.js";
 import QRCode from "qrcode";
-import { getConnection, updateConnection, getBridgeHeaders } from "../../../../../lib/connections";
-
-const BRIDGE_URL = process.env.BRIDGE_URL || "";
+import { getConnection, updateConnection, getBridgeHeaders } from "../../../../../lib/connections.js";
 
 async function toQrImage(code) {
   return code ? QRCode.toDataURL(code, { width: 280, margin: 1 }) : null;
@@ -14,6 +12,7 @@ function parseRecipients(raw) {
 }
 
 export async function POST(req, props) {
+  const BRIDGE_URL = process.env.BRIDGE_URL || "";
   const { hash } = await props.params;
   if (!hash) return NextResponse.json({ error: "missing hash" }, { status: 400 });
   if (!BRIDGE_URL) {
@@ -75,6 +74,7 @@ export async function POST(req, props) {
 }
 
 export async function GET(_req, props) {
+  const BRIDGE_URL = process.env.BRIDGE_URL || "";
   const { hash } = await props.params;
   if (!hash) return NextResponse.json({ error: "missing hash" }, { status: 400 });
   if (!BRIDGE_URL) return NextResponse.json({ qr: null }, { status: 503 });

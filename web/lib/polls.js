@@ -2,12 +2,16 @@ import { createClient } from "@vercel/kv";
 
 const hasKv = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 
-export const kv = hasKv
+export let kv = hasKv
   ? createClient({
       url: process.env.KV_REST_API_URL,
       token: process.env.KV_REST_API_TOKEN,
     })
   : null;
+
+export function _setKv(client) {
+  kv = client;
+}
 
 const POLLS_KEY = "polls";          // sorted set: score = createdAt, member = pollKey
 const PREFIX = "poll:";             // hash: poll:HASH:ID -> JSON

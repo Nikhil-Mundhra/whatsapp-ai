@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { createPoll, listPolls } from "../../../lib/polls";
+import { NextResponse } from "next/server.js";
+import { createPoll, listPolls } from "../../../lib/polls.js";
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);

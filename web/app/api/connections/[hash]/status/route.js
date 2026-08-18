@@ -1,9 +1,8 @@
-import { NextResponse } from "next/server";
-import { getConnection, updateConnection, getBridgeHeaders } from "../../../../../lib/connections";
-
-const BRIDGE_URL = process.env.BRIDGE_URL || "";
+import { NextResponse } from "next/server.js";
+import { getConnection, updateConnection, getBridgeHeaders } from "../../../../../lib/connections.js";
 
 export async function GET(_req, props) {
+  const BRIDGE_URL = process.env.BRIDGE_URL || "";
   const { hash } = await props.params;
   if (!hash) return NextResponse.json({ error: "missing hash" }, { status: 400 });
 

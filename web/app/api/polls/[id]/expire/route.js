@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { expirePoll } from "../../../../../lib/polls";
+import { NextResponse } from "next/server.js";
+import { expirePoll } from "../../../../../lib/polls.js";
 
 export async function POST(req, props) {
   const { id } = await props.params;

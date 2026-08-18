@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { getConfig, saveConfig } from "../../../lib/config";
+import { NextResponse } from "next/server.js";
+import { getConfig, saveConfig } from "../../../lib/config.js";
 
 export async function GET() {
   const config = await getConfig();

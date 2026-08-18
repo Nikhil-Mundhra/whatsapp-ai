@@ -24,10 +24,10 @@ type SendMessageRequest struct {
 
 // SendPollRequest represents the request body for the send poll API
 type SendPollRequest struct {
-	Recipient     string   `json:"recipient"`
-	Question      string   `json:"question"`
-	Options       []string `json:"options"`
-	SelectableCount int    `json:"selectable_count"` // 1 = single choice, 0 = unlimited
+	Recipient       string   `json:"recipient"`
+	Question        string   `json:"question"`
+	Options         []string `json:"options"`
+	SelectableCount int      `json:"selectable_count"` // 1 = single choice, 0 = unlimited
 }
 
 // SendPollResponse represents the response body for the send poll API
@@ -51,10 +51,9 @@ type DownloadMediaResponse struct {
 	Path     string `json:"path,omitempty"`
 }
 
-// startRESTServer starts a REST API server to expose WhatsApp client functionality
-func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int, logger waLog.Logger) {
-	// Handler for sending messages
-	http.HandleFunc("/api/send", func(w http.ResponseWriter, r *http.Request) {
+// sendHandler handles the /api/send endpoint
+func sendHandler(client *whatsmeow.Client, messageStore *MessageStore, logger waLog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -97,10 +96,12 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			Success: success,
 			Message: message,
 		})
-	})
+	}
+}
 
-	// Handler for sending interactive polls
-	http.HandleFunc("/api/send-poll", func(w http.ResponseWriter, r *http.Request) {
+// sendPollHandler handles the /api/send-poll endpoint
+func sendPollHandler(client *whatsmeow.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -124,10 +125,12 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			Message: message,
 			PollID:  pollID,
 		})
-	})
+	}
+}
 
-	// Handler for downloading media
-	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
+// downloadHandler handles the /api/download endpoint
+func downloadHandler(client *whatsmeow.Client, messageStore *MessageStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -175,7 +178,19 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			Filename: filename,
 			Path:     path,
 		})
-	})
+	}
+}
+
+// startRESTServer starts a REST API server to expose WhatsApp client functionality
+func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int, logger waLog.Logger) {
+	// Handler for sending messages
+	http.HandleFunc("/api/send", sendHandler(client, messageStore, logger))
+
+	// Handler for sending interactive polls
+	http.HandleFunc("/api/send-poll", sendPollHandler(client))
+
+	// Handler for downloading media
+	http.HandleFunc("/api/download", downloadHandler(client, messageStore))
 
 	// Bind to loopback only so the API isn't exposed on the network. TLS is
 	// unnecessary for a local-only service.

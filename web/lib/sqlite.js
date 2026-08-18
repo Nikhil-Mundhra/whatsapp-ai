@@ -1,5 +1,7 @@
 import path from "path";
 import fs from "fs";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
 
 let DatabaseSync = null;
 try {
@@ -9,7 +11,21 @@ try {
   // node:sqlite not supported
 }
 
+export function _setDatabaseSync(dbSync) {
+  DatabaseSync = dbSync;
+}
+
+let customStoreDir = null;
+export function _setStoreDir(dir) {
+  customStoreDir = dir;
+}
+
 function findDbPath(filename) {
+  if (customStoreDir !== null) {
+    const p = path.resolve(customStoreDir, filename);
+    return fs.existsSync(p) ? p : null;
+  }
+
   const possiblePaths = [
     path.resolve(process.cwd(), "..", "whatsapp-bridge", "store", filename),
     path.resolve(process.cwd(), "whatsapp-bridge", "store", filename),

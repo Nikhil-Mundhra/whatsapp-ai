@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from "next/server.js";
 
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
@@ -41,7 +41,39 @@ export async function POST(req) {
     }
   }
 
-  // 2. Check OpenAI API key (format sk-...)
+  // 2. Check Anthropic / Claude API key (format sk-ant-...)
+  if (apiKey.startsWith("sk-ant-")) {
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/models", {
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const models = (data.data || []).map((m) => ({
+          id: m.id,
+          name: m.display_name || m.id,
+        }));
+        return NextResponse.json({
+          valid: true,
+          provider: "Anthropic Claude",
+          models: models.length ? models : [
+            { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet (Recommended)" },
+            { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku (Fast)" },
+          ],
+          defaultModel: "claude-3-5-sonnet-20241022",
+        });
+      }
+      return NextResponse.json({ valid: false, error: "Invalid Anthropic API Key" });
+    } catch (e) {
+      return NextResponse.json({ valid: false, error: "Unable to reach Anthropic API" });
+    }
+  }
+
+  // 3. Check OpenAI API key (format sk-...)
   if (apiKey.startsWith("sk-proj-") || apiKey.startsWith("sk-")) {
     // Check if OpenRouter key first (some openrouter keys start with sk-or-)
     if (apiKey.startsWith("sk-or-")) {
@@ -78,38 +110,6 @@ export async function POST(req) {
       return NextResponse.json({ valid: false, error: "Invalid OpenAI API Key" });
     } catch (e) {
       return NextResponse.json({ valid: false, error: "Unable to reach OpenAI API" });
-    }
-  }
-
-  // 3. Check Anthropic / Claude API key (format sk-ant-...)
-  if (apiKey.startsWith("sk-ant-")) {
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/models", {
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        signal: AbortSignal.timeout(6000),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const models = (data.data || []).map((m) => ({
-          id: m.id,
-          name: m.display_name || m.id,
-        }));
-        return NextResponse.json({
-          valid: true,
-          provider: "Anthropic Claude",
-          models: models.length ? models : [
-            { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet (Recommended)" },
-            { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku (Fast)" },
-          ],
-          defaultModel: "claude-3-5-sonnet-20241022",
-        });
-      }
-      return NextResponse.json({ valid: false, error: "Invalid Anthropic API Key" });
-    } catch (e) {
-      return NextResponse.json({ valid: false, error: "Unable to reach Anthropic API" });
     }
   }
 

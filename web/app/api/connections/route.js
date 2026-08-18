@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { createConnection } from "../../../lib/connections";
+import { NextResponse } from "next/server.js";
+import { createConnection } from "../../../lib/connections.js";
 
 export async function POST(req) {
   const body = await req.json().catch(() => null);

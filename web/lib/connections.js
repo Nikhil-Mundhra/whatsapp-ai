@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { kv } from "./polls";
+import { kv } from "./polls.js";
 
 const PREFIX = "conn:";
 const INDEX = "connections";

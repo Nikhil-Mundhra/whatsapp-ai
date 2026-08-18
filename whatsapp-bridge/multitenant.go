@@ -48,10 +48,10 @@ type Tenant struct {
 	aiApiKey     string
 	aiModel      string
 
-	qrCode                 string
-	qrUpdated              time.Time
-	paired                 bool
-	pairing                bool
+	qrCode                  string
+	qrUpdated               time.Time
+	paired                  bool
+	pairing                 bool
 	activePollsByRecipient  map[string]string    // map[recipientNormalizedPhone]pollMsgID
 	lastPollTimeByRecipient map[string]time.Time // map[recipientNormalizedPhone]lastPollSentTime
 
@@ -484,193 +484,196 @@ func (t *Tenant) isGroupMessageDirectedToOwner(msg *events.Message) (bool, strin
 	return false, ""
 }
 
-// setupEventHandler wires message and poll events for this tenant.
-func (t *Tenant) setupEventHandler() {
-	t.client.AddEventHandler(func(evt interface{}) {
-		switch v := evt.(type) {
-		case *events.Message:
-			if v.Message.GetPollUpdateMessage() != nil {
-				t.handleTenantPollVote(v)
-			} else {
-				handleMessage(t.client, t.messageStore, v, t.logger)
+// handleEvent dispatches incoming WhatsApp events for this tenant.
+func (t *Tenant) handleEvent(evt interface{}) {
+	switch v := evt.(type) {
+	case *events.Message:
+		if v.Message.GetPollUpdateMessage() != nil {
+			t.handleTenantPollVote(v)
+		} else {
+			handleMessage(t.client, t.messageStore, v, t.logger)
 
-				isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
-				isGroup := v.Info.Chat.Server == "g.us"
+			isAllowed := t.isAllowedRecipient(v.Info.Sender, v.Info.Chat)
+			isGroup := v.Info.Chat.Server == "g.us"
 
-				// Determine normalized recipient key (for group chats, key by group JID)
-				recipientKey := v.Info.Chat.String()
-				if !isGroup {
-					recipientKey = normalizePhone(v.Info.Chat.User)
-					if recipientKey == "" {
-						recipientKey = normalizePhone(v.Info.Sender.User)
-					}
+			// Determine normalized recipient key (for group chats, key by group JID)
+			recipientKey := v.Info.Chat.String()
+			if !isGroup {
+				recipientKey = normalizePhone(v.Info.Chat.User)
+				if recipientKey == "" {
+					recipientKey = normalizePhone(v.Info.Sender.User)
 				}
+			}
 
-				if v.Info.IsFromMe && isAllowed {
-					if t.isApiSent(string(v.Info.ID)) {
-						t.logger.Infof("Ignoring self-echo of API-sent message %s", v.Info.ID)
-						return
-					}
-					// Only reset takeover if owner manually texted an allowed contact (not self-chat)
-					if recipientKey != normalizePhone(t.ownerPhone) {
-						t.mu.Lock()
-						if t.grantKind != "none" {
-							t.grantKind = "none"
-							t.grantRemaining = 0
-							t.grantTargetJID = types.EmptyJID
-							t.logger.Infof("Owner sent manual message -> reset takeover grant for %s", t.Hash)
-						}
-						var oldPollID string
-						if t.activePollsByRecipient != nil {
-							oldPollID = t.activePollsByRecipient[recipientKey]
-							delete(t.activePollsByRecipient, recipientKey)
-						}
-						if t.lastPollTimeByRecipient != nil {
-							delete(t.lastPollTimeByRecipient, recipientKey)
-						}
-						t.mu.Unlock()
-
-						if oldPollID != "" {
-							_ = deleteWhatsAppMessage(t.client, t.ownerPhone, oldPollID)
-							go func(pID string) {
-								expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
-								req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
-								if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
-									_ = resp.Body.Close()
-								}
-							}(oldPollID)
-						}
-					}
+			if v.Info.IsFromMe && isAllowed {
+				if t.isApiSent(string(v.Info.ID)) {
+					t.logger.Infof("Ignoring self-echo of API-sent message %s", v.Info.ID)
 					return
 				}
-
-				if !v.Info.IsFromMe && isAllowed {
+				// Only reset takeover if owner manually texted an allowed contact (not self-chat)
+				if recipientKey != normalizePhone(t.ownerPhone) {
 					t.mu.Lock()
-					t.lastTargetJID = v.Info.Chat
-					activeGrant := false
-					if t.grantKind == "duration" && time.Now().Before(t.grantExpiresAt) {
-						activeGrant = true
-					} else if t.grantKind == "count" && t.grantRemaining > 0 {
-						activeGrant = true
+					if t.grantKind != "none" {
+						t.grantKind = "none"
+						t.grantRemaining = 0
+						t.grantTargetJID = types.EmptyJID
+						t.logger.Infof("Owner sent manual message -> reset takeover grant for %s", t.Hash)
+					}
+					var oldPollID string
+					if t.activePollsByRecipient != nil {
+						oldPollID = t.activePollsByRecipient[recipientKey]
+						delete(t.activePollsByRecipient, recipientKey)
+					}
+					if t.lastPollTimeByRecipient != nil {
+						delete(t.lastPollTimeByRecipient, recipientKey)
 					}
 					t.mu.Unlock()
 
-					if activeGrant {
-						t.logger.Infof("Active takeover grant for %s -> drafting AI reply immediately", t.Hash)
-						go t.replyToChat(v.Info.Chat)
-					} else if t.ownerPhone != "" {
-						// For Group Chats, apply Smart Triggering
-						triggerReason := ""
-						if isGroup {
-							directed, reason := t.isGroupMessageDirectedToOwner(v)
-							if !directed {
-								// Background group chatter: stored in DB, but no poll triggered
-								return
-							}
-							triggerReason = reason
-						}
-
-						chatName := t.resolveContactName(v)
-						var question string
-						if isGroup {
-							groupName := t.resolveGroupName(v.Info.Chat)
-							textSnippet := strings.TrimSpace(extractTextContent(v.Message))
-							if len(textSnippet) > 35 {
-								textSnippet = textSnippet[:32] + "..."
-							}
-							if textSnippet != "" {
-								question = fmt.Sprintf("%s in \"%s\" (%s: \"%s\"). Take over?", chatName, groupName, triggerReason, textSnippet)
-							} else {
-								question = fmt.Sprintf("%s in \"%s\" %s. Take over?", chatName, groupName, triggerReason)
-							}
-						} else {
-							question = fmt.Sprintf("%s texted you. Take over?", chatName)
-						}
-						options := []string{"Send 1 text", "5 minutes", "2 hours", "Deny"}
-
-						t.mu.Lock()
-						if t.activePollsByRecipient == nil {
-							t.activePollsByRecipient = make(map[string]string)
-						}
-						if t.lastPollTimeByRecipient == nil {
-							t.lastPollTimeByRecipient = make(map[string]time.Time)
-						}
-						oldPollID := t.activePollsByRecipient[recipientKey]
-						lastPollTime := t.lastPollTimeByRecipient[recipientKey]
-						t.mu.Unlock()
-
-						// Cooldown check (60 seconds) for 1-on-1 and group chats:
-						// If a poll is already active and was sent less than 60s ago, keep it alive without revoking/recreating.
-						if oldPollID != "" && time.Since(lastPollTime) < 60*time.Second {
-							t.logger.Infof("Active poll %s was sent %v ago (< 60s cooldown) for recipient %s. Keeping existing poll alive.", oldPollID, time.Since(lastPollTime).Round(time.Second), recipientKey)
-							return
-						}
-
-						// In group chats, if any poll is already active, keep it ALIVE (do not spam or revoke rapidly)
-						if isGroup && oldPollID != "" {
-							t.logger.Infof("Active poll %s is already pending for group %s. Keeping existing poll alive.", oldPollID, recipientKey)
-							return
-						}
-
-						if oldPollID != "" {
-							t.logger.Infof("Revoking previous active poll %s for recipient %s (tenant %s)", oldPollID, recipientKey, t.Hash)
-							_ = deleteWhatsAppMessage(t.client, t.ownerPhone, oldPollID)
-							go func(pID string) {
-								expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
-								req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
-								if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
-									_ = resp.Body.Close()
-								}
-							}(oldPollID)
-						}
-
-						ok, status, pollID := sendWhatsAppPoll(t.client, t.ownerPhone, question, options, 1)
-						if ok && pollID != "" {
-							t.recordApiSent(pollID) // CRITICAL: record poll ID so self-echo doesn't trigger manual message reset!
-							t.mu.Lock()
-							t.activePollsByRecipient[recipientKey] = pollID
-							t.lastPollTimeByRecipient[recipientKey] = time.Now()
-							t.mu.Unlock()
-						}
-						fmt.Printf("\n[takeover %s] Sent approval poll to owner %s for incoming message from %s (recipient %s): ok=%v status=%s pollID=%s\n", t.Hash, t.ownerPhone, chatName, recipientKey, ok, status, pollID)
-
-						go func(pID, contact, cName, q string, opts []string) {
-							payload, _ := json.Marshal(map[string]interface{}{
-								"id":             pID,
-								"hash":           t.Hash,
-								"contact":        contact,
-								"contactDisplay": cName,
-								"question":       q,
-								"options":        opts,
-								"status":         "pending",
-							})
-							webhookURL := fmt.Sprintf("%s/api/polls", getWebhookBaseURL())
-							resp, err := http.Post(webhookURL, "application/json", bytes.NewReader(payload))
-							if err == nil && resp != nil {
+					if oldPollID != "" {
+						_ = deleteWhatsAppMessage(t.client, t.ownerPhone, oldPollID)
+						go func(pID string) {
+							expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
+							req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
+							if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
 								_ = resp.Body.Close()
 							}
-						}(pollID, recipientKey, chatName, question, options)
+						}(oldPollID)
 					}
 				}
+				return
 			}
-		case *events.HistorySync:
-			t.handleTenantHistorySync(v)
-		case *events.Connected:
-			t.logger.Infof("Tenant %s connected", t.Hash)
-		case *events.LoggedOut:
-			t.logger.Warnf("Tenant %s logged out from WhatsApp. Wiping stored session and messages...", t.Hash)
-			t.mu.Lock()
-			t.paired = false
-			t.pairing = false
-			t.qrCode = ""
-			if t.client != nil {
-				t.client.Disconnect()
+
+			if !v.Info.IsFromMe && isAllowed {
+				t.mu.Lock()
+				t.lastTargetJID = v.Info.Chat
+				activeGrant := false
+				if t.grantKind == "duration" && time.Now().Before(t.grantExpiresAt) {
+					activeGrant = true
+				} else if t.grantKind == "count" && t.grantRemaining > 0 {
+					activeGrant = true
+				}
+				t.mu.Unlock()
+
+				if activeGrant {
+					t.logger.Infof("Active takeover grant for %s -> drafting AI reply immediately", t.Hash)
+					go t.replyToChat(v.Info.Chat)
+				} else if t.ownerPhone != "" {
+					// For Group Chats, apply Smart Triggering
+					triggerReason := ""
+					if isGroup {
+						directed, reason := t.isGroupMessageDirectedToOwner(v)
+						if !directed {
+							// Background group chatter: stored in DB, but no poll triggered
+							return
+						}
+						triggerReason = reason
+					}
+
+					chatName := t.resolveContactName(v)
+					var question string
+					if isGroup {
+						groupName := t.resolveGroupName(v.Info.Chat)
+						textSnippet := strings.TrimSpace(extractTextContent(v.Message))
+						if len(textSnippet) > 35 {
+							textSnippet = textSnippet[:32] + "..."
+						}
+						if textSnippet != "" {
+							question = fmt.Sprintf("%s in \"%s\" (%s: \"%s\"). Take over?", chatName, groupName, triggerReason, textSnippet)
+						} else {
+							question = fmt.Sprintf("%s in \"%s\" %s. Take over?", chatName, groupName, triggerReason)
+						}
+					} else {
+						question = fmt.Sprintf("%s texted you. Take over?", chatName)
+					}
+					options := []string{"Send 1 text", "5 minutes", "2 hours", "Deny"}
+
+					t.mu.Lock()
+					if t.activePollsByRecipient == nil {
+						t.activePollsByRecipient = make(map[string]string)
+					}
+					if t.lastPollTimeByRecipient == nil {
+						t.lastPollTimeByRecipient = make(map[string]time.Time)
+					}
+					oldPollID := t.activePollsByRecipient[recipientKey]
+					lastPollTime := t.lastPollTimeByRecipient[recipientKey]
+					t.mu.Unlock()
+
+					// Cooldown check (60 seconds) for 1-on-1 and group chats:
+					// If a poll is already active and was sent less than 60s ago, keep it alive without revoking/recreating.
+					if oldPollID != "" && time.Since(lastPollTime) < 60*time.Second {
+						t.logger.Infof("Active poll %s was sent %v ago (< 60s cooldown) for recipient %s. Keeping existing poll alive.", oldPollID, time.Since(lastPollTime).Round(time.Second), recipientKey)
+						return
+					}
+
+					// In group chats, if any poll is already active, keep it ALIVE (do not spam or revoke rapidly)
+					if isGroup && oldPollID != "" {
+						t.logger.Infof("Active poll %s is already pending for group %s. Keeping existing poll alive.", oldPollID, recipientKey)
+						return
+					}
+
+					if oldPollID != "" {
+						t.logger.Infof("Revoking previous active poll %s for recipient %s (tenant %s)", oldPollID, recipientKey, t.Hash)
+						_ = deleteWhatsAppMessage(t.client, t.ownerPhone, oldPollID)
+						go func(pID string) {
+							expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
+							req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
+							if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
+								_ = resp.Body.Close()
+							}
+						}(oldPollID)
+					}
+
+					ok, status, pollID := sendWhatsAppPoll(t.client, t.ownerPhone, question, options, 1)
+					if ok && pollID != "" {
+						t.recordApiSent(pollID) // CRITICAL: record poll ID so self-echo doesn't trigger manual message reset!
+						t.mu.Lock()
+						t.activePollsByRecipient[recipientKey] = pollID
+						t.lastPollTimeByRecipient[recipientKey] = time.Now()
+						t.mu.Unlock()
+					}
+					fmt.Printf("\n[takeover %s] Sent approval poll to owner %s for incoming message from %s (recipient %s): ok=%v status=%s pollID=%s\n", t.Hash, t.ownerPhone, chatName, recipientKey, ok, status, pollID)
+
+					go func(pID, contact, cName, q string, opts []string) {
+						payload, _ := json.Marshal(map[string]interface{}{
+							"id":             pID,
+							"hash":           t.Hash,
+							"contact":        contact,
+							"contactDisplay": cName,
+							"question":       q,
+							"options":        opts,
+							"status":         "pending",
+						})
+						webhookURL := fmt.Sprintf("%s/api/polls", getWebhookBaseURL())
+						resp, err := http.Post(webhookURL, "application/json", bytes.NewReader(payload))
+						if err == nil && resp != nil {
+							_ = resp.Body.Close()
+						}
+					}(pollID, recipientKey, chatName, question, options)
+				}
 			}
-			t.mu.Unlock()
-			_ = os.RemoveAll(t.dir())
-			t.logger.Infof("Tenant %s local data wiped.", t.Hash)
 		}
-	})
+	case *events.HistorySync:
+		t.handleTenantHistorySync(v)
+	case *events.Connected:
+		t.logger.Infof("Tenant %s connected", t.Hash)
+	case *events.LoggedOut:
+		t.logger.Warnf("Tenant %s logged out from WhatsApp. Wiping stored session and messages...", t.Hash)
+		t.mu.Lock()
+		t.paired = false
+		t.pairing = false
+		t.qrCode = ""
+		if t.client != nil {
+			t.client.Disconnect()
+		}
+		t.mu.Unlock()
+		_ = os.RemoveAll(t.dir())
+		t.logger.Infof("Tenant %s local data wiped.", t.Hash)
+	}
+}
+
+// setupEventHandler wires message and poll events for this tenant.
+func (t *Tenant) setupEventHandler() {
+	t.client.AddEventHandler(t.handleEvent)
 }
 
 // handleTenantHistorySync processes WhatsApp history sync ONLY for targeted recipients, capping at 75 recent messages per chat.
@@ -1428,10 +1431,8 @@ func (t *Tenant) sendPollToRecipient(recipient, question string, options []strin
 	return sendWhatsAppPoll(t.client, recipient, question, options, selectableCount)
 }
 
-func startMultiTenantServer(port int, logger waLog.Logger) {
-	manager := NewTenantManager(logger)
-
-	http.HandleFunc("/api/connections/", func(w http.ResponseWriter, r *http.Request) {
+func connectionsHandler(manager *TenantManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if !checkBridgeAuth(r) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -1618,7 +1619,13 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 		default:
 			http.NotFound(w, r)
 		}
-	})
+	}
+}
+
+func startMultiTenantServer(port int, logger waLog.Logger) {
+	manager := NewTenantManager(logger)
+
+	http.HandleFunc("/api/connections/", connectionsHandler(manager))
 
 	addr := fmt.Sprintf("0.0.0.0:%d", port)
 	logger.Infof("Multi-tenant bridge listening on %s", addr)

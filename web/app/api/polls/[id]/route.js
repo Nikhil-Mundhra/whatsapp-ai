@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
-import { getPoll, voteOnPoll } from "../../../../lib/polls";
-import { getBridgeHeaders } from "../../../../lib/connections";
+import { NextResponse } from "next/server.js";
+import { getPoll, voteOnPoll } from "../../../../lib/polls.js";
+import { getBridgeHeaders } from "../../../../lib/connections.js";
 
 const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
 

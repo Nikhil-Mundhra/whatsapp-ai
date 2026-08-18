@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { getLocalContacts } from "../../../lib/sqlite";
+import { NextResponse } from "next/server.js";
+import { getLocalContacts } from "../../../lib/sqlite.js";
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);

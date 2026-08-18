@@ -366,4 +366,3 @@ func TestGetChatName_ExistingInStore(t *testing.T) {
 		t.Errorf("expected 'Stored Contact Name', got %q", name)
 	}
 }
-

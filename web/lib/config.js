@@ -1,4 +1,4 @@
-import { kv } from "./polls";
+import { kv } from "./polls.js";
 
 const CONFIG_KEY = "config";
 

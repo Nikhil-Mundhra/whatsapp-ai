@@ -1,4 +1,4 @@
-name: Deploy Backend to GCP VM
+name: CI & Deploy Backend to GCP VM
 
 on:
   push:
@@ -8,12 +8,63 @@ on:
       - "whatsapp-bridge/**"
       - "harness/**"
       - "whatsapp-mcp-server/**"
+      - "web/**"
       - ".github/workflows/deploy-backend.yml"
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
+  test:
+    name: Run Unit & Coverage Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+          cache-dependency-path: whatsapp-bridge/go.sum
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Run Go Bridge Tests
+        run: |
+          echo "🧪 Running Go WhatsApp Bridge tests..."
+          cd whatsapp-bridge
+          go test -race -v -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Run Python MCP Server Tests
+        run: |
+          echo "🧪 Running Python MCP Server tests..."
+          cd whatsapp-mcp-server
+          python -m unittest discover -s tests -v
+
+      - name: Run Web Panel Tests
+        run: |
+          echo "🧪 Running Web Panel unit tests..."
+          cd web
+          npm ci
+          npm test
+
   deploy:
     name: Deploy Go Bridge to GCP Compute Engine
+    needs: test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
 
     steps:
@@ -50,12 +101,16 @@ jobs:
             git fetch --all
             git reset --hard origin/main
 
-            # Build Go whatsapp-bridge
-            echo "🔨 Building Go whatsapp-bridge binary..."
-            cd "$REPO_DIR/whatsapp-bridge"
-            
             # Ensure Go path is available
             export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
+
+            # Test Go whatsapp-bridge on VM before rebuilding
+            echo "🧪 Validating tests on VM..."
+            cd "$REPO_DIR/whatsapp-bridge"
+            go test -v ./...
+
+            # Build Go whatsapp-bridge
+            echo "🔨 Building Go whatsapp-bridge binary..."
             go build -v -o whatsapp-client .
 
             # Restart service
@@ -79,3 +134,4 @@ jobs:
             else
               echo "⚠️ Service restarted (check logs if port 8080 is initializing)."
             fi
+
