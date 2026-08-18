@@ -1366,15 +1366,15 @@ func (t *Tenant) status() map[string]interface{} {
 	}
 }
 
-func (t *Tenant) sendToRecipient(recipient, message string) (bool, string) {
+func (t *Tenant) sendToRecipient(recipient, message string) (bool, string, string) {
 	if t.client == nil || !t.client.IsConnected() {
-		return false, "tenant not connected"
+		return false, "tenant not connected", ""
 	}
 	ok, status, msgID := sendWhatsAppMessage(t.client, t.messageStore, recipient, message, "", t.logger)
 	if ok && msgID != "" {
 		t.recordApiSent(msgID)
 	}
-	return ok, status
+	return ok, status, msgID
 }
 
 func (t *Tenant) sendPollToRecipient(recipient, question string, options []string, selectableCount int) (bool, string, string) {
@@ -1536,6 +1536,39 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 			tenant.applyWebGrant(body.Option, body.Contact)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": tenant.status()})
+			return
+
+		case sub == "send" && r.Method == http.MethodPost:
+			tenant := manager.Get(hash)
+			if tenant == nil {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			var body struct {
+				Recipient string `json:"recipient"`
+				Message   string `json:"message"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if body.Recipient == "" || body.Message == "" {
+				http.Error(w, "recipient and message required", http.StatusBadRequest)
+				return
+			}
+			ok, statusStr, msgID := tenant.sendToRecipient(body.Recipient, body.Message)
+			if !ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": statusStr})
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":   true,
+				"messageId": msgID,
+				"status":    statusStr,
+			})
 			return
 
 		default:

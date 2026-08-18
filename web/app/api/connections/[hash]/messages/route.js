@@ -38,3 +38,41 @@ export async function GET(req, props) {
 
   return NextResponse.json({ messages: [] });
 }
+
+export async function POST(req, props) {
+  const { hash } = await props.params;
+  if (!hash) return NextResponse.json({ error: "missing hash" }, { status: 400 });
+
+  const body = await req.json().catch(() => ({}));
+  const { recipient, message } = body;
+
+  if (!recipient || !message) {
+    return NextResponse.json({ error: "recipient and message are required" }, { status: 400 });
+  }
+
+  // Send real WhatsApp message via Go Bridge
+  try {
+    const res = await fetch(`${BRIDGE_URL}/api/connections/${hash}/send`, {
+      method: "POST",
+      headers: getBridgeHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ recipient, message }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      return NextResponse.json(
+        { error: errData.error || `Bridge responded with status ${res.status}` },
+        { status: res.status }
+      );
+    }
+
+    const data = await res.json();
+    return NextResponse.json(data);
+  } catch (err) {
+    return NextResponse.json(
+      { error: `Failed to reach bridge: ${err.message}` },
+      { status: 502 }
+    );
+  }
+}

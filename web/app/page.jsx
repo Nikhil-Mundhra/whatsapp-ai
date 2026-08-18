@@ -390,21 +390,64 @@ export default function Home() {
     }
   }
 
-  // 8. Handle Manual Messaging
-  function handleSendManual(text) {
-    const newMsg = {
-      id: `msg-${Date.now()}`,
+  // 9. Handle Real WhatsApp Outgoing Messages
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+
+  async function handleSendManual(text) {
+    const cleanText = (text || "").trim();
+    if (!cleanText || !selectedContact || !hash) return;
+
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg = {
+      id: tempId,
       sender: "me",
       chatJid: selectedContact,
-      content: text,
+      content: cleanText,
       timestamp: new Date().toISOString(),
       isFromMe: true,
       isAi: false,
     };
-    setMessages((prev) => [...prev, newMsg]);
+
+    // Optimistically display in timeline
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setIsSendingMessage(true);
+
+    // Manual texting cancels active takeover grant for this contact
+    setActiveGrants((prev) => ({
+      ...prev,
+      [selectedContact]: { type: "none" },
+    }));
+
+    try {
+      const res = await fetch(`/api/connections/${hash}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipient: selectedContact,
+          message: cleanText,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error("Failed to send WhatsApp message:", errData.error || res.status);
+      } else {
+        const data = await res.json();
+        if (data.messageId) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? { ...m, id: data.messageId } : m))
+          );
+        }
+      }
+    } catch (err) {
+      console.error("Network error sending WhatsApp message:", err);
+    } finally {
+      setIsSendingMessage(false);
+      setTimeout(() => fetchDashboardData(), 1000);
+    }
   }
 
-  // 9. Settings Modal Handlers
+  // 10. Settings Modal Handlers
   function openSettings() {
     setConfigForm({
       ownerPhone: connInfo?.connection?.ownerPhone || "",
@@ -623,6 +666,7 @@ export default function Home() {
                 onRevokeGrant={handleRevokeAutonomy}
                 activeGrant={activeGrants[selectedContact] || null}
                 pollConfig={pollConfig}
+                loading={isSendingMessage}
               />
             </>
           ) : (
