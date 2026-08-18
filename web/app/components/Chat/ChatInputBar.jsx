@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { AttachIcon, SmileIcon, SendIcon, RobotIcon } from "../Icons/WhatsAppIcons";
+import { AttachIcon, SmileIcon, SendIcon, PollIcon } from "../Icons/WhatsAppIcons";
 
 export function ChatInputBar({
   contact,
   onSendManual,
-  onTriggerDraft,
+  onRequestPoll,
   loading = false,
 }) {
   const [inputText, setInputText] = useState("");
@@ -33,35 +33,36 @@ export function ChatInputBar({
       <input
         type="text"
         className="wa-chat-input-field"
-        placeholder="Type a message or draft an AI reply..."
+        placeholder="Type a message..."
         value={inputText}
         onChange={(e) => setInputText(e.target.value)}
         disabled={loading}
       />
 
-      {/* AI Quick Draft Trigger */}
+      {/* Take-Over Poll Trigger Button */}
       <button
         type="button"
-        onClick={() => onTriggerDraft?.()}
+        onClick={() => onRequestPoll?.()}
         style={{
-          background: "#ecfdf5",
-          border: "1px solid #a7f3d0",
+          background: "#f0f2f5",
+          border: "1px solid #d1d7db",
           borderRadius: 8,
           padding: "0 10px",
           height: 38,
           fontSize: 12,
           fontWeight: 600,
-          color: "#065f46",
+          color: "#008069",
           display: "flex",
           alignItems: "center",
-          gap: 4,
+          gap: 5,
           cursor: "pointer",
           whiteSpace: "nowrap",
+          transition: "all 0.15s ease",
         }}
-        title="Trigger AI persona generator to draft a reply"
+        title="Create a Take-Over Poll for this conversation"
       >
-        <RobotIcon size={14} color="#065f46" />
-        <span>Draft AI</span>
+        <PollIcon size={16} color="#008069" />
+        <span>Take-Over Poll</span>
       </button>
 
       {/* Send Button */}

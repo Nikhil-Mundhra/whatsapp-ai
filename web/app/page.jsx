@@ -279,9 +279,9 @@ export default function Home() {
     }
   }
 
-  // 6. Handle Quick Autonomy Grant
-  async function handleQuickGrant(durationOption = "5 minutes") {
-    if (!selectedContact) return;
+  // 6. Handle Creating Real Take-Over Poll
+  async function handleCreateTakeOverPoll() {
+    if (!selectedContact || !hash) return;
     try {
       const res = await fetch(`/api/polls`, {
         method: "POST",
@@ -291,29 +291,23 @@ export default function Home() {
           hash,
           contact: selectedContact,
           contactDisplay: selectedContactName || selectedContact,
-          question: `Quick Take-Over Grant (${durationOption})`,
+          question: "Permission to take over conversation?",
           options: ["Send 1 text", "5 minutes", "2 hours", "Deny"],
           createdAt: Date.now(),
         }),
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.poll?.id) {
-          handleVote(data.poll.id, durationOption);
+        if (data.poll) {
+          setPolls((prev) => [data.poll, ...prev.filter((p) => p.id !== data.poll.id)]);
         }
       }
     } catch (err) {
-      console.error("Quick grant error", err);
+      console.error("Failed to create take-over poll", err);
     }
   }
 
-  // 7. Handle Revoking Autonomy
-  async function handleRevoke() {
-    if (!selectedContact) return;
-    handleQuickGrant("Deny");
-  }
-
-  // 8. Handle Manual Messaging / Drafting
+  // 7. Handle Manual Messaging
   function handleSendManual(text) {
     const newMsg = {
       id: `msg-${Date.now()}`,
@@ -323,19 +317,6 @@ export default function Home() {
       timestamp: new Date().toISOString(),
       isFromMe: true,
       isAi: false,
-    };
-    setMessages((prev) => [...prev, newMsg]);
-  }
-
-  function handleTriggerDraft() {
-    const newMsg = {
-      id: `msg-${Date.now()}`,
-      sender: "ai",
-      chatJid: selectedContact,
-      content: "Drafting autonomous response mirroring your texting persona...",
-      timestamp: new Date().toISOString(),
-      isFromMe: true,
-      isAi: true,
     };
     setMessages((prev) => [...prev, newMsg]);
   }
@@ -540,10 +521,7 @@ export default function Home() {
                 contact={selectedContact}
                 contactName={selectedContactName}
                 pendingCount={currentPendingPolls}
-                isAutonomyActive={false}
                 isWhitelisted={isSelectedWhitelisted}
-                onQuickGrant={handleQuickGrant}
-                onRevoke={handleRevoke}
               />
 
               <ChatTimeline
@@ -557,7 +535,7 @@ export default function Home() {
               <ChatInputBar
                 contact={selectedContact}
                 onSendManual={handleSendManual}
-                onTriggerDraft={handleTriggerDraft}
+                onRequestPoll={handleCreateTakeOverPoll}
               />
             </>
           ) : (
