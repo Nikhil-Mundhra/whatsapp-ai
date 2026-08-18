@@ -281,6 +281,9 @@ export default function Home() {
     }
   }
 
+  // Active Autonomy Grants State (by contact JID/phone)
+  const [activeGrants, setActiveGrants] = useState({});
+
   // Poll Configuration Template
   const [pollConfig, setPollConfig] = useState({
     question: "Permission to take over conversation?",
@@ -290,6 +293,30 @@ export default function Home() {
   // 6. Handle Direct Quick Vote from Overlay
   async function handleQuickVote(option, question, options) {
     if (!selectedContact || !hash) return;
+
+    // Optimistic grant activation
+    if (option === "5 minutes") {
+      setActiveGrants((prev) => ({
+        ...prev,
+        [selectedContact]: { type: "duration", expiresAt: Date.now() + 5 * 60 * 1000 },
+      }));
+    } else if (option === "2 hours") {
+      setActiveGrants((prev) => ({
+        ...prev,
+        [selectedContact]: { type: "duration", expiresAt: Date.now() + 2 * 60 * 60 * 1000 },
+      }));
+    } else if (option === "Send 1 text") {
+      setActiveGrants((prev) => ({
+        ...prev,
+        [selectedContact]: { type: "count", remainingCount: 1 },
+      }));
+    } else {
+      setActiveGrants((prev) => ({
+        ...prev,
+        [selectedContact]: { type: "none" },
+      }));
+    }
+
     try {
       const pollId = `poll-${Date.now()}`;
       const res = await fetch(`/api/polls`, {
@@ -316,7 +343,24 @@ export default function Home() {
     }
   }
 
-  // 7. Handle Saving/Sending Customized Poll from Editor
+  // 7. Handle Revoking Take-Over Autonomy
+  async function handleRevokeAutonomy(notifyBridge = true) {
+    if (!selectedContact) return;
+    setActiveGrants((prev) => ({
+      ...prev,
+      [selectedContact]: { type: "none" },
+    }));
+
+    if (notifyBridge && hash) {
+      try {
+        await handleQuickVote("Deny");
+      } catch (err) {
+        console.warn("Revoke failed", err);
+      }
+    }
+  }
+
+  // 8. Handle Saving/Sending Customized Poll from Editor
   async function handleSaveCustomPoll({ question, options, allowMultiple = false }) {
     setPollConfig({ question, options });
     if (!selectedContact || !hash) return;
@@ -576,6 +620,8 @@ export default function Home() {
                 onSendManual={handleSendManual}
                 onQuickVote={handleQuickVote}
                 onOpenPollEditor={() => setIsPollModalOpen(true)}
+                onRevokeGrant={handleRevokeAutonomy}
+                activeGrant={activeGrants[selectedContact] || null}
                 pollConfig={pollConfig}
               />
             </>

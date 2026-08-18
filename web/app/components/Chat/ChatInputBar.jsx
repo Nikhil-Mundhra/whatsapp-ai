@@ -1,13 +1,27 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { AttachIcon, SmileIcon, SendIcon, PollIcon, CloseIcon } from "../Icons/WhatsAppIcons";
+import { AttachIcon, SmileIcon, SendIcon, PollIcon, CloseIcon, ClockIcon, StopIcon } from "../Icons/WhatsAppIcons";
+
+function formatDuration(sec) {
+  if (sec <= 0) return "00:00";
+  const mins = Math.floor(sec / 60);
+  const secs = sec % 60;
+  if (mins >= 60) {
+    const hrs = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return `${hrs}h ${remMins}m`;
+  }
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
 
 export function ChatInputBar({
   contact,
   onSendManual,
   onQuickVote,
   onOpenPollEditor,
+  onRevokeGrant,
+  activeGrant = null,
   pollConfig = {
     question: "Permission to take over conversation?",
     options: ["Send 1 text", "5 minutes", "2 hours", "Deny"],
@@ -16,21 +30,59 @@ export function ChatInputBar({
 }) {
   const [inputText, setInputText] = useState("");
   const [showQuickPoll, setShowQuickPoll] = useState(false);
+  const [showRevokePopover, setShowRevokePopover] = useState(false);
   const [votingOption, setVotingOption] = useState(null);
-  const popoverRef = useRef(null);
+  const [secondsLeft, setSecondsLeft] = useState(0);
 
-  // Close quick poll popup when clicking outside
+  const popoverRef = useRef(null);
+  const revokeRef = useRef(null);
+
+  const isDurationActive = Boolean(
+    activeGrant?.type === "duration" &&
+    activeGrant?.expiresAt &&
+    activeGrant.expiresAt > Date.now()
+  );
+
+  const isCountActive = Boolean(
+    activeGrant?.type === "count" &&
+    activeGrant?.remainingCount > 0
+  );
+
+  const isTakeoverActive = isDurationActive || isCountActive;
+
+  // Real-time ticking countdown
+  useEffect(() => {
+    if (isDurationActive && activeGrant?.expiresAt) {
+      const updateTimer = () => {
+        const left = Math.max(0, Math.floor((activeGrant.expiresAt - Date.now()) / 1000));
+        setSecondsLeft(left);
+        if (left <= 0) {
+          onRevokeGrant?.(false);
+        }
+      };
+      updateTimer();
+      const timer = setInterval(updateTimer, 1000);
+      return () => clearInterval(timer);
+    } else {
+      setSecondsLeft(0);
+    }
+  }, [activeGrant?.expiresAt, isDurationActive]);
+
+  // Close popovers on click outside
   useEffect(() => {
     function handleClickOutside(e) {
       if (popoverRef.current && !popoverRef.current.contains(e.target)) {
         setShowQuickPoll(false);
       }
+      if (revokeRef.current && !revokeRef.current.contains(e.target)) {
+        setShowRevokePopover(false);
+      }
     }
-    if (showQuickPoll) {
+    if (showQuickPoll || showRevokePopover) {
       document.addEventListener("mousedown", handleClickOutside);
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
-  }, [showQuickPoll]);
+  }, [showQuickPoll, showRevokePopover]);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -52,8 +104,8 @@ export function ChatInputBar({
 
   return (
     <div style={{ position: "relative" }}>
-      {/* Quick Interactive Poll Popover (Opens on Left Click) */}
-      {showQuickPoll && (
+      {/* 1. Quick Interactive Poll Popover (When not active, Left-Click) */}
+      {showQuickPoll && !isTakeoverActive && (
         <div
           ref={popoverRef}
           style={{
@@ -142,7 +194,7 @@ export function ChatInputBar({
                 >
                   <span>{opt}</span>
                   {isSelected ? (
-                    <span style={{ fontSize: 11 }}>Voting...</span>
+                    <span style={{ fontSize: 11 }}>Starting...</span>
                   ) : (
                     <span style={{ fontSize: 11, color: isDeny ? "#ef4444" : "#10b981" }}>➜</span>
                   )}
@@ -151,7 +203,7 @@ export function ChatInputBar({
             })}
           </div>
 
-          {/* Right-click hint footer */}
+          {/* Right-click hint */}
           <div
             style={{
               marginTop: 10,
@@ -160,18 +212,100 @@ export function ChatInputBar({
               fontSize: 11,
               color: "#94a3b8",
               textAlign: "center",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 4,
             }}
           >
-            <span>💡 Right-click button to edit poll options</span>
+            💡 Right-click button to customize question & options
           </div>
         </div>
       )}
 
-      {/* Main Input Bar */}
+      {/* 2. Active Take-Over Revoke Popover (When Active, Left-Click) */}
+      {showRevokePopover && isTakeoverActive && (
+        <div
+          ref={revokeRef}
+          style={{
+            position: "absolute",
+            bottom: "calc(100% + 8px)",
+            right: 56,
+            width: 290,
+            background: "#ffffff",
+            borderRadius: 12,
+            boxShadow: "0 6px 20px rgba(11, 20, 26, 0.22)",
+            border: "1px solid #fed7aa",
+            padding: "14px 16px",
+            zIndex: 100,
+            animation: "fadeIn 0.15s ease-out",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: "#16a34a",
+                boxShadow: "0 0 6px #16a34a",
+              }}
+            />
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#16a34a" }}>
+              AI Take-Over Active
+            </span>
+          </div>
+
+          <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "#475569", lineHeight: 1.4 }}>
+            {isDurationActive
+              ? `AI is actively mirroring your persona with ${formatDuration(secondsLeft)} remaining.`
+              : "AI is authorized to send 1 autonomous reply."}
+          </p>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => {
+                onRevokeGrant?.();
+                setShowRevokePopover(false);
+              }}
+              style={{
+                flex: 1,
+                padding: "8px 12px",
+                background: "#fee2e2",
+                border: "1px solid #fca5a5",
+                borderRadius: 6,
+                color: "#b91c1c",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 5,
+              }}
+            >
+              <StopIcon size={14} color="#b91c1c" />
+              <span>Revoke AI</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowRevokePopover(false)}
+              style={{
+                padding: "8px 12px",
+                background: "#f1f5f9",
+                border: "none",
+                borderRadius: 6,
+                color: "#64748b",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main WhatsApp Chat Input Bar */}
       <form className="wa-chat-input-bar" onSubmit={handleSubmit}>
         <button type="button" className="wa-icon-btn" title="Emojis">
           <SmileIcon size={22} />
@@ -191,37 +325,82 @@ export function ChatInputBar({
           disabled={loading}
         />
 
-        {/* Take-Over Poll Button (Left Click = Quick Overlay, Right Click = Edit Poll) */}
-        <button
-          type="button"
-          onClick={() => setShowQuickPoll((prev) => !prev)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setShowQuickPoll(false);
-            onOpenPollEditor?.();
-          }}
-          style={{
-            background: showQuickPoll ? "#008069" : "#f0f2f5",
-            border: `1px solid ${showQuickPoll ? "#008069" : "#d1d7db"}`,
-            borderRadius: 8,
-            padding: "0 11px",
-            height: 38,
-            fontSize: 12.5,
-            fontWeight: 600,
-            color: showQuickPoll ? "#ffffff" : "#008069",
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-            transition: "all 0.15s ease",
-            boxShadow: showQuickPoll ? "0 2px 6px rgba(0, 128, 105, 0.3)" : "none",
-          }}
-          title="Click to vote on Take-Over Poll | Right-click to edit questions & options"
-        >
-          <PollIcon size={16} color={showQuickPoll ? "#ffffff" : "#008069"} />
-          <span>Poll</span>
-        </button>
+        {/* Dynamic Action Button: Transforms into Clock Countdown Badge when Take-Over is Active */}
+        {isTakeoverActive ? (
+          <button
+            type="button"
+            onClick={() => setShowRevokePopover((prev) => !prev)}
+            style={{
+              background: "linear-gradient(135deg, #ecfdf5, #d1fae5)",
+              border: "1.5px solid #10b981",
+              borderRadius: 8,
+              padding: "0 10px",
+              height: 38,
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: "#047857",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              boxShadow: "0 0 8px rgba(16, 185, 129, 0.3)",
+              transition: "all 0.15s ease",
+            }}
+            title={
+              isDurationActive
+                ? `AI Take-Over Active: ${formatDuration(secondsLeft)} remaining — Click to Revoke`
+                : "1 AI Message Active — Click to Revoke"
+            }
+          >
+            {/* Pulsing Green Dot */}
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: "#10b981",
+                boxShadow: "0 0 6px #10b981",
+                display: "inline-block",
+              }}
+            />
+            <ClockIcon size={16} color="#047857" />
+            <span style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "0.2px" }}>
+              {isDurationActive ? formatDuration(secondsLeft) : "1 Text"}
+            </span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowQuickPoll((prev) => !prev)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setShowQuickPoll(false);
+              onOpenPollEditor?.();
+            }}
+            style={{
+              background: showQuickPoll ? "#008069" : "#f0f2f5",
+              border: `1px solid ${showQuickPoll ? "#008069" : "#d1d7db"}`,
+              borderRadius: 8,
+              padding: "0 11px",
+              height: 38,
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: showQuickPoll ? "#ffffff" : "#008069",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              transition: "all 0.15s ease",
+              boxShadow: showQuickPoll ? "0 2px 6px rgba(0, 128, 105, 0.3)" : "none",
+            }}
+            title="Click to vote on Take-Over Poll | Right-click to edit questions & options"
+          >
+            <PollIcon size={16} color={showQuickPoll ? "#ffffff" : "#008069"} />
+            <span>Poll</span>
+          </button>
+        )}
 
         {/* Send Button */}
         <button
