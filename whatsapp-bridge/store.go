@@ -181,6 +181,49 @@ func (store *MessageStore) GetMessages(chatJID string, limit int) ([]Message, er
 	return messages, nil
 }
 
+// GetMessagesFlexible retrieves messages matching primary chatJID or any alternative JIDs/candidate substrings.
+func (store *MessageStore) GetMessagesFlexible(chatJID string, altJIDs []string, limit int) ([]Message, error) {
+	msgs, err := store.GetMessages(chatJID, limit)
+	if err == nil && len(msgs) > 0 {
+		return msgs, nil
+	}
+
+	for _, alt := range altJIDs {
+		if alt == "" || alt == chatJID {
+			continue
+		}
+		if altMsgs, altErr := store.GetMessages(alt, limit); altErr == nil && len(altMsgs) > 0 {
+			return altMsgs, nil
+		}
+	}
+
+	cleanUser := cleanPhoneDigits(chatJID)
+	if cleanUser != "" && len(cleanUser) >= 5 {
+		pattern := "%" + cleanUser + "%"
+		rows, err := store.db.Query(
+			"SELECT sender, content, timestamp, is_from_me, media_type, filename FROM messages WHERE chat_jid LIKE ? OR sender LIKE ? ORDER BY timestamp DESC LIMIT ?",
+			pattern, pattern, limit,
+		)
+		if err == nil {
+			defer rows.Close()
+			var fallbackMsgs []Message
+			for rows.Next() {
+				var msg Message
+				var timestamp time.Time
+				if scanErr := rows.Scan(&msg.Sender, &msg.Content, &timestamp, &msg.IsFromMe, &msg.MediaType, &msg.Filename); scanErr == nil {
+					msg.Time = timestamp
+					fallbackMsgs = append(fallbackMsgs, msg)
+				}
+			}
+			if len(fallbackMsgs) > 0 {
+				return fallbackMsgs, nil
+			}
+		}
+	}
+
+	return msgs, err
+}
+
 // Get all chats
 func (store *MessageStore) GetChats() (map[string]time.Time, error) {
 	rows, err := store.db.Query("SELECT jid, last_message_time FROM chats ORDER BY last_message_time DESC")

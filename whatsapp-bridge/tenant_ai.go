@@ -34,6 +34,19 @@ func (t *Tenant) applyWebGrant(choice, contact string) {
 		targetJID = t.lastTargetJID
 	}
 
+	// Resolve phone number to active LID if known
+	if !targetJID.IsEmpty() && t.client != nil && t.client.Store != nil && t.client.Store.LIDs != nil {
+		ctx := context.Background()
+		if targetJID.Server == "s.whatsapp.net" {
+			if lid, err := t.client.Store.LIDs.GetLIDForPN(ctx, targetJID); err == nil && !lid.IsEmpty() {
+				targetJID = lid
+			}
+		}
+	}
+	if !t.lastTargetJID.IsEmpty() && (targetJID.IsEmpty() || t.matchesTarget(t.lastTargetJID, targetJID)) {
+		targetJID = t.lastTargetJID
+	}
+
 	normChoice := strings.TrimSpace(strings.ToLower(choice))
 	isOneText := strings.Contains(normChoice, "1") || strings.Contains(normChoice, "1 text") || normChoice == "send 1 text"
 	is5Min := strings.Contains(normChoice, "5 min") || strings.Contains(normChoice, "5 minutes")
@@ -345,10 +358,26 @@ func (t *Tenant) replyToChat(targetJID types.JID) {
 		return
 	}
 
-	chatJID := targetJID.String()
-	msgs, err := t.messageStore.GetMessages(chatJID, 20)
+	var altJIDs []string
+	if t.client != nil && t.client.Store != nil && t.client.Store.LIDs != nil {
+		ctx := context.Background()
+		if targetJID.Server == "s.whatsapp.net" {
+			if lid, err := t.client.Store.LIDs.GetLIDForPN(ctx, targetJID); err == nil && !lid.IsEmpty() {
+				altJIDs = append(altJIDs, lid.String())
+			}
+		} else if targetJID.Server == "lid" {
+			if pn, err := t.client.Store.LIDs.GetPNForLID(ctx, targetJID); err == nil && !pn.IsEmpty() {
+				altJIDs = append(altJIDs, pn.String())
+			}
+		}
+	}
+	if !t.lastTargetJID.IsEmpty() && t.lastTargetJID.String() != targetJID.String() {
+		altJIDs = append(altJIDs, t.lastTargetJID.String())
+	}
+
+	msgs, err := t.messageStore.GetMessagesFlexible(targetJID.String(), altJIDs, 20)
 	if err != nil || len(msgs) == 0 {
-		t.logger.Warnf("No chat history found for %s to generate reply", chatJID)
+		t.logger.Warnf("No chat history found for %s (alts: %v) to generate reply", targetJID, altJIDs)
 		return
 	}
 

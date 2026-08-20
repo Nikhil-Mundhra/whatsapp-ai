@@ -437,7 +437,7 @@ export default function Home() {
     } else if (optLower.includes("1 text") || optLower.includes("1") || optLower.includes("send 1")) {
       setActiveGrants((prev) => ({
         ...prev,
-        [targetContact]: { type: "count", remainingCount: 1 },
+        [targetContact]: { type: "count", remainingCount: 1, expiresAt: Date.now() + 10 * 60 * 1000 },
       }));
     } else {
       setActiveGrants((prev) => ({
@@ -447,28 +447,16 @@ export default function Home() {
     }
 
     try {
-      const pollId = `poll-${Date.now()}`;
-      const res = await fetch(`/api/polls`, {
+      await fetch(`/api/connections/${hash}/grant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: pollId,
-          hash,
+          option,
           contact: targetContact,
-          contactDisplay: selectedContactName || targetContact,
-          question: question || pollConfig.question,
-          options: options || pollConfig.options,
-          createdAt: Date.now(),
         }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.poll?.id) {
-          await executeVote(data.poll.id, option, targetContact);
-        }
-      }
     } catch (err) {
-      console.error("Quick vote failed", err);
+      console.error("Quick vote grant failed", err);
     }
   }
 
@@ -494,7 +482,7 @@ export default function Home() {
 
     if (notifyBridge && hash) {
       try {
-        await executeQuickVote("Deny");
+        await executeQuickVote("Deny", pollConfig.question, pollConfig.options, selectedContact);
       } catch (err) {
         console.warn("Revoke failed", err);
       }

@@ -108,6 +108,48 @@ func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
 	return false
 }
 
+// matchesTarget checks whether an incoming chat/sender JID matches an explicitly granted target JID, resolving PN <-> LID mappings.
+func (t *Tenant) matchesTarget(incoming, target types.JID) bool {
+	if target.IsEmpty() {
+		return true
+	}
+	if incoming.String() == target.String() || incoming.User == target.User {
+		return true
+	}
+
+	normInc := normalizePhone(incoming.User)
+	normTgt := normalizePhone(target.User)
+	if normInc != "" && normTgt != "" && (normInc == normTgt || strings.HasSuffix(normInc, normTgt) || strings.HasSuffix(normTgt, normInc)) {
+		return true
+	}
+
+	if t.client != nil && t.client.Store != nil && t.client.Store.LIDs != nil {
+		ctx := context.Background()
+		if target.Server == "s.whatsapp.net" {
+			if lid, err := t.client.Store.LIDs.GetLIDForPN(ctx, target); err == nil && !lid.IsEmpty() {
+				if lid.User == incoming.User || lid.String() == incoming.String() {
+					return true
+				}
+			}
+		}
+		if incoming.Server == "lid" {
+			if pn, err := t.client.Store.LIDs.GetPNForLID(ctx, incoming); err == nil && !pn.IsEmpty() {
+				if pn.User == target.User || pn.String() == target.String() || normalizePhone(pn.User) == normTgt {
+					return true
+				}
+			}
+		}
+		if target.Server == "lid" {
+			if pn, err := t.client.Store.LIDs.GetPNForLID(ctx, target); err == nil && !pn.IsEmpty() {
+				if pn.User == incoming.User || pn.String() == incoming.String() || normalizePhone(pn.User) == normInc {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func (t *Tenant) resolveContactName(msg *events.Message) string {
 	ctx := context.Background()
 	senderJID := msg.Info.Sender
@@ -342,7 +384,7 @@ func (t *Tenant) handleEvent(evt interface{}) {
 
 				// If an active grant was explicitly armed for a specific target JID, check match
 				if activeGrant && !grantTarget.IsEmpty() {
-					if v.Info.Chat.User != grantTarget.User && v.Info.Sender.User != grantTarget.User && v.Info.Chat.String() != grantTarget.String() {
+					if !t.matchesTarget(v.Info.Chat, grantTarget) && !t.matchesTarget(v.Info.Sender, grantTarget) {
 						activeGrant = false
 					}
 				}
@@ -448,17 +490,36 @@ func (t *Tenant) handleEvent(evt interface{}) {
 	case *events.HistorySync:
 		t.handleTenantHistorySync(v)
 	case *events.Connected:
-		t.logger.Infof("Tenant %s connected", t.Hash)
+		t.logger.Infof("Tenant %s successfully connected and authenticated", t.Hash)
+		t.mu.Lock()
+		t.connectedAt = time.Now()
+		t.lastError = ""
+		t.reconnectAttempts = 0
+		t.mu.Unlock()
+	case *events.Disconnected:
+		t.logger.Warnf("Tenant %s disconnected from WhatsApp socket", t.Hash)
+		t.mu.Lock()
+		t.disconnectedAt = time.Now()
+		t.mu.Unlock()
+	case *events.StreamReplaced:
+		t.logger.Warnf("Tenant %s stream was replaced by another active session", t.Hash)
+		t.mu.Lock()
+		t.disconnectedAt = time.Now()
+		t.lastError = "stream replaced by another active session"
+		t.mu.Unlock()
+	case *events.TemporaryBan:
+		t.logger.Errorf("Tenant %s is temporarily banned by WhatsApp: code=%v expire=%v", t.Hash, v.Code, v.Expire)
+		t.mu.Lock()
+		t.lastError = fmt.Sprintf("temporarily banned (code: %v, expire: %v)", v.Code, v.Expire)
+		t.mu.Unlock()
+	case *events.ConnectFailure:
+		t.logger.Errorf("Tenant %s connection failure: %v", t.Hash, v.Reason)
+		t.mu.Lock()
+		t.lastError = fmt.Sprintf("connect failure: %v", v.Reason)
+		t.mu.Unlock()
 	case *events.LoggedOut:
 		t.logger.Warnf("Tenant %s logged out from WhatsApp. Wiping stored session and messages...", t.Hash)
-		t.mu.Lock()
-		t.paired = false
-		t.pairing = false
-		t.qrCode = ""
-		if t.client != nil {
-			t.client.Disconnect()
-		}
-		t.mu.Unlock()
+		t.close()
 		_ = os.RemoveAll(t.dir())
 		t.logger.Infof("Tenant %s local data wiped.", t.Hash)
 	}

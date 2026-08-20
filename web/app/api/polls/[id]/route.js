@@ -54,12 +54,12 @@ export async function POST(req, props) {
           option,
           contact: targetContact,
         }),
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(6000),
       });
     } catch (err) {
       console.warn("Failed to notify bridge of poll grant:", err.message);
     }
   }
 
-  return NextResponse.json({ poll: updated });
+  return NextResponse.json({ poll: updated || poll });
 }

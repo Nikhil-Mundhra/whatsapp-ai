@@ -49,6 +49,13 @@ type Tenant struct {
 	activePollsByRecipient  map[string]string    // map[recipientNormalizedPhone]pollMsgID
 	lastPollTimeByRecipient map[string]time.Time // map[recipientNormalizedPhone]lastPollSentTime
 
+	// Health & Connectivity Metrics
+	connectedAt       time.Time
+	disconnectedAt    time.Time
+	lastError         string
+	reconnectAttempts int
+	isReconnecting    bool
+
 	// Takeover Grant State
 	grantKind      string    // "none" | "count" | "duration"
 	grantRemaining int       // count remaining
@@ -93,15 +100,17 @@ func (t *Tenant) isApiSent(id string) bool {
 
 // TenantManager holds all provisioned tenants keyed by setup hash.
 type TenantManager struct {
-	mu      sync.Mutex
-	tenants map[string]*Tenant
-	logger  waLog.Logger
+	mu        sync.Mutex
+	tenants   map[string]*Tenant
+	logger    waLog.Logger
+	startedAt time.Time
 }
 
 func NewTenantManager(logger waLog.Logger) *TenantManager {
 	m := &TenantManager{
-		tenants: make(map[string]*Tenant),
-		logger:  logger,
+		tenants:   make(map[string]*Tenant),
+		logger:    logger,
+		startedAt: time.Now(),
 	}
 	m.restoreTenants()
 	return m
@@ -117,6 +126,96 @@ func (m *TenantManager) Add(t *Tenant) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tenants[t.Hash] = t
+}
+
+func (m *TenantManager) List() []map[string]interface{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	list := make([]map[string]interface{}, 0, len(m.tenants))
+	for _, t := range m.tenants {
+		list = append(list, t.status())
+	}
+	return list
+}
+
+func (m *TenantManager) Reconnect(hash string) error {
+	tenant := m.Get(hash)
+	if tenant == nil {
+		return fmt.Errorf("tenant %s not found", hash)
+	}
+	return tenant.reconnect()
+}
+
+func (m *TenantManager) Disconnect(hash string) error {
+	tenant := m.Get(hash)
+	if tenant == nil {
+		return fmt.Errorf("tenant %s not found", hash)
+	}
+	tenant.disconnect()
+	return nil
+}
+
+func (m *TenantManager) Remove(hash string) error {
+	m.mu.Lock()
+	tenant := m.tenants[hash]
+	delete(m.tenants, hash)
+	m.mu.Unlock()
+
+	if tenant != nil {
+		tenant.close()
+		dir := tenant.dir()
+		_ = os.RemoveAll(dir)
+		m.logger.Infof("Removed and wiped tenant %s", hash)
+		return nil
+	}
+	return fmt.Errorf("tenant %s not found", hash)
+}
+
+// StartSupervisor runs a background watchdog to monitor all tenants and auto-reconnect dropped sessions.
+func (m *TenantManager) StartSupervisor(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.checkAndReconnectTenants()
+			}
+		}
+	}()
+	m.logger.Infof("Multi-tenant background watchdog supervisor started (poll interval: 15s)")
+}
+
+func (m *TenantManager) checkAndReconnectTenants() {
+	m.mu.Lock()
+	tenants := make([]*Tenant, 0, len(m.tenants))
+	for _, t := range m.tenants {
+		tenants = append(tenants, t)
+	}
+	m.mu.Unlock()
+
+	for _, t := range tenants {
+		t.mu.Lock()
+		paired := t.paired
+		hasCreds := t.client != nil && t.client.Store != nil && t.client.Store.ID != nil
+		connected := t.client != nil && t.client.IsConnected()
+		pairing := t.pairing
+		isReconnecting := t.isReconnecting
+		t.mu.Unlock()
+
+		// If the tenant should be connected but is dropped, trigger auto-reconnect
+		if (paired || hasCreds) && !connected && !pairing && !isReconnecting {
+			t.logger.Warnf("Watchdog detected disconnected tenant %s. Attempting auto-reconnect...", t.Hash)
+			go func(ten *Tenant) {
+				if err := ten.reconnect(); err != nil {
+					ten.logger.Warnf("Watchdog auto-reconnect failed for %s: %v", ten.Hash, err)
+				}
+			}(t)
+		}
+	}
 }
 
 func (m *TenantManager) restoreTenants() {
@@ -145,6 +244,7 @@ func (m *TenantManager) restoreTenants() {
 		dbLog := waLog.Stdout(fmt.Sprintf("Tenant-%s/DB", hash), "INFO", true)
 		container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+dbPath+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000", dbLog)
 		if err != nil {
+			m.logger.Errorf("Failed to open DB for restored tenant %s: %v", hash, err)
 			continue
 		}
 		deviceStore, err := container.GetFirstDevice(context.Background())
@@ -161,9 +261,15 @@ func (m *TenantManager) restoreTenants() {
 		t.setupEventHandler()
 
 		if err := t.client.Connect(); err != nil {
-			m.logger.Warnf("Failed to connect restored tenant %s: %v", hash, err)
+			m.logger.Warnf("Failed to initial connect restored tenant %s: %v (will auto-retry via watchdog)", hash, err)
+			t.paired = true
+			t.disconnectedAt = time.Now()
+			t.lastError = err.Error()
+			m.Add(t)
 		} else {
 			t.paired = true
+			t.connectedAt = time.Now()
+			t.lastError = ""
 			m.Add(t)
 			m.logger.Infof("Auto-restored and connected tenant %s (owner=%s)", hash, t.ownerPhone)
 		}
@@ -220,8 +326,15 @@ func (t *Tenant) provision() (string, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.paired {
+	if t.client != nil && t.client.IsConnected() {
 		return "", nil
+	}
+	if t.paired && t.client != nil && t.client.Store != nil && t.client.Store.ID != nil {
+		if err := t.client.Connect(); err == nil {
+			t.connectedAt = time.Now()
+			t.lastError = ""
+			return "", nil
+		}
 	}
 	if t.pairing {
 		return t.qrCode, nil
@@ -233,29 +346,34 @@ func (t *Tenant) provision() (string, error) {
 	}
 	t.saveConfig()
 
-	dbLog := waLog.Stdout(fmt.Sprintf("Tenant-%s/DB", t.Hash), "INFO", true)
-	container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+filepath.Join(dir, "whatsapp.db")+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000", dbLog)
-	if err != nil {
-		return "", fmt.Errorf("failed to open device store: %v", err)
+	if t.container == nil {
+		dbLog := waLog.Stdout(fmt.Sprintf("Tenant-%s/DB", t.Hash), "INFO", true)
+		container, err := sqlstore.New(context.Background(), "sqlite3", "file:"+filepath.Join(dir, "whatsapp.db")+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000", dbLog)
+		if err != nil {
+			return "", fmt.Errorf("failed to open device store: %v", err)
+		}
+		t.container = container
 	}
-	t.container = container
 
 	var deviceStore *store.Device
+	var err error
 	if t.client == nil {
-		deviceStore, err = container.GetFirstDevice(context.Background())
+		deviceStore, err = t.container.GetFirstDevice(context.Background())
 		if err == sql.ErrNoRows || (deviceStore != nil && deviceStore.ID == nil) {
-			deviceStore = container.NewDevice()
+			deviceStore = t.container.NewDevice()
 		} else if err != nil {
 			return "", fmt.Errorf("failed to get device: %v", err)
 		}
 		t.client = whatsmeow.NewClient(deviceStore, t.logger)
 	}
 
-	ms, err := NewMessageStore(filepath.Join(dir, "messages.db"))
-	if err != nil {
-		return "", fmt.Errorf("failed to init message store: %v", err)
+	if t.messageStore == nil {
+		ms, err := NewMessageStore(filepath.Join(dir, "messages.db"))
+		if err != nil {
+			return "", fmt.Errorf("failed to init message store: %v", err)
+		}
+		t.messageStore = ms
 	}
-	t.messageStore = ms
 
 	t.setupEventHandler()
 
@@ -264,6 +382,8 @@ func (t *Tenant) provision() (string, error) {
 			return "", fmt.Errorf("failed to connect: %v", err)
 		}
 		t.paired = true
+		t.connectedAt = time.Now()
+		t.lastError = ""
 		return "", nil
 	}
 
@@ -279,15 +399,20 @@ func (t *Tenant) pairLoop() {
 			t.mu.Unlock()
 			return
 		}
+		client := t.client
 		t.mu.Unlock()
 
-		qrChan, err := t.client.GetQRChannel(context.Background())
+		if client == nil {
+			return
+		}
+
+		qrChan, err := client.GetQRChannel(context.Background())
 		if err != nil {
 			t.logger.Errorf("Failed to get QR channel: %v", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
-		if err := t.client.Connect(); err != nil {
+		if err := client.Connect(); err != nil {
 			t.logger.Errorf("Failed to connect for QR channel: %v", err)
 			time.Sleep(2 * time.Second)
 			continue
@@ -308,6 +433,9 @@ func (t *Tenant) pairLoop() {
 				t.paired = true
 				t.pairing = false
 				t.qrCode = ""
+				t.connectedAt = time.Now()
+				t.lastError = ""
+				t.reconnectAttempts = 0
 				t.mu.Unlock()
 				t.logger.Infof("Tenant %s paired successfully", t.Hash)
 				paired = true
@@ -320,10 +448,55 @@ func (t *Tenant) pairLoop() {
 		}
 
 		if !paired {
-			t.client.Disconnect()
+			client.Disconnect()
 			time.Sleep(1 * time.Second)
 		}
 	}
+}
+
+func (t *Tenant) reconnect() error {
+	t.mu.Lock()
+	if t.isReconnecting {
+		t.mu.Unlock()
+		return nil
+	}
+	if t.client != nil && t.client.IsConnected() {
+		t.mu.Unlock()
+		return nil
+	}
+	t.isReconnecting = true
+	t.reconnectAttempts++
+	client := t.client
+	t.mu.Unlock()
+
+	defer func() {
+		t.mu.Lock()
+		t.isReconnecting = false
+		t.mu.Unlock()
+	}()
+
+	if client == nil {
+		t.mu.Lock()
+		t.lastError = "client not initialized"
+		t.mu.Unlock()
+		return fmt.Errorf("client not initialized")
+	}
+
+	t.logger.Infof("Attempting reconnection for tenant %s (attempt %d)...", t.Hash, t.reconnectAttempts)
+	err := client.Connect()
+	t.mu.Lock()
+	if err != nil {
+		t.lastError = err.Error()
+		t.disconnectedAt = time.Now()
+		t.mu.Unlock()
+		return err
+	}
+	t.connectedAt = time.Now()
+	t.lastError = ""
+	t.reconnectAttempts = 0
+	t.mu.Unlock()
+	t.logger.Infof("Tenant %s successfully reconnected", t.Hash)
+	return nil
 }
 
 func (t *Tenant) disconnect() {
@@ -334,23 +507,47 @@ func (t *Tenant) disconnect() {
 			t.logger.Infof("Disconnecting tenant %s...", t.Hash)
 		}
 		t.client.Disconnect()
+		t.disconnectedAt = time.Now()
 	}
+}
+
+func (t *Tenant) close() {
+	t.disconnect()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.messageStore != nil {
+		_ = t.messageStore.Close()
+		t.messageStore = nil
+	}
+	if t.container != nil {
+		_ = t.container.Close()
+		t.container = nil
+	}
+	t.client = nil
+	t.paired = false
+	t.pairing = false
+	t.qrCode = ""
 }
 
 func (t *Tenant) status() map[string]interface{} {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	connected := t.client != nil && t.client.IsConnected()
 	return map[string]interface{}{
 		"hash":              t.Hash,
 		"linked":            t.paired,
 		"pairing":           t.pairing,
-		"connected":         t.client != nil && t.client.IsConnected(),
+		"connected":         connected,
 		"hasQR":             t.qrCode != "",
 		"qrAge":             int(time.Since(t.qrUpdated).Seconds()),
 		"ownerPhone":        t.ownerPhone,
 		"allowedRecipients": t.recipients,
 		"aiModel":           t.aiModel,
 		"aiApiKeySet":       t.aiApiKey != "",
+		"reconnectAttempts": t.reconnectAttempts,
+		"lastError":         t.lastError,
+		"connectedAt":       t.connectedAt.Format(time.RFC3339),
+		"disconnectedAt":    t.disconnectedAt.Format(time.RFC3339),
 	}
 }
 
@@ -361,8 +558,8 @@ func (t *Tenant) sendToRecipient(recipient, message string) (bool, string, strin
 	if !t.client.IsConnected() {
 		if t.client.Store != nil && t.client.Store.ID != nil {
 			t.logger.Infof("Tenant %s is paired but disconnected. Reconnecting before send...", t.Hash)
-			if err := t.client.Connect(); err == nil {
-				time.Sleep(600 * time.Millisecond)
+			if err := t.reconnect(); err == nil {
+				time.Sleep(500 * time.Millisecond)
 			}
 		}
 		if !t.client.IsConnected() {
@@ -383,8 +580,8 @@ func (t *Tenant) sendPollToRecipient(recipient, question string, options []strin
 	if !t.client.IsConnected() {
 		if t.client.Store != nil && t.client.Store.ID != nil {
 			t.logger.Infof("Tenant %s is paired but disconnected. Reconnecting before send poll...", t.Hash)
-			if err := t.client.Connect(); err == nil {
-				time.Sleep(600 * time.Millisecond)
+			if err := t.reconnect(); err == nil {
+				time.Sleep(500 * time.Millisecond)
 			}
 		}
 		if !t.client.IsConnected() {

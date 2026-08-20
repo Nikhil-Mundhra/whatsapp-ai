@@ -37,19 +37,56 @@ func checkBridgeAuth(r *http.Request) bool {
 	return false
 }
 
+func healthHandler(manager *TenantManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		list := manager.List()
+		connectedCount := 0
+		for _, t := range list {
+			if c, ok := t["connected"].(bool); ok && c {
+				connectedCount++
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":           "healthy",
+			"uptimeSeconds":    int(time.Since(manager.startedAt).Seconds()),
+			"totalTenants":     len(list),
+			"connectedTenants": connectedCount,
+			"tenants":          list,
+		})
+	}
+}
+
 func connectionsHandler(manager *TenantManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !checkBridgeAuth(r) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		rest := strings.TrimPrefix(r.URL.Path, "/api/connections/")
-		parts := strings.Split(strings.TrimSuffix(rest, "/"), "/")
+
+		path := strings.TrimPrefix(r.URL.Path, "/api/connections")
+		path = strings.TrimPrefix(path, "/")
+		parts := strings.Split(strings.TrimSuffix(path, "/"), "/")
 		hash := parts[0]
+
+		// GET /api/connections or /api/connections/ -> list all tenants
 		if hash == "" {
+			if r.Method == http.MethodGet {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"connections": manager.List(),
+				})
+				return
+			}
 			http.Error(w, "invalid hash", http.StatusBadRequest)
 			return
 		}
+
 		sub := ""
 		if len(parts) > 1 {
 			sub = parts[1]
@@ -58,8 +95,16 @@ func connectionsHandler(manager *TenantManager) http.HandlerFunc {
 		switch {
 		case sub == "" && r.Method == http.MethodPost:
 			handleProvisionOrUpdate(w, r, manager, hash)
+		case sub == "" && r.Method == http.MethodDelete:
+			handleDeleteTenant(w, r, manager, hash)
+		case sub == "" && r.Method == http.MethodGet:
+			handleStatus(w, r, manager.Get(hash))
 		case sub == "status" && r.Method == http.MethodGet:
 			handleStatus(w, r, manager.Get(hash))
+		case sub == "reconnect" && r.Method == http.MethodPost:
+			handleReconnect(w, r, manager, hash)
+		case sub == "disconnect" && r.Method == http.MethodPost:
+			handleDisconnect(w, r, manager, hash)
 		case sub == "messages" && r.Method == http.MethodGet:
 			handleRecentMessages(w, r, manager.Get(hash))
 		case sub == "qr" && r.Method == http.MethodGet:
@@ -143,6 +188,55 @@ func handleProvisionOrUpdate(w http.ResponseWriter, r *http.Request, manager *Te
 		"qr":       qr,
 		"linked":   tenant.paired,
 		"whatsapp": map[string]interface{}{"status": "pairing"},
+	})
+}
+
+func handleReconnect(w http.ResponseWriter, r *http.Request, manager *TenantManager, hash string) {
+	tenant := manager.Get(hash)
+	if tenant == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	err := tenant.reconnect()
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+			"status":  tenant.status(),
+		})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"status":  tenant.status(),
+	})
+}
+
+func handleDisconnect(w http.ResponseWriter, r *http.Request, manager *TenantManager, hash string) {
+	tenant := manager.Get(hash)
+	if tenant == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	tenant.disconnect()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"status":  tenant.status(),
+	})
+}
+
+func handleDeleteTenant(w http.ResponseWriter, r *http.Request, manager *TenantManager, hash string) {
+	if err := manager.Remove(hash); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"hash":    hash,
 	})
 }
 
@@ -240,6 +334,13 @@ func handleSend(w http.ResponseWriter, r *http.Request, tenant *Tenant) {
 func startMultiTenantServer(port int, logger waLog.Logger) {
 	manager := NewTenantManager(logger)
 
+	// Start background supervisor
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	manager.StartSupervisor(ctx)
+
+	http.HandleFunc("/api/health", healthHandler(manager))
+	http.HandleFunc("/api/connections", connectionsHandler(manager))
 	http.HandleFunc("/api/connections/", connectionsHandler(manager))
 
 	addr := fmt.Sprintf("0.0.0.0:%d", port)
@@ -256,5 +357,6 @@ func startMultiTenantServer(port int, logger waLog.Logger) {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
 	logger.Infof("Shutting down multi-tenant bridge...")
+	cancel()
 	_ = srv.Shutdown(context.Background())
 }

@@ -178,33 +178,59 @@ export async function sendConnectionOtp(hash, options = {}) {
 
   if (bridgeUrl) {
     try {
-      const res = await fetch(`${bridgeUrl}/api/connections/${cleanHash}/send`, {
+      let res = await fetch(`${bridgeUrl}/api/connections/${cleanHash}/send`, {
         method: "POST",
         headers: getBridgeHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
         signal: AbortSignal.timeout(8000),
       });
+
       if (res.ok) {
         bridgeSent = true;
       } else {
         const tenantErrData = await res.json().catch(() => ({}));
-        const tenantErrMsg = tenantErrData.error || `Bridge status ${res.status}`;
+        let tenantErrMsg = tenantErrData.error || `Bridge status ${res.status}`;
 
-        try {
-          const fallbackRes = await fetch(`${bridgeUrl}/api/send`, {
-            method: "POST",
-            headers: getBridgeHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
-            signal: AbortSignal.timeout(8000),
-          });
-          if (fallbackRes.ok) {
-            bridgeSent = true;
-          } else {
-            const fallbackErr = await fallbackRes.json().catch(() => ({}));
-            bridgeError = fallbackErr.error || tenantErrMsg;
+        // If tenant is temporarily disconnected, try a quick reconnect and retry
+        if (tenantErrMsg.includes("not connected")) {
+          try {
+            await fetch(`${bridgeUrl}/api/connections/${cleanHash}/reconnect`, {
+              method: "POST",
+              headers: getBridgeHeaders({ "Content-Type": "application/json" }),
+              signal: AbortSignal.timeout(4000),
+            });
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            const retryRes = await fetch(`${bridgeUrl}/api/connections/${cleanHash}/send`, {
+              method: "POST",
+              headers: getBridgeHeaders({ "Content-Type": "application/json" }),
+              body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
+              signal: AbortSignal.timeout(8000),
+            });
+            if (retryRes.ok) {
+              bridgeSent = true;
+            }
+          } catch {
+            /* proceed to fallback */
           }
-        } catch (fbErr) {
-          bridgeError = fbErr.message || tenantErrMsg;
+        }
+
+        if (!bridgeSent) {
+          try {
+            const fallbackRes = await fetch(`${bridgeUrl}/api/send`, {
+              method: "POST",
+              headers: getBridgeHeaders({ "Content-Type": "application/json" }),
+              body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
+              signal: AbortSignal.timeout(8000),
+            });
+            if (fallbackRes.ok) {
+              bridgeSent = true;
+            } else {
+              const fallbackErr = await fallbackRes.json().catch(() => ({}));
+              bridgeError = fallbackErr.error || tenantErrMsg;
+            }
+          } catch (fbErr) {
+            bridgeError = fbErr.message || tenantErrMsg;
+          }
         }
       }
     } catch (err) {
@@ -396,3 +422,72 @@ export async function revokeSession(token) {
     }
   }
 }
+
+export async function reconnectBridgeTenant(hash) {
+  const cleanHash = String(hash || "").trim().toUpperCase();
+  const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+  if (!bridgeUrl || !cleanHash) return { success: false, error: "invalid hash or bridge url" };
+
+  try {
+    const res = await fetch(`${bridgeUrl}/api/connections/${cleanHash}/reconnect`, {
+      method: "POST",
+      headers: getBridgeHeaders({ "Content-Type": "application/json" }),
+      signal: AbortSignal.timeout(6000),
+    });
+    return await res.json();
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function disconnectBridgeTenant(hash) {
+  const cleanHash = String(hash || "").trim().toUpperCase();
+  const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+  if (!bridgeUrl || !cleanHash) return { success: false, error: "invalid hash or bridge url" };
+
+  try {
+    const res = await fetch(`${bridgeUrl}/api/connections/${cleanHash}/disconnect`, {
+      method: "POST",
+      headers: getBridgeHeaders({ "Content-Type": "application/json" }),
+      signal: AbortSignal.timeout(6000),
+    });
+    return await res.json();
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function deleteBridgeTenant(hash) {
+  const cleanHash = String(hash || "").trim().toUpperCase();
+  const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+  if (!bridgeUrl || !cleanHash) return { success: false, error: "invalid hash or bridge url" };
+
+  try {
+    const res = await fetch(`${bridgeUrl}/api/connections/${cleanHash}`, {
+      method: "DELETE",
+      headers: getBridgeHeaders({ "Content-Type": "application/json" }),
+      signal: AbortSignal.timeout(6000),
+    });
+    return await res.json();
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function fetchBridgeHealth() {
+  const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+  if (!bridgeUrl) return { status: "offline", error: "Bridge URL unconfigured" };
+
+  try {
+    const res = await fetch(`${bridgeUrl}/api/health`, {
+      method: "GET",
+      headers: getBridgeHeaders(),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { status: "unhealthy", httpStatus: res.status };
+    return await res.json();
+  } catch (err) {
+    return { status: "unreachable", error: err.message };
+  }
+}
+

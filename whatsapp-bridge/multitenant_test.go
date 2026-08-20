@@ -883,3 +883,96 @@ func TestTenantManager_RestoreTenants_Branches(t *testing.T) {
 	mgr := NewTenantManager(waLog.Noop)
 	mgr.restoreTenants()
 }
+
+func TestHealthHandler(t *testing.T) {
+	mgr := NewTenantManager(waLog.Noop)
+	t1 := &Tenant{Hash: "TEST1", paired: true}
+	mgr.Add(t1)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	rr := httptest.NewRecorder()
+	handler := healthHandler(mgr)
+	handler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "healthy") {
+		t.Errorf("expected body to contain 'healthy', got %s", rr.Body.String())
+	}
+}
+
+func TestConnectionsListAndLifecycleHandlers(t *testing.T) {
+	mgr := NewTenantManager(waLog.Noop)
+	t1 := &Tenant{Hash: "TESTL1", ownerPhone: "12345", paired: true}
+	mgr.Add(t1)
+
+	handler := connectionsHandler(mgr)
+
+	// 1. GET /api/connections -> list all
+	reqList := httptest.NewRequest(http.MethodGet, "/api/connections", nil)
+	rrList := httptest.NewRecorder()
+	handler(rrList, reqList)
+	if rrList.Code != http.StatusOK {
+		t.Errorf("expected 200 for list, got %d", rrList.Code)
+	}
+	if !strings.Contains(rrList.Body.String(), "TESTL1") {
+		t.Errorf("expected list to contain TESTL1, got %s", rrList.Body.String())
+	}
+
+	// 2. POST /api/connections/TESTL1/disconnect
+	reqDisc := httptest.NewRequest(http.MethodPost, "/api/connections/TESTL1/disconnect", nil)
+	rrDisc := httptest.NewRecorder()
+	handler(rrDisc, reqDisc)
+	if rrDisc.Code != http.StatusOK {
+		t.Errorf("expected 200 for disconnect, got %d", rrDisc.Code)
+	}
+
+	// 3. POST /api/connections/TESTL1/reconnect (no client attached -> errors gracefully)
+	reqRec := httptest.NewRequest(http.MethodPost, "/api/connections/TESTL1/reconnect", nil)
+	rrRec := httptest.NewRecorder()
+	handler(rrRec, reqRec)
+	if rrRec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when reconnecting uninitialized client, got %d", rrRec.Code)
+	}
+
+	// 4. DELETE /api/connections/TESTL1 -> removes tenant
+	reqDel := httptest.NewRequest(http.MethodDelete, "/api/connections/TESTL1", nil)
+	rrDel := httptest.NewRecorder()
+	handler(rrDel, reqDel)
+	if rrDel.Code != http.StatusOK {
+		t.Errorf("expected 200 for delete, got %d", rrDel.Code)
+	}
+	if mgr.Get("TESTL1") != nil {
+		t.Errorf("expected TESTL1 to be deleted from manager")
+	}
+}
+
+func TestNewLifecycleEvents(t *testing.T) {
+	tenant := &Tenant{
+		Hash:   "EVT_TEST",
+		logger: waLog.Noop,
+	}
+
+	// Disconnected
+	tenant.handleEvent(&events.Disconnected{})
+
+	// StreamReplaced
+	tenant.handleEvent(&events.StreamReplaced{})
+	if tenant.lastError != "stream replaced by another active session" {
+		t.Errorf("expected lastError to be stream replaced, got %q", tenant.lastError)
+	}
+
+	// TemporaryBan
+	tenant.handleEvent(&events.TemporaryBan{Code: 403, Expire: time.Hour})
+	if !strings.Contains(tenant.lastError, "temporarily banned") {
+		t.Errorf("expected lastError to contain banned, got %q", tenant.lastError)
+	}
+
+	// ConnectFailure
+	tenant.handleEvent(&events.ConnectFailure{Reason: events.ConnectFailureReason(1)})
+	if !strings.Contains(tenant.lastError, "connect failure") {
+		t.Errorf("expected lastError to contain connect failure, got %q", tenant.lastError)
+	}
+}
+

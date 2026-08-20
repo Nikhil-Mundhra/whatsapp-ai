@@ -45,6 +45,15 @@ func main() {
 		}
 	}
 
+	// Acquire process-level single-instance lock to prevent duplicate processes from hijacking WhatsApp sessions
+	lockPath := "store/bridge.lock"
+	lock, err := AcquireProcessLock(lockPath)
+	if err != nil {
+		logger.Errorf("Failed to start WhatsApp bridge: %v", err)
+		os.Exit(1)
+	}
+	defer lock.Release()
+
 	if serverMode {
 		startMultiTenantServer(port, waLog.Stdout("MultiTenant", "INFO", true))
 		return
