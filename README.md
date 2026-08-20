@@ -7,6 +7,8 @@ An autonomous, self-hosted WhatsApp AI texting companion and [Model Context Prot
 ## Highlights
 
 * **Persona & Style Mimicking**: Uses local LLMs (via Ollama or OpenAI-compatible APIs like `qwen3.5-32k`, Gemini, OpenRouter) trained on your chat history to mirror your tone, sentence length, capitalization, slang, and emojis.
+* **Smart Semantic Search & Memory Retrieval**: Groups past conversations into vector memory chunks (Gemini / OpenAI embeddings / fast local) and retrieves top-matching historical context, facts, and inside jokes while strictly filtering out conversational noise, duplicate recency, and low-signal fillers.
+* **Human Contact Name Resolution**: Automatically resolves internal WhatsApp Linked IDs (LIDs) and phone numbers to clean contact names (e.g. `From: Neha:` instead of `From: 214572824805466:`).
 * **Adaptive Thinking Engine**: Automatically toggles between **Fast Mode** (quick 1-liner replies) and **Deep Thinking Mode** (contextual multi-step reasoning) based on incoming message complexity.
 * **Complete Web Client & Chat Timeline**: Rich web interface with WhatsApp styling, live message streaming, read receipts, interactive TakeOver cards, and per-contact relationship & persona prompt tuning.
 * **Multi-Channel Approval Gating**:
@@ -104,6 +106,7 @@ For full technical specifications, database schemas, and protocol details, see [
 │   ├── multitenant.go        # Multi-tenant manager, watchdog & tenant provisioning
 │   ├── tenant_server.go      # REST endpoints for tenant lifecycle, chat settings & QR
 │   ├── tenant_ai.go          # Direct AI auto-reply engine (Gemini / OpenRouter)
+│   ├── semantic.go           # Vector embeddings, memory chunking & anti-garbage filters
 │   └── store/                # Local SQLite databases (messages.db, whatsapp.db)
 ├── whatsapp-mcp-server/      # FastMCP Python Server
 │   ├── main.py               # MCP Tool definitions (Claude / Cursor interface)

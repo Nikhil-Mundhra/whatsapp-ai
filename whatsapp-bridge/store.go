@@ -121,6 +121,21 @@ func migrateSchema(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS semantic_memories (
+		id TEXT PRIMARY KEY,
+		chat_jid TEXT,
+		speaker TEXT,
+		snippet TEXT,
+		embedding BLOB,
+		timestamp TIMESTAMP,
+		token_count INTEGER
+	)`)
+	if err != nil {
+		return err
+	}
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_semantic_memories_chat ON semantic_memories(chat_jid, timestamp)")
+
 	return nil
 }
 
@@ -406,3 +421,109 @@ func (store *MessageStore) GetChatSettingsFlexible(jid string, altJIDs []string)
 	}
 	return cs, err
 }
+
+// SemanticMemory represents a verified historical conversational memory snippet with its vector embedding.
+type SemanticMemory struct {
+	ID         string    `json:"id"`
+	ChatJID    string    `json:"chatJid"`
+	Speaker    string    `json:"speaker"`
+	Snippet    string    `json:"snippet"`
+	Embedding  []float32 `json:"-"`
+	Timestamp  time.Time `json:"timestamp"`
+	TokenCount int       `json:"tokenCount"`
+}
+
+// SaveSemanticMemory persists a semantic memory chunk with its vector embedding.
+func (store *MessageStore) SaveSemanticMemory(mem *SemanticMemory) error {
+	if mem == nil || mem.ID == "" || mem.Snippet == "" {
+		return nil
+	}
+	embBytes := Float32SliceToBytes(mem.Embedding)
+	if mem.Timestamp.IsZero() {
+		mem.Timestamp = time.Now()
+	}
+	_, err := store.db.Exec(`
+		INSERT OR REPLACE INTO semantic_memories (id, chat_jid, speaker, snippet, embedding, timestamp, token_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, mem.ID, mem.ChatJID, mem.Speaker, mem.Snippet, embBytes, mem.Timestamp, mem.TokenCount)
+	return err
+}
+
+// GetSemanticMemories fetches all stored semantic memory chunks for a chat and its candidate JIDs.
+func (store *MessageStore) GetSemanticMemories(chatJID string, altJIDs []string, limit int) ([]SemanticMemory, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	jids := []string{chatJID}
+	for _, alt := range altJIDs {
+		if alt != "" && alt != chatJID {
+			jids = append(jids, alt)
+		}
+	}
+
+	placeholders := make([]string, len(jids))
+	args := make([]interface{}, len(jids)+1)
+	for i, j := range jids {
+		placeholders[i] = "?"
+		args[i] = j
+	}
+	args[len(jids)] = limit
+
+	query := fmt.Sprintf(`
+		SELECT id, chat_jid, speaker, snippet, embedding, timestamp, token_count
+		FROM semantic_memories
+		WHERE chat_jid IN (%s)
+		ORDER BY timestamp DESC
+		LIMIT ?
+	`, strings.Join(placeholders, ", "))
+
+	rows, err := store.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memories []SemanticMemory
+	for rows.Next() {
+		var mem SemanticMemory
+		var embBytes []byte
+		var ts time.Time
+		if scanErr := rows.Scan(&mem.ID, &mem.ChatJID, &mem.Speaker, &mem.Snippet, &embBytes, &ts, &mem.TokenCount); scanErr != nil {
+			continue
+		}
+		mem.Timestamp = ts
+		mem.Embedding = BytesToFloat32Slice(embBytes)
+		memories = append(memories, mem)
+	}
+
+	return memories, nil
+}
+
+// GetChatName retrieves the stored name of a chat from the chats table.
+func (store *MessageStore) GetChatName(jid string) string {
+	if jid == "" {
+		return ""
+	}
+	var name string
+	err := store.db.QueryRow("SELECT name FROM chats WHERE jid = ?", jid).Scan(&name)
+	if err == nil && name != "" && !isAllDigits(name) {
+		return name
+	}
+	clean := cleanPhoneDigits(jid)
+	if clean != "" && len(clean) >= 5 {
+		err = store.db.QueryRow("SELECT name FROM chats WHERE jid LIKE ? AND name IS NOT NULL AND name != '' LIMIT 1", "%"+clean+"%").Scan(&name)
+		if err == nil && name != "" && !isAllDigits(name) {
+			return name
+		}
+	}
+	return ""
+}
+
+// GetMessagesForIndexing returns historical messages for a chat to generate memory chunks.
+func (store *MessageStore) GetMessagesForIndexing(chatJID string, altJIDs []string, limit int) ([]Message, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	return store.GetMessagesFlexible(chatJID, altJIDs, limit)
+}
+

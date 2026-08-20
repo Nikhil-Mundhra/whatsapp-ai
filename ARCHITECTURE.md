@@ -170,6 +170,46 @@ The persona engine generates authentic replies by prompting the model with conve
 * `contact_has_floor()`: Verifies that the most recent message is from the contact before answering.
 * `count_recent_me(history, window=5)`: Ensures the AI does not monopolize the chat (prevents sending consecutive unprompted messages).
 
+#### Contact & Sender Name Resolution
+* Bare WhatsApp Linked IDs (LIDs) and phone numbers are automatically resolved to clean, human-readable contact names (e.g. `From: Neha:` instead of `From: 214572824805466:`) across 1:1 and group chats.
+* Multi-source lookup checks `whatsmeow_contacts`, `whatsmeow_lid_map`, and the local `chats` table.
+
+#### Smart Semantic Search & Memory Retrieval Pipeline
+To enrich contextual reasoning without polluting prompts with conversational noise ("eating garbage"), the bridge and harness incorporate a vector memory pipeline:
+
+```
+                          Incoming Contact Message
+                                     │
+                                     ▼
+                   [Information Density Quality Gate]
+              (Discards pure emojis, < 4 words, fillers,
+                 acknowledgements, and protocol tags)
+                                     │
+                                     ▼
+                   [Conversation Chunking Engine]
+              (Groups multi-turn messages within 3-minute
+                     windows into semantic units)
+                                     │
+                                     ▼
+                   [Vector Embedding Generation]
+              (Gemini text-embedding-004 / OpenAI
+                 text-embedding-3-small / Fast Local)
+                                     │
+                                     ▼
+                   [Cosine Similarity Search & Gate]
+              • Strict relevance cutoff (similarity >= 0.68)
+              • Recency deduplication (omits any text in last 20 msgs)
+                                     │
+                                     ▼
+                 Top-2 Ranked Historical Context Injected
+               into System Prompt under RELEVANT MEMORIES
+```
+
+1. **Information Density Gate**: Discards low-information noise (isolated emojis, single-word acknowledgements like `ok`, `hmm`, `yaaa`, greetings/farewells, and media IDs).
+2. **Conversation Chunking**: Rather than indexing single fragmented texts, groups multi-turn exchanges within 3-minute windows into coherent semantic units.
+3. **Recency Window Deduplication**: Any memory chunk whose content overlaps with the active 20-message sliding window is strictly excluded from prompt injection.
+4. **Relevance Thresholding**: Strictly enforces a cosine similarity threshold ($\ge 0.68$). If no memories pass, the section is completely omitted to preserve prompt cleanliness.
+
 ---
 
 ### 2.4 Web Client & Interactive Dashboard (`web/app/`)
@@ -306,6 +346,17 @@ CREATE TABLE IF NOT EXISTS chat_settings (
     model TEXT,
     updated_at TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS semantic_memories (
+    id TEXT PRIMARY KEY,
+    chat_jid TEXT,
+    speaker TEXT,
+    snippet TEXT,
+    embedding BLOB,
+    timestamp TIMESTAMP,
+    token_count INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_semantic_memories_chat ON semantic_memories(chat_jid, timestamp);
 ```
 
 ### Vercel KV (Redis)

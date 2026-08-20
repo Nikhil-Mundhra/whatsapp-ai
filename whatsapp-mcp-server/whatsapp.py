@@ -135,7 +135,7 @@ class MessageContext:
     before: List[Message]
     after: List[Message]
 
-def get_sender_name(sender_jid: str) -> str:
+def get_sender_name(sender_jid: str, chat_jid: Optional[str] = None) -> str:
     try:
         conn = sqlite3.connect(MESSAGES_DB_PATH)
         cursor = conn.cursor()
@@ -159,7 +159,7 @@ def get_sender_name(sender_jid: str) -> str:
                 name_row = pcur.fetchone()
                 if name_row:
                     for name in name_row:
-                        if name:
+                        if name and not name.isdigit():
                             contact_name = name
                             break
             except sqlite3.Error:
@@ -168,7 +168,10 @@ def get_sender_name(sender_jid: str) -> str:
                 if pc:
                     pc.close()
         
-        # First try matching by exact JID
+        if contact_name:
+            return contact_name
+
+        # Try matching by exact JID
         cursor.execute("""
             SELECT name
             FROM chats
@@ -177,25 +180,39 @@ def get_sender_name(sender_jid: str) -> str:
         """, (sender_jid,))
         
         result = cursor.fetchone()
+        if result and result[0] and not result[0].isdigit():
+            return result[0]
         
         # If no result, try looking for the number within JIDs
-        if not result:
-            phone_part = sender_jid.split('@')[0] if '@' in sender_jid else sender_jid
-                
-            cursor.execute("""
-                SELECT name
-                FROM chats
-                WHERE jid LIKE ?
-                LIMIT 1
-            """, (f"%{phone_part}%",))
-            
-            result = cursor.fetchone()
+        phone_part = sender_jid.split('@')[0] if '@' in sender_jid else sender_jid
+        cursor.execute("""
+            SELECT name
+            FROM chats
+            WHERE jid LIKE ? AND name IS NOT NULL AND name != ''
+            LIMIT 1
+        """, (f"%{phone_part}%",))
         
-        # Prefer the real contact name over a bare numeric chat label (e.g. LID)
-        if contact_name:
-            return contact_name
-        if result and result[0]:
+        result = cursor.fetchone()
+        if result and result[0] and not result[0].isdigit():
             return result[0]
+
+        # Check chat_jid fallback if available
+        if chat_jid and chat_jid != sender_jid:
+            chat_digits = ''.join(c for c in chat_jid.split('@')[0] if c.isdigit())
+            if chat_digits:
+                cursor.execute("""
+                    SELECT name
+                    FROM chats
+                    WHERE jid LIKE ? AND name IS NOT NULL AND name != ''
+                    LIMIT 1
+                """, (f"%{chat_digits}%",))
+                c_res = cursor.fetchone()
+                if c_res and c_res[0] and not c_res[0].isdigit():
+                    return c_res[0]
+        
+        if sender_jid.isdigit() and len(sender_jid) > 6:
+            return "Contact"
+
         return sender_jid
         
     except sqlite3.Error as e:
@@ -210,11 +227,10 @@ def format_message(message: Message, show_chat_info: bool = True) -> None:
     output = ""
     
     if show_chat_info and message.chat_name:
-        # Bare numeric names are LID labels; resolve to the real contact name.
         chat_label = message.chat_name
         if chat_label.isdigit():
             resolved = get_sender_name(message.chat_jid)
-            if not resolved.endswith(JID_LID_SUFFIX):
+            if not resolved.endswith(JID_LID_SUFFIX) and resolved != "Contact":
                 chat_label = resolved
         output += f"[{message.timestamp:%Y-%m-%d %H:%M:%S}] Chat: {chat_label} "
     else:
@@ -225,7 +241,7 @@ def format_message(message: Message, show_chat_info: bool = True) -> None:
         content_prefix = f"[{message.media_type} - Message ID: {message.id} - Chat JID: {message.chat_jid}] "
     
     try:
-        sender_name = get_sender_name(message.sender) if not message.is_from_me else "Me"
+        sender_name = get_sender_name(message.sender, message.chat_jid) if not message.is_from_me else "Me"
         reply_prefix = ""
         if message.replied_to:
             reply_prefix = f"[replied to: {message.replied_to}] "

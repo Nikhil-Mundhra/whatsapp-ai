@@ -95,26 +95,15 @@ func (t *Tenant) applyWebGrant(choice, contact string) {
 }
 
 // buildChatHistory formats the last N messages with appropriate sender attribution.
-func (t *Tenant) buildChatHistory(msgs []Message, isGroup bool) string {
+func (t *Tenant) buildChatHistory(msgs []Message, isGroup bool, targetJID types.JID) string {
 	var historyBuilder strings.Builder
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
-		prefix := "From: " + m.Sender
+		prefix := "From: " + t.resolveSenderDisplayName(m.Sender, targetJID)
 		if m.IsFromMe {
 			prefix = "From: Me"
 		} else if isGroup {
-			senderDisplayName := m.Sender
-			if t.client != nil && t.client.Store != nil {
-				normS := normalizePhone(m.Sender)
-				if normS != "" {
-					pnJID := types.NewJID(normS, types.DefaultUserServer)
-					if c, err := t.client.Store.Contacts.GetContact(context.Background(), pnJID); err == nil && c.FullName != "" {
-						senderDisplayName = c.FullName
-					} else if c.PushName != "" && !isAllDigits(c.PushName) {
-						senderDisplayName = c.PushName
-					}
-				}
-			}
+			senderDisplayName := t.resolveSenderDisplayName(m.Sender, targetJID)
 			prefix = fmt.Sprintf("[%s]", senderDisplayName)
 		}
 		historyBuilder.WriteString(fmt.Sprintf("%s: %s\n", prefix, m.Content))
@@ -139,8 +128,49 @@ func (t *Tenant) buildIdentityClause() string {
 	return identityClause
 }
 
+// resolveSenderDisplayName returns a clean human name for a sender, falling back to chat display name
+// or clean digits, avoiding raw internal LID IDs.
+func (t *Tenant) resolveSenderDisplayName(sender string, chatJID types.JID) string {
+	if sender == "" {
+		if !chatJID.IsEmpty() {
+			return t.resolveContactDisplayName(chatJID.String())
+		}
+		return "Contact"
+	}
+	name := t.resolveContactDisplayName(sender)
+	if isAllDigits(name) || name == sender {
+		if !chatJID.IsEmpty() {
+			chatName := t.resolveContactDisplayName(chatJID.String())
+			if chatName != "" && !isAllDigits(chatName) {
+				return chatName
+			}
+		}
+		if t.messageStore != nil {
+			if storedName := t.messageStore.GetChatName(sender); storedName != "" {
+				return storedName
+			}
+			if !chatJID.IsEmpty() {
+				if storedName := t.messageStore.GetChatName(chatJID.String()); storedName != "" {
+					return storedName
+				}
+			}
+		}
+	}
+	if isAllDigits(name) {
+		clean := cleanPhoneDigits(name)
+		if clean != "" {
+			return clean
+		}
+		return "Contact"
+	}
+	return name
+}
+
 // resolveContactDisplayName returns a human-friendly name for a JID or phone number.
 func (t *Tenant) resolveContactDisplayName(contactJID string) string {
+	if contactJID == "" {
+		return ""
+	}
 	if t.client != nil && t.client.Store != nil {
 		ctx := context.Background()
 		norm := normalizePhone(contactJID)
@@ -155,14 +185,29 @@ func (t *Tenant) resolveContactDisplayName(contactJID string) string {
 				}
 			}
 		}
-		if strings.HasSuffix(contactJID, "@lid") {
-			if parsed, err := types.ParseJID(contactJID); err == nil {
+		// If contactJID has @lid or is numeric LID
+		lidJID := contactJID
+		if !strings.HasSuffix(lidJID, "@lid") && !strings.Contains(lidJID, "@") && isAllDigits(lidJID) {
+			lidJID = contactJID + "@lid"
+		}
+		if strings.HasSuffix(lidJID, "@lid") {
+			if parsed, err := types.ParseJID(lidJID); err == nil {
 				if pn, err := t.client.Store.LIDs.GetPNForLID(ctx, parsed); err == nil && !pn.IsEmpty() {
-					if c, err := t.client.Store.Contacts.GetContact(ctx, pn); err == nil && c.FullName != "" {
-						return c.FullName
+					if c, err := t.client.Store.Contacts.GetContact(ctx, pn); err == nil {
+						if c.FullName != "" {
+							return c.FullName
+						}
+						if c.PushName != "" && !isAllDigits(c.PushName) {
+							return c.PushName
+						}
 					}
 				}
 			}
+		}
+	}
+	if t.messageStore != nil {
+		if storedName := t.messageStore.GetChatName(contactJID); storedName != "" {
+			return storedName
 		}
 	}
 	clean := cleanPhoneDigits(contactJID)
@@ -172,8 +217,208 @@ func (t *Tenant) resolveContactDisplayName(contactJID string) string {
 	return contactJID
 }
 
-// buildSystemPrompt creates the tailored system prompt with relationship context and friend circles.
-func (t *Tenant) buildSystemPrompt(identityClause string, targetJID types.JID, isGroup bool, settings *ChatSettings) string {
+// generateEmbedding computes a float32 vector embedding for text using Gemini or OpenAI API,
+// falling back to local FastTextPseudoEmbedding.
+func (t *Tenant) generateEmbedding(apiKey, text string) ([]float32, error) {
+	if text == "" {
+		return nil, fmt.Errorf("empty text")
+	}
+
+	// 1. Gemini Embedding
+	if strings.HasPrefix(apiKey, "AIza") {
+		endpoint := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=%s", apiKey)
+		type Part struct {
+			Text string `json:"text"`
+		}
+		type Content struct {
+			Parts []Part `json:"parts"`
+		}
+		type Req struct {
+			Model   string  `json:"model"`
+			Content Content `json:"content"`
+		}
+		reqBody := Req{
+			Model:   "models/text-embedding-004",
+			Content: Content{Parts: []Part{{Text: text}}},
+		}
+		jsonBytes, _ := json.Marshal(reqBody)
+		httpReq, err := http.NewRequest("POST", endpoint, bytes.NewReader(jsonBytes))
+		if err == nil {
+			httpReq.Header.Set("Content-Type", "application/json")
+			client := &http.Client{Timeout: 15 * time.Second}
+			resp, reqErr := client.Do(httpReq)
+			if reqErr == nil {
+				defer resp.Body.Close()
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				if resp.StatusCode == http.StatusOK {
+					var gRes struct {
+						Embedding struct {
+							Values []float32 `json:"values"`
+						} `json:"embedding"`
+					}
+					if json.Unmarshal(bodyBytes, &gRes) == nil && len(gRes.Embedding.Values) > 0 {
+						return gRes.Embedding.Values, nil
+					}
+				}
+			}
+		}
+	} else if apiKey != "" {
+		// 2. OpenAI / OpenRouter Embedding
+		endpoint := "https://api.openai.com/v1/embeddings"
+		if strings.HasPrefix(apiKey, "sk-or-") {
+			endpoint = "https://openrouter.ai/api/v1/embeddings"
+		}
+		type Req struct {
+			Model string `json:"model"`
+			Input string `json:"input"`
+		}
+		reqBody := Req{
+			Model: "text-embedding-3-small",
+			Input: text,
+		}
+		jsonBytes, _ := json.Marshal(reqBody)
+		httpReq, err := http.NewRequest("POST", endpoint, bytes.NewReader(jsonBytes))
+		if err == nil {
+			httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+			httpReq.Header.Set("Content-Type", "application/json")
+			client := &http.Client{Timeout: 15 * time.Second}
+			resp, reqErr := client.Do(httpReq)
+			if reqErr == nil {
+				defer resp.Body.Close()
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				if resp.StatusCode == http.StatusOK {
+					var oRes struct {
+						Data []struct {
+							Embedding []float32 `json:"embedding"`
+						} `json:"data"`
+					}
+					if json.Unmarshal(bodyBytes, &oRes) == nil && len(oRes.Data) > 0 && len(oRes.Data[0].Embedding) > 0 {
+						return oRes.Data[0].Embedding, nil
+					}
+				}
+			}
+		}
+	}
+
+	// 3. High performance local offline pseudo-embedding fallback
+	return FastTextPseudoEmbedding(text), nil
+}
+
+// retrieveRelevantMemories finds high-relevance semantic past conversations while excluding
+// low-information garbage and messages already present in the recent sliding window.
+func (t *Tenant) retrieveRelevantMemories(targetJID types.JID, altJIDs []string, apiKey string, recentMsgs []Message) []ScoredMemory {
+	if t.messageStore == nil || targetJID.IsEmpty() {
+		return nil
+	}
+
+	// Build deduplication map of recent message contents
+	recentTexts := make(map[string]bool)
+	var latestIncomingText string
+	for _, m := range recentMsgs {
+		clean := CleanTextContent(m.Content)
+		if clean != "" {
+			recentTexts[clean] = true
+		}
+		if !m.IsFromMe && latestIncomingText == "" && clean != "" {
+			latestIncomingText = clean
+		}
+	}
+
+	if latestIncomingText == "" {
+		return nil
+	}
+
+	contactName := t.resolveContactDisplayName(targetJID.String())
+
+	// Fetch existing stored semantic memories
+	memories, err := t.messageStore.GetSemanticMemories(targetJID.String(), altJIDs, 50)
+	if err != nil || len(memories) < 2 {
+		// Index historical messages
+		allMsgs, mErr := t.messageStore.GetMessagesForIndexing(targetJID.String(), altJIDs, 100)
+		if mErr == nil && len(allMsgs) > 0 {
+			chunks := BuildConversationChunks(allMsgs, targetJID.String(), contactName, 3*time.Minute)
+			for _, chunk := range chunks {
+				emb, eErr := t.generateEmbedding(apiKey, chunk.Snippet)
+				if eErr == nil && len(emb) > 0 {
+					mem := &SemanticMemory{
+						ID:         chunk.ID,
+						ChatJID:    chunk.ChatJID,
+						Speaker:    chunk.Speaker,
+						Snippet:    chunk.Snippet,
+						Embedding:  emb,
+						Timestamp:  chunk.Timestamp,
+						TokenCount: len(strings.Fields(chunk.Snippet)),
+					}
+					_ = t.messageStore.SaveSemanticMemory(mem)
+					memories = append(memories, *mem)
+				}
+			}
+		}
+	}
+
+	if len(memories) == 0 {
+		return nil
+	}
+
+	// Generate query embedding for the latest incoming text
+	queryEmb, err := t.generateEmbedding(apiKey, latestIncomingText)
+	if err != nil || len(queryEmb) == 0 {
+		return nil
+	}
+
+	var scored []ScoredMemory
+	for _, mem := range memories {
+		// Anti-garbage filtering on snippet
+		if !IsHighSignalMemory(mem.Snippet) {
+			continue
+		}
+
+		// Recency window deduplication: skip if any line of snippet is in recentTexts
+		hasOverlap := false
+		for _, line := range strings.Split(mem.Snippet, "\n") {
+			parts := strings.SplitN(line, ": ", 2)
+			textPart := line
+			if len(parts) == 2 {
+				textPart = parts[1]
+			}
+			if recentTexts[CleanTextContent(textPart)] {
+				hasOverlap = true
+				break
+			}
+		}
+		if hasOverlap {
+			continue
+		}
+
+		sim := CosineSimilarity(queryEmb, mem.Embedding)
+		// Strict quality cutoff (0.68)
+		if sim >= 0.68 {
+			scored = append(scored, ScoredMemory{
+				Memory:     mem,
+				Similarity: sim,
+			})
+		}
+	}
+
+	// Sort scored memories by similarity descending
+	for i := 0; i < len(scored); i++ {
+		for j := i + 1; j < len(scored); j++ {
+			if scored[j].Similarity > scored[i].Similarity {
+				scored[i], scored[j] = scored[j], scored[i]
+			}
+		}
+	}
+
+	// Limit to top 2 highest-signal memories
+	if len(scored) > 2 {
+		scored = scored[:2]
+	}
+
+	return scored
+}
+
+// buildSystemPrompt creates the tailored system prompt with relationship context, friend circles, and semantic memories.
+func (t *Tenant) buildSystemPrompt(identityClause string, targetJID types.JID, isGroup bool, settings *ChatSettings, memories []ScoredMemory) string {
 	var extraContext strings.Builder
 
 	if settings != nil {
@@ -204,6 +449,13 @@ SHARED FRIEND CIRCLE & MUTUAL CONNECTIONS:
 			extraContext.WriteString(fmt.Sprintf(`
 CUSTOM INSTRUCTIONS:
 %s`, strings.TrimSpace(settings.CustomPrompt)))
+		}
+	}
+
+	if len(memories) > 0 {
+		formattedMemories := FormatSemanticMemories(memories)
+		if formattedMemories != "" {
+			extraContext.WriteString("\n" + formattedMemories)
 		}
 	}
 
@@ -455,9 +707,19 @@ func (t *Tenant) replyToChat(targetJID types.JID) {
 	}
 
 	isGroup := targetJID.Server == "g.us"
-	history := t.buildChatHistory(msgs, isGroup)
+	history := t.buildChatHistory(msgs, isGroup, targetJID)
 	identityClause := t.buildIdentityClause()
-	systemPrompt := t.buildSystemPrompt(identityClause, targetJID, isGroup, chatSettings)
+
+	apiKey := t.aiApiKey
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENROUTER_API_KEY")
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("AI_API_KEY")
+	}
+
+	memories := t.retrieveRelevantMemories(targetJID, altJIDs, apiKey, msgs)
+	systemPrompt := t.buildSystemPrompt(identityClause, targetJID, isGroup, chatSettings, memories)
 
 	model := t.aiModel
 	if chatSettings != nil && chatSettings.Model != "" {
@@ -468,14 +730,6 @@ func (t *Tenant) replyToChat(targetJID types.JID) {
 	}
 	if model == "" {
 		model = "qwen/qwen3.8-27b"
-	}
-
-	apiKey := t.aiApiKey
-	if apiKey == "" {
-		apiKey = os.Getenv("OPENROUTER_API_KEY")
-	}
-	if apiKey == "" {
-		apiKey = os.Getenv("AI_API_KEY")
 	}
 
 	if apiKey == "" {
