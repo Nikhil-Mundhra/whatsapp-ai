@@ -676,7 +676,7 @@ export default function Home() {
         if (data.valid) {
           setKeyStatus({
             state: "valid",
-            message: data.warning || `Valid ${data.provider} Key ✓`,
+            message: data.warning || `Valid ${data.provider} Key`,
             provider: data.provider,
             models: data.models || [],
           });
@@ -730,7 +730,7 @@ export default function Home() {
         }));
       }
 
-      setConfigSuccess("Configuration updated & synced! ✓");
+      setConfigSuccess("Configuration updated & synced!");
       setTimeout(() => {
         setIsSettingsOpen(false);
       }, 900);

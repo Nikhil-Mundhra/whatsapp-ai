@@ -6,48 +6,72 @@ This document details the architectural design, communication protocols, state m
 
 ## 1. High-Level System Architecture
 
-The system operates across three tiers:
-1. **Edge & Hardware Tier**: Amazfit Smartwatch running Zepp OS 4.0 and the user's mobile device running WhatsApp & the Zepp App companion.
-2. **Local Processing Tier**: Go Bridge (connected via WhatsApp Web Multi-Device protocol), local SQLite store, Python TakeOver Controller, and Ollama local LLM inference engine.
-3. **Cloud & Web Relay Tier**: Next.js App Router deployed with Vercel KV (Redis) enabling remote dashboard access, connection provisioning, and cross-device approval synchronization.
+The system operates across four primary tiers:
+1. **Edge & Client Tier**:
+   - **Next.js Web Client (Browser App / React SPA)**: Full WhatsApp-like web interface providing live chat timeline, interactive TakeOver cards, per-contact relationship settings, connection switcher, and onboarding wizard.
+   - **Amazfit Smartwatch (Zepp OS 4.0)**: Low-power tactile wearable interface for the Amazfit T-Rex 3 (480x480 round AMOLED display) running the TakeOver watch app.
+   - **Phone Companion & WhatsApp Mobile App**: The user's mobile device acting as both a BLE companion relay for the watch and the ground-truth human override channel.
+2. **Superadmin Control Plane Tier (`/superadmin`)**:
+   - Master administrative dashboard with 2-Factor Authentication (Master password + WhatsApp OTP challenge to `SUPERADMIN_PHONE`).
+   - Global multi-tenant telemetry, storage footprint tracking, message volume aggregation, remote bridge lifecycle management (reconnect, disconnect, delete), and dynamic VIP coupon generation.
+3. **Cloud Relay & Provisioning Tier**:
+   - Next.js 14 App Router deployed with Vercel KV (Redis) and Vercel Blob, providing REST APIs for cross-device poll synchronization, connection provisioning, and media storage.
+4. **Local Core & Bridge Tier**:
+   - Multi-tenant Go Bridge (connected via WhatsApp Web Multi-Device protocol), local SQLite store (`messages.db`, `whatsapp.db`, `chat_settings`), Python TakeOver Controller (`harness/controller.py`), Persona Engine (`harness/send.py`), and FastMCP tool server (`whatsapp-mcp-server/`).
 
 ```mermaid
 graph TB
-    subgraph EdgeDevice["Edge & Physical Devices"]
-        Watch["Amazfit Smartwatch (Zepp OS 4.0)<br/>UI: 480x480 Round Display"]
+    subgraph EdgeClientTier["1. Edge & Client Tier"]
+        Watch["Amazfit Smartwatch (Zepp OS 4.0)<br/>UI: 480x480 Round AMOLED Display"]
         PhoneApp["Phone (Zepp Companion App)"]
-        WhatsAppMobile["Phone (WhatsApp Mobile App)"]
+        WhatsAppMobile["Phone (WhatsApp Mobile App)<br/>Human Override Signal"]
+        WebClient["Next.js Web Client (Browser App)<br/>Chat Timeline, TakeOver Cards, Settings, Setup"]
     end
 
-    subgraph CloudTier["Cloud Relay & Provisioning"]
-        WebRelay["Next.js REST API (/api/polls/*, /api/connections/*)"]
-        KVStore[("Vercel KV / Redis Store")]
-        WebDash["Next.js Web UI & Setup (/setup)"]
+    subgraph SuperadminTier["2. Superadmin Control Plane Tier (/superadmin)"]
+        SuperadminUI["Superadmin Dashboard<br/>(Master Password + 2FA WhatsApp OTP)"]
+        SuperadminAPI["Superadmin APIs (/api/superadmin/*)<br/>Telemetry, Bridge Controls, VIP Coupon Rotation"]
     end
 
-    subgraph LocalCore["Local Server / Daemon"]
-        GoBridge["WhatsApp Go Bridge<br/>(whatsmeow multi-device)"]
-        SQLiteDB[("SQLite Store<br/>messages.db + whatsapp.db")]
-        HarnessController["Controller Daemon<br/>(harness/controller.py)"]
-        PersonaGen["Persona Engine<br/>(harness/send.py)"]
-        LocalLLM["Ollama / Qwen3.5-32k"]
+    subgraph CloudRelayTier["3. Cloud Relay & Provisioning Tier (Next.js + KV)"]
+        WebRelay["Next.js REST API<br/>(/api/polls/*, /api/connections/*, /api/auth/*)"]
+        KVStore[("Vercel KV / Upstash Redis Store<br/>conn:*, poll:*, otp:*, session:*, revoked:*")]
+        BlobStore[("Vercel Blob Storage<br/>(Chat Media Attachments)")]
+    end
+
+    subgraph LocalCoreTier["4. Core Bridge & Local Daemon Tier"]
+        GoBridge["WhatsApp Go Bridge<br/>(whatsmeow multi-device daemon)"]
+        SQLiteDB[("SQLite Storage<br/>messages.db + whatsapp.db + chat_settings")]
+        HarnessController["TakeOver FSM Controller<br/>(harness/controller.py)"]
+        PersonaGen["Persona & Reasoning Engine<br/>(harness/send.py)"]
+        LocalLLM["Ollama (Qwen3.5-32k) / Remote APIs (OpenRouter, Gemini)"]
         MCPServer["FastMCP Server<br/>(Claude Desktop / Cursor)"]
     end
 
+    %% Edge Client Tier Connections
     Watch <-->|"Zepp ZML (BLE)"| PhoneApp
     PhoneApp <-->|"HTTPS fetch (?hash=...)"| WebRelay
-    WebDash <--> WebRelay
-    WebRelay <--> KVStore
+    WebClient <-->|"HTTPS REST + HttpOnly Session Cookie"| WebRelay
+    WebClient <-->|"Media Upload"| BlobStore
 
+    %% Superadmin Connections
+    SuperadminUI <-->|"Strict HttpOnly JWT Session"| SuperadminAPI
+    SuperadminAPI <--> WebRelay
+    SuperadminAPI <--> KVStore
+    SuperadminAPI <-->|"Bridge RPCs (/api/connections/*)"| GoBridge
+
+    %% WhatsApp Mobile & Bridge Core
     WhatsAppMobile <-->|"WhatsApp E2EE Protocol"| GoBridge
-    GoBridge <-->|"Read/Write (cgo sqlite3)"| SQLiteDB
+    GoBridge <-->|"Read/Write (cgo sqlite3 WAL)"| SQLiteDB
     GoBridge <-->|"Local HTTP API (:8080)"| HarnessController
     GoBridge <-->|"Local HTTP API (:8080)"| MCPServer
 
+    %% Controller & Persona
     HarnessController <-->|"Read Message History & Origin"| SQLiteDB
     HarnessController <-->|"State & Floor Control"| PersonaGen
     PersonaGen <-->|"Prompt & History Context"| LocalLLM
     HarnessController <-->|"Sync Pending Polls & Votes"| WebRelay
+    GoBridge <-->|"Webhook Events"| WebRelay
 ```
 
 ---
@@ -55,22 +79,27 @@ graph TB
 ## 2. Core Subsystems
 
 ### 2.1 WhatsApp Go Bridge (`whatsapp-bridge/`)
-Built with Go and [whatsmeow](https://github.com/tulir/whatsmeow), this daemon acts as a full WhatsApp Web client.
+Built with Go and [whatsmeow](https://github.com/tulir/whatsmeow), this daemon acts as a full WhatsApp Web multi-device client.
 
-* **Authentication**: Multi-device QR pairing with session tokens persisted in `store/whatsapp.db`.
+* **Authentication**: Multi-device QR pairing with session tokens persisted in `store/whatsapp.db` or per-tenant directories in `store/tenants/<hash>/`.
+* **Process Concurrency Lock**: [`flock.go`](file:///Users/nikhilmundhra/Documents/Github/external/whatsapp-mcp/whatsapp-bridge/flock.go) uses `syscall.Flock(LOCK_EX|LOCK_NB)` to ensure only one bridge instance accesses session files at a time.
 * **Message Ingestion & Classification**:
   * Decrypts incoming messages and stores them in SQLite (`store/messages.db`).
   * Classifies message `origin`:
     * `"remote"`: Incoming message from an external contact.
     * `"phone"`: Outgoing message originated manually from the owner's phone (`IsFromMe = true`).
+    * `"api"`: Outgoing message sent programmatically via bridge API.
 * **Native Poll Engine**:
   * Emits interactive native WhatsApp polls using `whatsmeow.Client.BuildPollCreation()`.
   * Intercepts `events.Message` containing `PollUpdateMessage`, decrypts vote selections via `client.DecryptPollVote()`, maps SHA-256 option hashes back to text, and writes them to the `poll_votes` table.
+* **LID & Phone Number Translation**: Seamlessly resolves between WhatsApp Phone Number JIDs (`@s.whatsapp.net`) and Linked ID JIDs (`@lid`) using the `whatsmeow_lid_map` and `whatsmeow_contacts` tables.
+* **Supervisor Watchdog**: Background supervisor running every 15 seconds to monitor tenant health and automatically reconnect dropped sockets.
 * **HTTP Microservice (`:8080`)**:
   * `POST /api/send`: Send standard text messages.
   * `POST /api/send-poll`: Send interactive polls.
   * `POST /api/send-file` & `/api/send-audio`: Dispatch media and voice notes.
   * `POST /api/download`: Decrypt and download media files locally.
+  * `POST /api/connections/:hash/*`: Multi-tenant administration, pairing QR, settings, and messaging endpoints.
 
 ---
 
@@ -143,90 +172,96 @@ The persona engine generates authentic replies by prompting the model with conve
 
 ---
 
-### 2.4 Connection Provisioning & Pairing System (`web/app/setup/`)
+### 2.4 Web Client & Interactive Dashboard (`web/app/`)
+
+The Next.js Web Client provides a complete web portal for monitoring conversations and controlling autonomous takeovers:
+
+* **Chat Timeline & Bubbles** ([`ChatTimeline.jsx`](file:///Users/nikhilmundhra/Documents/Github/external/whatsapp-mcp/web/app/components/Chat/ChatTimeline.jsx), [`MessageBubble.jsx`](file:///Users/nikhilmundhra/Documents/Github/external/whatsapp-mcp/web/app/components/Chat/MessageBubble.jsx)):
+  * Renders conversation threads with WhatsApp Web styling, read receipt double-check ticks, media attachments, audio voice note waveforms, and quoted reply snippets.
+  * Distinguishes message origins (`remote`, `phone`, `ai`, `takeover`) with distinct visual badges.
+* **TakeOver Approval Poll Cards** ([`TakeOverPollCard.jsx`](file:///Users/nikhilmundhra/Documents/Github/external/whatsapp-mcp/web/app/components/Chat/TakeOverPollCard.jsx)):
+  * Displays real-time approval requests directly within the active conversation stream.
+  * Supports instant voting (`Send 1 text`, `5 minutes`, `2 hours`, `Deny`) with optimistic UI feedback and automatic synchronization to the cloud relay.
+* **Per-Chat Relationship & Persona Modal** ([`ChatSettingsModal.jsx`](file:///Users/nikhilmundhra/Documents/Github/external/whatsapp-mcp/web/app/components/Chat/ChatSettingsModal.jsx)):
+  * Allows users to define custom relationship dynamics for specific contacts (e.g. *Close Friend*, *Formal Business Colleague*, *Casual Acquaintance*).
+  * Manages shared friend circle tags to align mutual conversational context and nicknames.
+  * Overrides the LLM model and prompt template on a per-contact basis.
+* **Connection Switcher & Multi-Account Management** ([`ConnectionSwitcherModal.jsx`](file:///Users/nikhilmundhra/Documents/Github/external/whatsapp-mcp/web/app/components/Modals/ConnectionSwitcherModal.jsx)):
+  * Allows switching between distinct pairing hashes with 2FA WhatsApp OTP validation.
+* **3-Step Setup & Provisioning Wizard** ([`web/app/setup/page.jsx`](file:///Users/nikhilmundhra/Documents/Github/external/whatsapp-mcp/web/app/setup/page.jsx)):
+  * Step 1: Input Owner Phone, Allowed Recipients, AI API Key, and VIP registration coupon.
+  * Step 2: Live WhatsApp Web QR code pairing.
+  * Step 3: Confirmation and 6-character smartwatch pairing code display.
+
+---
+
+### 2.5 Superadmin Control Plane Tier (`web/app/superadmin/`)
+
+A dedicated, isolated administrative management subsystem for global operations:
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as User (Browser)
-    participant Web as Next.js API (/api/connections)
-    participant KV as Vercel KV (Redis)
+    actor Admin as Superadmin (Browser)
+    participant AuthAPI as /api/superadmin/auth/*
     participant Bridge as Go WhatsApp Bridge
-    actor Watch as Amazfit Watch (Zepp OS)
+    participant KV as Vercel KV
+    participant UI as Superadmin Dashboard
 
-    User->>Web: POST /api/connections {ownerPhone, allowedRecipients, aiApiKey, coupon}
-    Web->>Web: Validate Coupon (matches process.env.COUPON)
-    Web->>KV: Generate 6-char hash & store conn:{HASH}
-    Web-->>User: Return { hash: "K9X2P4" }
-    
-    User->>Web: POST /api/connections/K9X2P4/qr
-    Web->>Bridge: Request WhatsApp Web QR
-    Bridge-->>Web: Return QR ASCII/SVG
-    Web-->>User: Display QR code in browser
-    User->>Bridge: Scans QR code with WhatsApp Mobile
-    
-    loop Status Polling
-        Web->>Bridge: GET /api/connections/K9X2P4/status
-        Bridge-->>Web: { linked: true }
+    Admin->>AuthAPI: POST /api/superadmin/auth/login { password }
+    AuthAPI->>AuthAPI: Constant-time password verification & IP rate-limit check
+    alt 2FA Enabled (SUPERADMIN_PHONE configured)
+        AuthAPI->>Bridge: Send 6-digit OTP to SUPERADMIN_PHONE
+        AuthAPI-->>Admin: { otpRequired: true, maskedPhone: "+91 •••••• 033" }
+        Admin->>AuthAPI: POST /api/superadmin/auth/otp { otp }
+        AuthAPI->>AuthAPI: Verify OTP & clear challenge
     end
-    Web->>KV: Update conn:K9X2P4 status = 'linked'
-    Web-->>User: Present Pairing Code: K 9 X 2 P 4
-    
-    User->>Watch: Enter code K9X2P4 in TakeOver Watch Settings
-    Watch->>Web: GET /api/polls/pending?hash=K9X2P4
+    AuthAPI->>KV: Issue Superadmin JWT (7-day TTL, SameSite=Strict)
+    AuthAPI-->>Admin: Set wa_superadmin_token HttpOnly cookie
+
+    Admin->>UI: View Live Dashboard
+    UI->>AuthAPI: GET /api/superadmin/users
+    AuthAPI->>Bridge: GET /api/health
+    AuthAPI->>KV: ZRANGE connections
+    AuthAPI-->>UI: Return aggregated metrics & full user list
 ```
 
-#### Key Elements:
-* **The 3 Key Values**: `OWNER_PHONE`, `ALLOWED_RECIPIENTS`, `AI_API_KEY`.
-* **Coupon Gating**: Access is guarded by `COUPON` in the environment. Mismatched coupons return HTTP 403 with `Contact wa.me/+917060410033 to get one.`
-* **Unambiguous Base-32 Hash Algorithm**:
-  * Generates random 6-character tokens omitting visual duplicates (`0`, `O`, `1`, `I`):
-  * Alphabet: `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`
-  * Keys stored in KV: `conn:{HASH}` and indexed in the `connections` sorted set.
+#### Superadmin Capabilities:
+1. **Master Authentication & 2FA**:
+   - Enforces constant-time comparison via `crypto.timingSafeEqual`.
+   - Maximum 5 failed attempts before 15-minute IP lockout.
+   - WhatsApp 2FA OTP verification sent to `SUPERADMIN_PHONE`.
+2. **Global Telemetry & Storage Accounting**:
+   - Total users, connected tenants, total disk & KV storage consumed (formatted in KB/MB/GB).
+   - Total inbound/outbound messages and AI-generated text count.
+   - Bridge server uptime and socket connection status.
+3. **Tenant Lifecycle Administration**:
+   - **Reconnect**: Remotely commands the bridge to re-establish dropped WhatsApp Web sockets.
+   - **Disconnect**: Gracefully terminates active sessions.
+   - **Wipe / Delete**: Permanently removes connection credentials, KV keys, and deletes local SQLite data (`store/tenants/<hash>`).
+4. **Dynamic VIP Coupon Management**:
+   - Real-time generation of unambiguous `VIP-XXXX` onboarding tokens.
+   - Automatic single-use consumption and regeneration on user registration.
+   - Ability to copy, view, or assign custom registration coupons.
 
 ---
 
-### 2.5 Zepp OS Smartwatch Architecture (`zepp/`)
+### 2.6 Zepp OS Smartwatch Architecture (`zepp/`)
 
 Built for **Amazfit T-Rex 3** (Zepp OS 4.0, 480x480 round AMOLED display):
 
 * **Touch Geometry**: Symmetrically aligned buttons with radius styling designed specifically for circular watch bezels ([`zepp/page/index.page.r.layout.js`](file:///Users/nikhilmundhra/Documents/Github/external/whatsapp-mcp/zepp/page/index.page.r.layout.js)).
 * **Color Psychology**:
-  * 🔵 `Send 1 text` (`#2b6cb0` - Standard blue)
-  * 🔵 `5 minutes` (`#2b6cb0` - Standard blue)
-  * 🟢 `2 hours` (`#38a169` - Forest green for extended autonomy)
-  * 🔴 `Deny` (`#c53030` - Crimson red for denial)
-
----
-
-### 2.6 Cloud Relay & Web Control Panel (`web/`)
-
-* Built on **Next.js 14** with `@vercel/kv` (Redis).
-* **Key Schemas**:
-  * `conn:<hash>`: Connection configuration and link status.
-  * `poll:<id>`: Hash containing poll JSON metadata.
-  * `pending`: Set containing IDs of currently active, unanswered polls.
-  * `polls`: Sorted set ordered by creation timestamp (`createdAt`).
-* **Endpoints**:
-  * `POST /api/connections`: Validate coupon & register connection parameters (sets `wa_auth_token` & `wa_hash` cookies).
-  * `POST /api/connections/:hash/qr`: Request QR pairing code from bridge.
-  * `GET /api/connections/:hash/status`: Check WhatsApp Web authentication state.
-  * `POST /api/connections/:hash/otp/send`: Generate and send 6-digit WhatsApp OTP to owner's phone.
-  * `POST /api/connections/:hash/otp/verify`: Validate WhatsApp OTP, mint signed JWT session token, and set HTTP cookies.
-  * `POST /api/auth/otp/send`: Generic OTP dispatch endpoint.
-  * `POST /api/auth/otp/verify`: Generic OTP verification endpoint (sets auth cookies).
-  * `GET` & `POST /api/auth/session/verify`: Check validity of active session token via cookie, header, or body.
-  * `POST /api/auth/logout`: Revoke active session token and clear auth cookies.
-  * `GET /api/polls`: List all historical and pending polls.
-  * `GET /api/polls/pending`: Retrieve pending poll scoped to a pairing hash.
-  * `POST /api/polls/[id]`: Record a vote from the Web UI or smartwatch.
-  * `POST /api/polls/[id]/expire`: Mark poll as expired.
+  * `Send 1 text` (`#2b6cb0` - Standard blue)
+  * `5 minutes` (`#2b6cb0` - Standard blue)
+  * `2 hours` (`#38a169` - Forest green for extended autonomy)
+  * `Deny` (`#c53030` - Crimson red for denial)
 
 ---
 
 ## 3. Database Schemas (SQLite & Vercel KV)
 
-### SQLite (`whatsapp-bridge/store/messages.db`)
+### SQLite (`whatsapp-bridge/store/messages.db` and `store/tenants/<hash>/messages.db`)
 ```sql
 CREATE TABLE IF NOT EXISTS chats (
     jid TEXT PRIMARY KEY,
@@ -249,7 +284,7 @@ CREATE TABLE IF NOT EXISTS messages (
     file_sha256 BLOB,
     file_enc_sha256 BLOB,
     file_length INTEGER,
-    origin TEXT, -- 'remote' | 'phone'
+    origin TEXT, -- 'remote' | 'phone' | 'api'
     PRIMARY KEY (id, chat_jid),
     FOREIGN KEY (chat_jid) REFERENCES chats(jid)
 );
@@ -262,6 +297,15 @@ CREATE TABLE IF NOT EXISTS poll_votes (
     timestamp TIMESTAMP,
     PRIMARY KEY (poll_msg_id, voter_jid)
 );
+
+CREATE TABLE IF NOT EXISTS chat_settings (
+    jid TEXT PRIMARY KEY,
+    relationship TEXT,
+    friend_circle TEXT,
+    custom_prompt TEXT,
+    model TEXT,
+    updated_at TIMESTAMP
+);
 ```
 
 ### Vercel KV (Redis)
@@ -270,29 +314,40 @@ CREATE TABLE IF NOT EXISTS poll_votes (
 HSET conn:K9X2P4 data '{"hash":"K9X2P4","ownerPhone":"917060410033","allowedRecipients":["917893472546"],"status":"linked","createdAt":1723760000000}'
 ZADD connections 1723760000000 K9X2P4
 
+# Active Registration Coupon
+SET active_coupon "VIP-7K9P"
+
 # OTP Challenge (10 min TTL)
 SETEX otp:K9X2P4 600 '{"hash":"K9X2P4","code":"584920","ownerPhone":"+917060410033","attempts":0,"expiresAt":1723760600000}'
+
+# Superadmin 2FA OTP Challenge (10 min TTL)
+SETEX superadmin:otp:master 600 '{"code":"492018","phone":"917060410033","attempts":0,"expiresAt":1723760600000}'
 
 # Authenticated Session JWT / Revocation List (30 days TTL)
 SETEX session:<jwt_token> 2592000 '{"token":"<jwt_token>","hash":"K9X2P4","createdAt":1723760000000,"expiresAt":1726352000000}'
 SETEX revoked:<jwt_token> 2592000 '1'
+SETEX superadmin:revoked:<jwt_token> 604800 '1'
 
 # Poll Entry
-HSET poll:msg_12345 data '{"id":"msg_12345","hash":"K9X2P4","contactDisplay":"Alex","question":"Take over?","options":["Send 1 text","5 minutes","2 hours","Deny"],"status":"pending","createdAt":1723760100000}'
-SADD pending msg_12345
-ZADD polls 1723760100000 msg_12345
+HSET poll:K9X2P4:msg_12345 data '{"id":"msg_12345","hash":"K9X2P4","contactDisplay":"Alex","question":"Take over?","options":["Send 1 text","5 minutes","2 hours","Deny"],"status":"pending","createdAt":1723760100000}'
+SADD pending poll:K9X2P4:msg_12345
+ZADD polls 1723760100000 poll:K9X2P4:msg_12345
+ZADD polls:K9X2P4 1723760100000 poll:K9X2P4:msg_12345
 ```
 
 ---
 
 ## 4. Security & Isolation Matrix
 
-| Threat Vector | Mitigation Strategy |
-| :--- | :--- |
-| **Unauthorized Dashboard Login** | 2-Factor Authentication required: entering connection hash triggers a 6-digit WhatsApp OTP sent directly to the owner's phone. Maximum 5 attempts and 10-minute validity. |
-| **Unauthorized messaging** | Hard whitelist check in `controller.py` and `send.py` (`ALLOWED_RECIPIENTS`). |
-| **Runaway AI loops** | Floor control verifies last sender $\neq$ Me; count limits enforce 1-reply bounds. |
-| **Accidental autonomous takeover** | Owner must explicitly click a poll option; default state is `idle`. |
-| **Human takeover conflict** | Automatic hardware override whenever `origin == "phone"` is observed. |
-| **Unauthenticated watch access** | Watch queries are scoped strictly by valid, verified 6-character connection hashes. |
-| **Data exfiltration** | Local SQLite storage; LLM runs 100% locally on Ollama without external API calls. |
+| Threat Vector | Architectural Tier | Mitigation Strategy |
+| :--- | :--- | :--- |
+| **Unauthorized Dashboard Login** | Edge & Cloud Relay | 2-Factor Authentication required: entering connection hash triggers a 6-digit WhatsApp OTP sent directly to the owner's phone. Maximum 5 attempts and 10-minute validity. |
+| **Unauthorized Superadmin Access** | Superadmin Tier | Constant-time password validation, rate-limiting lockout (5 attempts = 15 min lock), optional WhatsApp 2FA OTP to `SUPERADMIN_PHONE`, and `SameSite=Strict` cookie policy. |
+| **Unauthorized messaging** | Core Bridge & Harness | Hard whitelist check in `controller.py`, `send.py`, and `multitenant.go` (`ALLOWED_RECIPIENTS`). |
+| **Runaway AI loops** | Persona & Controller | Floor control verifies last sender $\neq$ Me; count limits enforce 1-reply bounds. |
+| **Accidental autonomous takeover** | Edge & WhatsApp Native | Owner must explicitly click a poll option; default state is `idle`. |
+| **Human takeover conflict** | WhatsApp Mobile & Bridge | Automatic hardware override whenever `origin == "phone"` is observed. |
+| **Unauthenticated watch access** | Smartwatch Tier | Watch queries are scoped strictly by valid, verified 6-character connection hashes. |
+| **Data exfiltration** | Local Core | Local SQLite storage; LLM can run 100% locally on Ollama without external API calls. |
+| **Process session hijacking** | Go Bridge | Process-level file locking (`flock.go`) prevents dual-daemon race conditions. |
+

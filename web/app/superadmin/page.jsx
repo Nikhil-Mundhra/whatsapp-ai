@@ -9,6 +9,12 @@ import {
   RobotIcon,
   CloseIcon,
   DoubleCheckIcon,
+  SunIcon,
+  MoonIcon,
+  WarningIcon,
+  CheckIcon,
+  TicketIcon,
+  CopyIcon,
 } from "../components/Icons/WhatsAppIcons";
 
 export default function SuperadminPage() {
@@ -403,7 +409,7 @@ export default function SuperadminPage() {
                 gap: 8,
               }}
             >
-              <span>⚠️</span>
+              <WarningIcon size={14} color="#ef4444" />
               <span>{loginError}</span>
             </div>
           )}
@@ -423,13 +429,14 @@ export default function SuperadminPage() {
                     required
                     style={{
                       width: "100%",
-                      padding: "12px 42px 12px 14px",
-                      backgroundColor: "var(--wa-input-bg)",
-                      border: "1px solid var(--wa-border-strong)",
+                      padding: "10px 14px",
                       borderRadius: 8,
+                      border: "1px solid var(--wa-border-strong)",
+                      backgroundColor: "var(--wa-input-bg)",
                       color: "var(--wa-text-primary)",
                       fontSize: "14px",
                       outline: "none",
+                      boxSizing: "border-box",
                     }}
                   />
                   <button
@@ -437,55 +444,44 @@ export default function SuperadminPage() {
                     onClick={() => setShowPassword(!showPassword)}
                     style={{
                       position: "absolute",
-                      right: 12,
+                      right: 10,
                       top: "50%",
                       transform: "translateY(-50%)",
                       background: "none",
                       border: "none",
-                      color: "var(--wa-text-muted)",
+                      color: "var(--wa-text-secondary)",
                       cursor: "pointer",
-                      fontSize: "13px",
+                      fontSize: "12px",
+                      padding: "4px 6px",
                     }}
                   >
                     {showPassword ? "Hide" : "Show"}
                   </button>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
-                  <span style={{ fontSize: "11px", color: "var(--wa-text-muted)" }}>
-                    Constant-time HMAC • Rate limit protected
-                  </span>
-                </div>
               </div>
 
               <button
                 type="submit"
-                disabled={loginLoading || !password.trim()}
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  backgroundColor: "var(--wa-teal)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: 8,
-                  fontSize: "14px",
-                  fontWeight: "600",
-                  cursor: loginLoading || !password.trim() ? "not-allowed" : "pointer",
-                  opacity: loginLoading || !password.trim() ? 0.7 : 1,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                }}
+                disabled={loginLoading}
+                className="wa-btn-primary-gradient"
+                style={{ width: "100%", padding: "12px", fontSize: "14px" }}
               >
-                {loginLoading ? "Authenticating..." : "Sign In to Superadmin"}
+                {loginLoading ? "Sending OTP..." : "Send WhatsApp 2FA OTP"}
               </button>
             </form>
           ) : (
-            <form onSubmit={handleOtpSubmit}>
+            <form onSubmit={handleVerifyOtpSubmit}>
               <div style={{ marginBottom: 20 }}>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--wa-text-secondary)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  6-Digit WhatsApp 2FA Code
-                </label>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--wa-text-secondary)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    6-Digit Verification Code
+                  </label>
+                  {maskedPhone && (
+                    <span style={{ fontSize: "11px", color: "var(--wa-teal)", fontWeight: "600" }}>
+                      Sent to {maskedPhone}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   maxLength={6}
@@ -496,22 +492,23 @@ export default function SuperadminPage() {
                   required
                   style={{
                     width: "100%",
-                    padding: "14px",
-                    backgroundColor: "var(--wa-input-bg)",
-                    border: "1px solid var(--wa-teal)",
+                    padding: "12px 14px",
                     borderRadius: 8,
+                    border: "1px solid var(--wa-border-strong)",
+                    backgroundColor: "var(--wa-input-bg)",
                     color: "var(--wa-text-primary)",
-                    fontSize: "22px",
+                    fontSize: "20px",
                     fontWeight: "700",
+                    letterSpacing: "6px",
                     textAlign: "center",
-                    letterSpacing: "8px",
                     outline: "none",
+                    boxSizing: "border-box",
                   }}
                 />
                 {!bridgeSent && (
                   <div
                     style={{
-                      marginTop: 12,
+                      marginTop: 10,
                       padding: "10px 12px",
                       backgroundColor: "rgba(234, 179, 8, 0.12)",
                       border: "1px solid rgba(234, 179, 8, 0.3)",
@@ -519,9 +516,13 @@ export default function SuperadminPage() {
                       fontSize: "12px",
                       color: "#eab308",
                       lineHeight: "1.4",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 6,
                     }}
                   >
-                    ⚠️ <strong>Bridge Delivery Warning</strong>: WhatsApp bridge could not deliver the text message ({bridgeError || "no active connected sender"}). Ensure at least one WhatsApp account is linked & online on the bridge.
+                    <WarningIcon size={14} color="#eab308" />
+                    <div><strong>Bridge Delivery Warning</strong>: WhatsApp bridge could not deliver the text message ({bridgeError || "no active connected sender"}). Ensure at least one WhatsApp account is linked &amp; online on the bridge.</div>
                   </div>
                 )}
                 {devOtp && (
@@ -534,58 +535,6 @@ export default function SuperadminPage() {
               <button
                 type="submit"
                 disabled={loginLoading || otp.length < 6}
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  backgroundColor: "var(--wa-teal)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: 8,
-                  fontSize: "14px",
-                  fontWeight: "600",
-                  cursor: loginLoading || otp.length < 6 ? "not-allowed" : "pointer",
-                  opacity: loginLoading || otp.length < 6 ? 0.7 : 1,
-                  marginBottom: 12,
-                }}
-              >
-                {loginLoading ? "Verifying Code..." : "Verify & Enter Dashboard"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setOtpStep(false);
-                  setOtp("");
-                }}
-                style={{
-                  width: "100%",
-                  padding: "10px",
-                  backgroundColor: "transparent",
-                  color: "var(--wa-text-secondary)",
-                  border: "1px solid var(--wa-border)",
-                  borderRadius: 8,
-                  fontSize: "13px",
-                  cursor: "pointer",
-                }}
-              >
-                Back to Password
-              </button>
-            </form>
-          )}
-
-          <div style={{ marginTop: 24, textAlign: "center", borderTop: "1px solid var(--wa-border)", paddingTop: 16 }}>
-            <Link href="/" style={{ color: "var(--wa-teal)", fontSize: "13px", textDecoration: "none" }}>
-              ← Return to User Control Panel
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // 3. Authenticated Superadmin Dashboard
-  const summary = data?.summary || {
-    totalUsers: 0,
     connectedUsers: 0,
     totalStorageFormatted: "0 B",
     totalMessages: 0,
@@ -674,8 +623,7 @@ export default function SuperadminPage() {
           </button>
 
           <button
-            onClick={toggleTheme}
-            title="Toggle Light/Dark Theme"
+            onClick={() => handleThemeChange(theme === "dark" ? "light" : "dark")}
             style={{
               padding: "7px 10px",
               backgroundColor: "var(--wa-btn-secondary-bg)",
@@ -684,9 +632,22 @@ export default function SuperadminPage() {
               color: "var(--wa-text-primary)",
               fontSize: "13px",
               cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
             }}
           >
-            {theme === "dark" ? "☀️ Light" : "🌙 Dark"}
+            {theme === "dark" ? (
+              <>
+                <SunIcon size={13} color="currentColor" />
+                <span>Light</span>
+              </>
+            ) : (
+              <>
+                <MoonIcon size={13} color="currentColor" />
+                <span>Dark</span>
+              </>
+            )}
           </button>
 
           <Link
@@ -874,10 +835,9 @@ export default function SuperadminPage() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: "20px",
               }}
             >
-              🎟️
+              <TicketIcon size={22} color="var(--wa-teal)" />
             </div>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -916,7 +876,17 @@ export default function SuperadminPage() {
                     gap: 4,
                   }}
                 >
-                  {couponCopied ? "Copied! ✓" : "Copy 📋"}
+                  {couponCopied ? (
+                    <>
+                      <CheckIcon size={12} color="#10b981" />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <CopyIcon size={12} color="currentColor" />
+                      <span>Copy</span>
+                    </>
+                  )}
                 </button>
               </div>
               <p style={{ fontSize: "12px", color: "var(--wa-text-secondary)", margin: "4px 0 0 0" }}>
@@ -1085,9 +1055,9 @@ export default function SuperadminPage() {
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                style={{ background: "none", border: "none", color: "var(--wa-text-muted)", cursor: "pointer", padding: 0 }}
+                style={{ background: "none", border: "none", color: "var(--wa-text-muted)", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}
               >
-                ✕
+                <CloseIcon size={13} color="var(--wa-text-muted)" />
               </button>
             )}
           </div>
@@ -1096,10 +1066,10 @@ export default function SuperadminPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             {[
               { id: "all", label: "All Users" },
-              { id: "connected", label: "🟢 Online" },
-              { id: "disconnected", label: "🔴 Offline" },
-              { id: "pairing", label: "🟡 Pairing" },
-              { id: "configuring", label: "⚪ Configuring" },
+              { id: "connected", label: "Online" },
+              { id: "disconnected", label: "Offline" },
+              { id: "pairing", label: "Pairing" },
+              { id: "configuring", label: "Configuring" },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -1230,9 +1200,9 @@ export default function SuperadminPage() {
                                 <button
                                   onClick={() => navigator.clipboard.writeText(u.hash)}
                                   title="Copy Code"
-                                  style={{ background: "none", border: "none", color: "var(--wa-text-muted)", cursor: "pointer", padding: 0, fontSize: "11px" }}
+                                  style={{ background: "none", border: "none", color: "var(--wa-text-muted)", cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center" }}
                                 >
-                                  📋
+                                  <CopyIcon size={12} color="currentColor" />
                                 </button>
                               </div>
                               <div style={{ fontSize: "12px", color: "var(--wa-text-secondary)" }}>
@@ -1562,7 +1532,7 @@ export default function SuperadminPage() {
                   <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--wa-border)" }}>
                     <span style={{ fontSize: "12px", color: "var(--wa-text-secondary)" }}>AI API Key:</span>
                     <span style={{ fontSize: "12px", fontWeight: "600", color: selectedUser.aiApiKeySet ? "#10b981" : "#ef4444" }}>
-                      {selectedUser.aiApiKeySet ? "Configured ✓" : "Missing ✕"}
+                      {selectedUser.aiApiKeySet ? "Configured" : "Missing"}
                     </span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8 }}>

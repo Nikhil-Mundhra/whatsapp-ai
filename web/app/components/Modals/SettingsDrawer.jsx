@@ -1,6 +1,6 @@
 "use client";
 
-import { CloseIcon, RobotIcon } from "../Icons/WhatsAppIcons";
+import { CloseIcon, RobotIcon, SunIcon, MoonIcon, CheckIcon } from "../Icons/WhatsAppIcons";
 
 export function SettingsDrawer({
   isOpen,
@@ -105,7 +105,8 @@ export function SettingsDrawer({
                     transition: "all 0.15s ease",
                   }}
                 >
-                  <span>☀️ Light</span>
+                  <SunIcon size={14} color="currentColor" />
+                  <span>Light</span>
                 </button>
 
                 {/* Dark Option */}
@@ -128,7 +129,8 @@ export function SettingsDrawer({
                     transition: "all 0.15s ease",
                   }}
                 >
-                  <span>🌙 Dark</span>
+                  <MoonIcon size={14} color="currentColor" />
+                  <span>Dark</span>
                 </button>
               </div>
             </div>
@@ -239,8 +241,9 @@ export function SettingsDrawer({
                   </span>
                 )}
                 {keyStatus?.valid && (
-                  <span style={{ fontSize: 11, color: "#10b981", marginTop: 3, display: "block", fontWeight: 600 }}>
-                    ✓ Valid {keyStatus.provider} Key
+                  <span style={{ fontSize: 11, color: "#10b981", marginTop: 3, display: "flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
+                    <CheckIcon size={12} color="#10b981" />
+                    <span>Valid {keyStatus.provider} Key</span>
                   </span>
                 )}
                 {keyStatus?.error && (

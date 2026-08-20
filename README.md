@@ -4,34 +4,35 @@ An autonomous, self-hosted WhatsApp AI texting companion and [Model Context Prot
 
 ---
 
-## 🌟 Highlights
+## Highlights
 
-* **🎭 Persona & Style Mimicking**: Uses local LLMs (via Ollama or OpenAI-compatible APIs like `qwen3.5-32k`) trained on your chat history to mirror your tone, sentence length, capitalization, slang, and emojis.
-* **🧠 Adaptive Thinking Engine**: Automatically toggles between **Fast Mode** (quick 1-liner replies) and **Deep Thinking Mode** (contextual multi-step reasoning) based on incoming message complexity.
-* **🌐 Web Setup & 6-Char Hash Pairing**: Configure your connection via a clean browser UI, scan a WhatsApp QR code, and receive a 6-character code to pair with your smartwatch.
-* **🛡️ Multi-Channel Approval Gating**:
+* **Persona & Style Mimicking**: Uses local LLMs (via Ollama or OpenAI-compatible APIs like `qwen3.5-32k`, Gemini, OpenRouter) trained on your chat history to mirror your tone, sentence length, capitalization, slang, and emojis.
+* **Adaptive Thinking Engine**: Automatically toggles between **Fast Mode** (quick 1-liner replies) and **Deep Thinking Mode** (contextual multi-step reasoning) based on incoming message complexity.
+* **Complete Web Client & Chat Timeline**: Rich web interface with WhatsApp styling, live message streaming, read receipts, interactive TakeOver cards, and per-contact relationship & persona prompt tuning.
+* **Multi-Channel Approval Gating**:
   * **Native WhatsApp Polls**: Get an interactive poll on your phone (`Send 1 text`, `5 minutes`, `2 hours`, `Deny`).
   * **Zepp OS Smartwatch App**: Enter your pairing code and approve/deny requests right from your wrist (Amazfit T-Rex 3 / Zepp OS 4.0).
-  * **Next.js Web Control Panel**: Cloud relay and web dashboard backed by Vercel KV / Redis.
-* **🛑 Automatic Human Override**: Picking up your phone and manually texting an allowed contact immediately revokes the AI's grant and sends you a confirmation notification.
-* **🔌 Full Model Context Protocol (MCP) Server**: Provides standardized tools for Claude Desktop, Cursor, and other agent frameworks to read chats, download media, search contacts, and send messages.
+  * **Next.js Web Control Panel**: Cloud relay and web dashboard backed by Vercel KV / Redis with 2FA WhatsApp OTP verification.
+* **Superadmin Control Plane (`/superadmin`)**: Master dashboard with 2-Factor Authentication, global user telemetry, storage footprint tracking, dynamic VIP coupon rotation, and remote bridge tenant lifecycle controls.
+* **Automatic Human Override**: Picking up your phone and manually texting an allowed contact immediately revokes the AI's grant and sends you a confirmation notification.
+* **Full Model Context Protocol (MCP) Server**: Provides standardized tools for Claude Desktop, Cursor, and other agent frameworks to read chats, download media, search contacts, and send messages.
 
 ---
 
-## 📱 User Onboarding & Pairing Flow
+## User Onboarding & Pairing Flow
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User as User (Browser)
-    participant Web as Vercel Web App (/setup)
+    participant Web as Next.js Web App (/setup)
     participant KV as Vercel KV / Redis
     participant Bridge as WhatsApp Bridge
     actor Watch as Smartwatch (Zepp OS)
 
     User->>Web: Opens https://whatsapp-ai-nikhil.vercel.app/setup
-    User->>Web: Submits 3 Keys (Owner Phone, Allowed Contacts, AI Key) + Coupon
-    Web->>Web: Verifies coupon (Contact wa.me/+91XXXXXXXXXX)
+    User->>Web: Submits 3 Keys (Owner Phone, Allowed Contacts, AI Key) + VIP Coupon
+    Web->>Web: Verifies single-use VIP coupon (Contact wa.me/+917060410033)
     Web->>KV: Saves connection & generates 6-character Hash (e.g. "K9X2P4")
     Web->>Bridge: Provisions WhatsApp Web pairing QR
     Web-->>User: Displays WhatsApp QR code on screen
@@ -46,25 +47,31 @@ For a comprehensive walkthrough of the onboarding architecture, see [docs/ONBOAR
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 ```mermaid
-flowchart LR
-    subgraph WhatsApp["WhatsApp Network"]
+flowchart TB
+    subgraph EdgeTier["Edge & Client Tier"]
         Contact[Allowed Contact]
-        OwnerPhone[Owner Device]
+        OwnerPhone[Owner WhatsApp Mobile]
+        ZeppWatch["Zepp OS Watch App<br/>(Amazfit T-Rex 3)"]
+        WebClient["Next.js Web Client<br/>(Chat Timeline & TakeOver Cards)"]
     end
 
-    subgraph CoreEngine["Local Core Engine"]
+    subgraph SuperadminTier["Superadmin Control Plane"]
+        SuperadminDash["Superadmin Dashboard (/superadmin)<br/>2FA WhatsApp OTP & Telemetry"]
+    end
+
+    subgraph CloudRelay["Cloud Relay & Provisioning"]
+        WebRelay["Next.js App Router API (/api/*)<br/>Vercel KV + Blob Storage"]
+    end
+
+    subgraph CoreEngine["Local / Remote Bridge Core"]
         Bridge["Go WhatsApp Bridge<br/>(whatsmeow + SQLite)"]
         Controller["Python Harness Controller<br/>(harness/controller.py)"]
         Generator["Persona Generator<br/>(harness/send.py)"]
-        Ollama["Local LLM<br/>(Ollama: qwen3.5-32k)"]
-    end
-
-    subgraph Approvals["Approval Channels"]
-        ZeppWatch["Zepp OS Watch App<br/>(Amazfit T-Rex 3)"]
-        WebDash["Web Control Panel<br/>(Next.js + Vercel KV)"]
+        Ollama["LLM Engine<br/>(Ollama / OpenRouter / Gemini)"]
+        MCPServer["FastMCP Server<br/>(Claude Desktop / Cursor)"]
     end
 
     Contact <-->|Incoming / Outgoing Text| Bridge
@@ -73,24 +80,30 @@ flowchart LR
     Generator <-->|Inference| Ollama
     
     Bridge <-->|Interactive Poll| OwnerPhone
-    Controller <-->|Sync State| WebDash
-    ZeppWatch <-->|BLE & HTTP| WebDash
+    Controller <-->|Sync State| WebRelay
+    ZeppWatch <-->|BLE & HTTPS| WebRelay
+    WebClient <-->|HTTPS REST| WebRelay
+    SuperadminDash <-->|Admin RPCs & Telemetry| WebRelay
+    WebRelay <-->|Bridge Management| Bridge
 ```
 
 For full technical specifications, database schemas, and protocol details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 .
 ├── harness/                  # AI Controller & Persona Texting Harness
 │   ├── controller.py         # Real-time message watcher & permission manager
-│   ├── send.py               # Persona generator, floor control & Ollama client
+│   ├── send.py               # Persona generator, floor control & Ollama/OpenRouter client
 │   └── controller_state.json # Runtime state machine file
 ├── whatsapp-bridge/          # Go Bridge (WhatsApp Multi-Device API)
 │   ├── main.go               # whatsmeow client, SQLite storage & HTTP server
+│   ├── multitenant.go        # Multi-tenant manager, watchdog & tenant provisioning
+│   ├── tenant_server.go      # REST endpoints for tenant lifecycle, chat settings & QR
+│   ├── tenant_ai.go          # Direct AI auto-reply engine (Gemini / OpenRouter)
 │   └── store/                # Local SQLite databases (messages.db, whatsapp.db)
 ├── whatsapp-mcp-server/      # FastMCP Python Server
 │   ├── main.py               # MCP Tool definitions (Claude / Cursor interface)
@@ -98,11 +111,16 @@ For full technical specifications, database schemas, and protocol details, see [
 │   └── audio.py              # Audio / voice note transcoding utilities
 ├── zepp/                     # Smartwatch Frontend (Zepp OS 4.0 / Amazfit)
 │   ├── app.json              # Zepp OS app manifest (T-Rex 3 target)
-│   ├── page/                 # Watch UI & tactile layout (480x480 round)
+│   ├── page/                 # Watch UI & tactile layout (480x480 round AMOLED)
 │   └── app-side/             # Phone-side companion service (ZML BLE bridge)
 ├── web/                      # Cloud Relay & Web Control Panel
 │   ├── app/                  # Next.js App Router (UI & API routes)
+│   ├── app/page.jsx          # Live Web Client Chat & TakeOver Dashboard
 │   ├── app/setup/            # 3-Step Web Setup & Pairing Portal
+│   ├── app/superadmin/       # Superadmin Control Plane Dashboard & 2FA Login
+│   ├── lib/connections.js    # Multi-connection & 2FA WhatsApp OTP management
+│   ├── lib/superadmin.js     # Superadmin authentication & global telemetry
+│   ├── lib/jwt.js            # Cryptographic HS256 JWT auth implementation
 │   └── lib/polls.js          # Vercel KV / Redis poll state management
 ├── docs/                     # Detailed architectural & setup documentation
 │   └── ONBOARDING_FLOW.md    # Step-by-step connection & pairing guide
@@ -113,7 +131,7 @@ For full technical specifications, database schemas, and protocol details, see [
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Prerequisites
 
@@ -153,7 +171,7 @@ go run main.go
 ```
 
 * On first run, a **QR code** will appear in your terminal (or via the `/setup` web portal).
-* Open WhatsApp on your phone $\rightarrow$ **Linked Devices** $\rightarrow$ **Link a Device** and scan the QR code.
+* Open WhatsApp on your phone -> **Linked Devices** -> **Link a Device** and scan the QR code.
 * The bridge connects via `whatsmeow`, starts syncing messages to `store/messages.db`, and exposes local HTTP endpoints on port `8080`.
 
 ---
@@ -195,7 +213,7 @@ uv run harness/send.py 91XXXXXXXXXX --model qwen3.5-32k
 2. **Access Setup**: Open `http://localhost:3000/setup` in your browser.
 3. **Enter Details & Coupon**:
    * Supply `OWNER_PHONE`, `ALLOWED_RECIPIENTS`, and `AI_API_KEY`.
-   * Enter your access coupon (Contact [wa.me/+91XXXXXXXXXX](https://wa.me/+91XXXXXXXXXX) for a coupon).
+   * Enter your access coupon (Contact [wa.me/+917060410033](https://wa.me/+917060410033) for a coupon).
 4. **Scan WhatsApp QR**: Scan the on-screen QR code to authenticate the bridge session.
 5. **Get Pairing Hash**: Copy the 6-character pairing code (e.g. `K9X2P4`).
 6. **Pair Smartwatch**:
@@ -204,7 +222,7 @@ uv run harness/send.py 91XXXXXXXXXX --model qwen3.5-32k
 
 ---
 
-## 🔌 Connecting to Claude Desktop / Cursor (MCP)
+## Connecting to Claude Desktop / Cursor (MCP)
 
 To use WhatsApp as a Model Context Protocol tool in Claude Desktop or Cursor:
 
@@ -236,7 +254,7 @@ Add to `claude_desktop_config.json` or `~/.cursor/mcp.json`:
 
 ---
 
-## 🔒 Security & Privacy
+## Security & Privacy
 
 * **Local-First & Scoped**: All WhatsApp credentials and SQLite databases remain strictly on your local infrastructure.
 * **Granular Whitelist**: The AI controller will **never** interact with contacts outside `ALLOWED_RECIPIENTS`.
@@ -245,6 +263,7 @@ Add to `claude_desktop_config.json` or `~/.cursor/mcp.json`:
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](./LICENSE).
+

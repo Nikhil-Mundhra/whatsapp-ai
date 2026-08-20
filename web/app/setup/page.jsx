@@ -1,7 +1,25 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { LockIcon, RobotIcon, DoubleCheckIcon, RefreshIcon } from "../components/Icons/WhatsAppIcons";
+import {
+  LockIcon,
+  RobotIcon,
+  SunIcon,
+  MoonIcon,
+  WarningIcon,
+  CheckIcon,
+  RefreshIcon,
+  PhoneIcon,
+  UsersIcon,
+  TicketIcon,
+  EyeIcon,
+  EyeOffIcon,
+  WatchIcon,
+  MonitorIcon,
+  CopyIcon,
+  ZapIcon,
+  ArrowRightIcon,
+} from "../components/Icons/WhatsAppIcons";
 
 export default function SetupPage() {
   const [step, setStep] = useState(1);
@@ -66,7 +84,7 @@ export default function SetupPage() {
             if (data.valid) {
               setKeyStatus({
                 state: "valid",
-                message: data.warning || `Valid ${data.provider} Key ✓`,
+                message: data.warning || `Valid ${data.provider} Key`,
                 provider: data.provider,
                 models: data.models || [],
               });
@@ -309,7 +327,7 @@ export default function SetupPage() {
             }}
           >
             <span>Log In</span>
-            <span>→</span>
+            <ArrowRightIcon size={12} color="var(--wa-text-secondary)" />
           </a>
 
           <button
@@ -329,7 +347,7 @@ export default function SetupPage() {
               gap: 4,
             }}
           >
-            <span>{theme === "dark" ? "☀️" : "🌙"}</span>
+            {theme === "dark" ? <SunIcon size={13} color="var(--wa-text-secondary)" /> : <MoonIcon size={13} color="var(--wa-text-secondary)" />}
           </button>
         </div>
       </header>
@@ -356,14 +374,14 @@ export default function SetupPage() {
 
           <div className={`wa-stepper-step ${step === 1 ? "active" : step > 1 ? "completed" : ""}`}>
             <div className="wa-stepper-badge">
-              {step > 1 ? "✓" : "1"}
+              {step > 1 ? <CheckIcon size={14} color="#ffffff" /> : "1"}
             </div>
             <span className="wa-stepper-label">01 Configure</span>
           </div>
 
           <div className={`wa-stepper-step ${step === 2 ? "active" : step > 2 ? "completed" : ""}`}>
             <div className="wa-stepper-badge">
-              {step > 2 ? "✓" : "2"}
+              {step > 2 ? <CheckIcon size={14} color="#ffffff" /> : "2"}
             </div>
             <span className="wa-stepper-label">02 QR Scan</span>
           </div>
@@ -395,7 +413,7 @@ export default function SetupPage() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span>⚠️</span>
+              <WarningIcon size={16} color="#ef4444" />
               <span>{error.includes("wa.me") ? "Access requires a valid coupon code." : error}</span>
             </div>
             {error.includes("wa.me") && (
@@ -413,9 +431,13 @@ export default function SetupPage() {
                   background: "rgba(37, 211, 102, 0.15)",
                   padding: "4px 10px",
                   borderRadius: 6,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
                 }}
               >
-                Get pass on WhatsApp →
+                <span>Get pass on WhatsApp</span>
+                <ArrowRightIcon size={12} color="var(--wa-green)" />
               </a>
             )}
           </div>
@@ -437,7 +459,7 @@ export default function SetupPage() {
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 16 }}>⚡</span>
+                  <ZapIcon size={16} color="var(--wa-teal)" />
                   <div>
                     <div style={{ fontSize: 11.5, color: "var(--wa-text-muted)" }}>Existing Active Connection</div>
                     <code style={{ fontWeight: 700, color: "var(--wa-teal)", fontSize: 14, fontFamily: "monospace" }}>
@@ -455,9 +477,13 @@ export default function SetupPage() {
                     background: "rgba(0, 168, 132, 0.12)",
                     padding: "6px 12px",
                     borderRadius: 8,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
                   }}
                 >
-                  Open Dashboard →
+                  <span>Open Dashboard</span>
+                  <ArrowRightIcon size={12} color="var(--wa-teal)" />
                 </a>
               </div>
             )}
@@ -466,8 +492,9 @@ export default function SetupPage() {
               {/* Field 1: Owner Phone */}
               <div className="wa-form-card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--wa-text-primary)", letterSpacing: 0.4 }}>
-                    📱 OWNER WHATSAPP NUMBER
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--wa-text-primary)", letterSpacing: 0.4, display: "flex", alignItems: "center", gap: 6 }}>
+                    <PhoneIcon size={14} color="var(--wa-text-primary)" />
+                    <span>OWNER WHATSAPP NUMBER</span>
                   </label>
                   <span style={{ fontSize: 11, color: "var(--wa-text-muted)" }}>
                     Country code, no +
@@ -489,8 +516,9 @@ export default function SetupPage() {
               {/* Field 2: Allowed Recipients */}
               <div className="wa-form-card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--wa-text-primary)", letterSpacing: 0.4 }}>
-                    👥 ALLOWED RECIPIENTS (WHITELIST)
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--wa-text-primary)", letterSpacing: 0.4, display: "flex", alignItems: "center", gap: 6 }}>
+                    <UsersIcon size={14} color="var(--wa-text-primary)" />
+                    <span>ALLOWED RECIPIENTS (WHITELIST)</span>
                   </label>
                   <span
                     style={{
@@ -520,21 +548,27 @@ export default function SetupPage() {
               {/* Field 3: AI Engine & API Key */}
               <div className="wa-form-card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--wa-text-primary)", letterSpacing: 0.4 }}>
-                    🤖 AI MODEL API KEY
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--wa-text-primary)", letterSpacing: 0.4, display: "flex", alignItems: "center", gap: 6 }}>
+                    <RobotIcon size={14} color="var(--wa-text-primary)" />
+                    <span>AI MODEL API KEY</span>
                   </label>
                   <div>
                     {keyStatus.state === "checking" && (
-                      <span style={{ fontSize: 12, color: "var(--wa-text-muted)" }}>⏳ Testing key…</span>
+                      <span style={{ fontSize: 12, color: "var(--wa-text-muted)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <RefreshIcon size={12} color="var(--wa-text-muted)" />
+                        <span>Testing key…</span>
+                      </span>
                     )}
                     {keyStatus.state === "valid" && (
-                      <span style={{ fontSize: 12, color: "var(--wa-green)", fontWeight: 700 }}>
-                        {keyStatus.message}
+                      <span style={{ fontSize: 12, color: "var(--wa-green)", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <CheckIcon size={12} color="var(--wa-green)" />
+                        <span>{keyStatus.message}</span>
                       </span>
                     )}
                     {keyStatus.state === "invalid" && (
-                      <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 700 }}>
-                        ❌ {keyStatus.message}
+                      <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <WarningIcon size={12} color="#ef4444" />
+                        <span>{keyStatus.message}</span>
                       </span>
                     )}
                   </div>
@@ -570,12 +604,14 @@ export default function SetupPage() {
                       border: "none",
                       color: "var(--wa-text-muted)",
                       cursor: "pointer",
-                      fontSize: 14,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                       padding: 4,
                     }}
                     title={showApiKey ? "Hide Key" : "Show Key"}
                   >
-                    {showApiKey ? "👁️" : "🙈"}
+                    {showApiKey ? <EyeOffIcon size={16} color="var(--wa-text-muted)" /> : <EyeIcon size={16} color="var(--wa-text-muted)" />}
                   </button>
                 </div>
 
@@ -619,8 +655,9 @@ export default function SetupPage() {
               {/* Field 4: Access Coupon */}
               <div className="wa-form-card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--wa-text-primary)", letterSpacing: 0.4 }}>
-                    🎟️ ACCESS PASS / COUPON
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--wa-text-primary)", letterSpacing: 0.4, display: "flex", alignItems: "center", gap: 6 }}>
+                    <TicketIcon size={14} color="var(--wa-text-primary)" />
+                    <span>ACCESS PASS / COUPON</span>
                   </label>
                   <a
                     href="https://wa.me/917060410033?text=Hey,%20I%20need%20a%20coupon%20for%20TakeOver"
@@ -636,8 +673,8 @@ export default function SetupPage() {
                       gap: 4,
                     }}
                   >
-                    <span>💬 Get one on WhatsApp</span>
-                    <span>→</span>
+                    <span>Get one on WhatsApp</span>
+                    <ArrowRightIcon size={12} color="var(--wa-teal)" />
                   </a>
                 </div>
                 <input
@@ -658,13 +695,15 @@ export default function SetupPage() {
               >
                 {submitting ? (
                   <>
-                    <span style={{ animation: "spin 1s linear infinite" }}>🔄</span>
+                    <span style={{ animation: "spin 1s linear infinite", display: "inline-flex" }}>
+                      <RefreshIcon size={15} color="#ffffff" />
+                    </span>
                     <span>Provisioning Connection…</span>
                   </>
                 ) : (
                   <>
                     <span>Generate Connection &amp; Pair WhatsApp</span>
-                    <span style={{ fontSize: 16 }}>→</span>
+                    <ArrowRightIcon size={15} color="#ffffff" />
                   </>
                 )}
               </button>
@@ -775,10 +814,9 @@ export default function SetupPage() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: 28,
                   }}
                 >
-                  ✓
+                  <CheckIcon size={28} color="#ffffff" />
                 </div>
                 <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
                   Device Linked Successfully!
@@ -802,7 +840,9 @@ export default function SetupPage() {
                   color: "var(--wa-text-muted)",
                 }}
               >
-                <span style={{ fontSize: 28, animation: "spin 2s linear infinite" }}>⏳</span>
+                <span style={{ animation: "spin 2s linear infinite", display: "inline-flex" }}>
+                  <RefreshIcon size={24} color="var(--wa-text-muted)" />
+                </span>
                 <p style={{ margin: 0, fontSize: 13.5, fontWeight: 500 }}>
                   {syncing ? "Generating fresh QR code…" : "Connecting to bridge…"}
                 </p>
@@ -898,12 +938,11 @@ export default function SetupPage() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: 28,
                   margin: "0 auto 14px",
                   boxShadow: "0 0 24px rgba(0, 168, 132, 0.45)",
                 }}
               >
-                🎉
+                <CheckIcon size={30} color="#ffffff" strokeWidth={3} />
               </div>
               <h2 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 6px", color: "var(--wa-text-primary)" }}>
                 You&apos;re All Set!
@@ -966,7 +1005,17 @@ export default function SetupPage() {
                   transition: "all 0.15s ease",
                 }}
               >
-                <span>{copiedHash ? "✓ Copied!" : "📋 Copy Hash"}</span>
+                {copiedHash ? (
+                  <>
+                    <CheckIcon size={14} color="#ffffff" />
+                    <span>Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <CopyIcon size={14} color="var(--wa-text-primary)" />
+                    <span>Copy Hash</span>
+                  </>
+                )}
               </button>
             </div>
 
@@ -993,7 +1042,7 @@ export default function SetupPage() {
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 18 }}>⌚</span>
+                  <WatchIcon size={18} color="var(--wa-teal)" />
                   <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--wa-text-primary)" }}>
                     Amazfit / Zepp OS Watch
                   </h4>
@@ -1016,7 +1065,7 @@ export default function SetupPage() {
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 18 }}>💻</span>
+                  <MonitorIcon size={18} color="var(--wa-teal)" />
                   <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--wa-text-primary)" }}>
                     Web Control Panel
                   </h4>
@@ -1036,10 +1085,14 @@ export default function SetupPage() {
                 textDecoration: "none",
                 marginTop: 6,
                 boxSizing: "border-box",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
               }}
             >
               <span>Open Take-Over Control Panel</span>
-              <span style={{ fontSize: 16 }}>→</span>
+              <ArrowRightIcon size={16} color="#ffffff" />
             </a>
           </div>
         )}
@@ -1065,4 +1118,5 @@ export default function SetupPage() {
     </div>
   );
 }
+
 

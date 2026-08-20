@@ -189,12 +189,13 @@ export function CreatePollModal({
                       border: "none",
                       color: "var(--wa-text-muted)",
                       cursor: "pointer",
-                      fontSize: 16,
                       padding: "0 4px",
+                      display: "flex",
+                      alignItems: "center",
                     }}
                     title="Remove option"
                   >
-                    ✕
+                    <CloseIcon size={14} color="var(--wa-text-muted)" />
                   </button>
                 )}
               </div>

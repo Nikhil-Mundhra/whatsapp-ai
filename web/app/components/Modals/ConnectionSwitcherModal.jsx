@@ -1,7 +1,16 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { CloseIcon, LockIcon } from "../Icons/WhatsAppIcons";
+import {
+  CloseIcon,
+  LockIcon,
+  WarningIcon,
+  PhoneIcon,
+  ArrowRightIcon,
+  ArrowLeftIcon,
+  RefreshIcon,
+  CheckIcon,
+} from "../Icons/WhatsAppIcons";
 
 export function ConnectionSwitcherModal({
   isOpen,
@@ -74,7 +83,7 @@ export function ConnectionSwitcherModal({
       setMaskedPhone(data.maskedPhone || "");
       if (data.bridgeSent === false) {
         setBridgeWarning(
-          `⚠️ Note: Could not deliver WhatsApp message (${data.bridgeError || "Bridge not connected"}). Please check that the WhatsApp bridge is paired and running.`
+          `Delivery Note: Could not deliver WhatsApp message (${data.bridgeError || "Bridge not connected"}). Please check that the WhatsApp bridge is paired and running.`
         );
       }
       setStep(2);
@@ -173,9 +182,13 @@ export function ConnectionSwitcherModal({
               padding: "8px 12px",
               fontSize: 13,
               marginBottom: 14,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
             }}
           >
-            {error}
+            <WarningIcon size={14} color="#ef4444" />
+            <span>{error}</span>
           </div>
         )}
 
@@ -221,9 +234,14 @@ export function ConnectionSwitcherModal({
                 fontWeight: 600,
                 cursor: loading || !inputCode.trim() ? "not-allowed" : "pointer",
                 opacity: loading || !inputCode.trim() ? 0.6 : 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
               }}
             >
-              {loading ? "Sending WhatsApp Code…" : "Send Verification OTP →"}
+              <span>{loading ? "Sending WhatsApp Code…" : "Send Verification OTP"}</span>
+              <ArrowRightIcon size={14} color="#ffffff" />
             </button>
           </form>
         ) : (
@@ -248,7 +266,7 @@ export function ConnectionSwitcherModal({
                     color: "var(--wa-text-primary)",
                   }}
                 >
-                  <span>📱</span>
+                  <PhoneIcon size={12} color="var(--wa-text-secondary)" />
                   <code>{maskedPhone}</code>
                 </div>
               )}
@@ -263,9 +281,13 @@ export function ConnectionSwitcherModal({
                     fontSize: 11,
                     marginTop: 8,
                     lineHeight: 1.4,
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 6,
                   }}
                 >
-                  {bridgeWarning}
+                  <WarningIcon size={13} color="#f59e0b" />
+                  <div>{bridgeWarning}</div>
                 </div>
               )}
             </div>
@@ -307,9 +329,14 @@ export function ConnectionSwitcherModal({
                 fontWeight: 600,
                 cursor: loading || otp.length < 6 ? "not-allowed" : "pointer",
                 opacity: loading || otp.length < 6 ? 0.6 : 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
               }}
             >
-              {loading ? "Verifying…" : "Verify & Switch Connection ✓"}
+              <span>{loading ? "Verifying…" : "Verify & Switch Connection"}</span>
+              <CheckIcon size={14} color="#ffffff" />
             </button>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -327,9 +354,13 @@ export function ConnectionSwitcherModal({
                   fontSize: 12,
                   cursor: "pointer",
                   padding: "4px 0",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
                 }}
               >
-                ← Back
+                <ArrowLeftIcon size={12} color="var(--wa-text-secondary)" />
+                <span>Back</span>
               </button>
 
               {resendCooldown > 0 ? (
@@ -349,9 +380,13 @@ export function ConnectionSwitcherModal({
                     fontWeight: 600,
                     cursor: "pointer",
                     padding: "4px 0",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
                   }}
                 >
-                  🔄 Resend Code
+                  <RefreshIcon size={12} color="var(--wa-teal)" />
+                  <span>Resend Code</span>
                 </button>
               )}
             </div>
@@ -376,4 +411,5 @@ export function ConnectionSwitcherModal({
     </div>
   );
 }
+
 

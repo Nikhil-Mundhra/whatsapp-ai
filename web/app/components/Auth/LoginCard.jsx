@@ -1,7 +1,20 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { LockIcon, RobotIcon, DoubleCheckIcon } from "../Icons/WhatsAppIcons";
+import {
+  LockIcon,
+  RobotIcon,
+  DoubleCheckIcon,
+  SunIcon,
+  MoonIcon,
+  WarningIcon,
+  CheckIcon,
+  ZapIcon,
+  ArrowRightIcon,
+  ArrowLeftIcon,
+  RefreshIcon,
+  ClockIcon,
+} from "../Icons/WhatsAppIcons";
 
 export function LoginCard({
   initialHash = "",
@@ -80,7 +93,7 @@ export function LoginCard({
       setMaskedPhone(data.maskedPhone || "");
       if (data.bridgeSent === false) {
         setBridgeWarning(
-          `⚠️ Delivery Note: WhatsApp bridge is currently offline (${data.bridgeError || "bridge not connected"}). Please make sure your WhatsApp bridge is paired.`
+          `Delivery Note: WhatsApp bridge is currently offline (${data.bridgeError || "bridge not connected"}). Please make sure your WhatsApp bridge is paired.`
         );
       }
       setHash(cleanHash);
@@ -287,11 +300,11 @@ export function LoginCard({
                 color: "var(--wa-text-secondary)",
                 display: "flex",
                 alignItems: "center",
-                gap: 5,
+                gap: 6,
                 transition: "all 0.15s ease",
               }}
             >
-              <span>{theme === "dark" ? "☀️" : "🌙"}</span>
+              {theme === "dark" ? <SunIcon size={13} color="var(--wa-text-secondary)" /> : <MoonIcon size={13} color="var(--wa-text-secondary)" />}
               <span>{theme === "dark" ? "Light" : "Dark"}</span>
             </button>
           )}
@@ -315,7 +328,7 @@ export function LoginCard({
               animation: "fadeIn 0.2s ease-out",
             }}
           >
-            <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+            <WarningIcon size={16} color="#ef4444" />
             <div style={{ flex: 1 }}>{error}</div>
           </div>
         )}
@@ -362,7 +375,7 @@ export function LoginCard({
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 14 }}>⚡</span>
+                  <ZapIcon size={15} color="var(--wa-teal)" />
                   <div style={{ fontSize: 12, color: "var(--wa-text-secondary)" }}>
                     Recent Connection:{" "}
                     <strong style={{ color: "var(--wa-teal)", fontFamily: "monospace", fontSize: 13 }}>
@@ -387,9 +400,13 @@ export function LoginCard({
                     fontWeight: 600,
                     cursor: "pointer",
                     whiteSpace: "nowrap",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
                   }}
                 >
-                  Use {recentHash} →
+                  <span>Use {recentHash}</span>
+                  <ArrowRightIcon size={12} color="#ffffff" />
                 </button>
               </div>
             )}
@@ -451,13 +468,15 @@ export function LoginCard({
             >
               {loading ? (
                 <>
-                  <span style={{ animation: "spin 1s linear infinite" }}>🔄</span>
+                  <span style={{ animation: "spin 1s linear infinite", display: "inline-flex" }}>
+                    <RefreshIcon size={15} color="#ffffff" />
+                  </span>
                   <span>Sending WhatsApp Code…</span>
                 </>
               ) : (
                 <>
                   <span>Continue with WhatsApp</span>
-                  <span style={{ fontSize: 16 }}>→</span>
+                  <ArrowRightIcon size={15} color="#ffffff" />
                 </>
               )}
             </button>
@@ -501,7 +520,7 @@ export function LoginCard({
                 }}
               >
                 <span>Set Up</span>
-                <span>→</span>
+                <ArrowRightIcon size={13} color="var(--wa-teal)" />
               </a>
             </div>
           </form>
@@ -590,9 +609,13 @@ export function LoginCard({
                       background: "rgba(37, 211, 102, 0.12)",
                       padding: "1px 6px",
                       borderRadius: 6,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 3,
                     }}
                   >
-                    Verified Owner
+                    <CheckIcon size={11} color="var(--wa-green)" />
+                    <span>Verified Owner</span>
                   </span>
                 </div>
               )}
@@ -609,9 +632,13 @@ export function LoginCard({
                     fontSize: 12,
                     marginTop: 10,
                     lineHeight: 1.4,
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
                   }}
                 >
-                  {bridgeWarning}
+                  <WarningIcon size={15} color="#f59e0b" />
+                  <div style={{ flex: 1 }}>{bridgeWarning}</div>
                 </div>
               )}
             </div>
@@ -658,13 +685,15 @@ export function LoginCard({
             >
               {loading ? (
                 <>
-                  <span style={{ animation: "spin 1s linear infinite" }}>🔄</span>
+                  <span style={{ animation: "spin 1s linear infinite", display: "inline-flex" }}>
+                    <RefreshIcon size={15} color="#ffffff" />
+                  </span>
                   <span>Verifying Session…</span>
                 </>
               ) : (
                 <>
                   <span>Verify &amp; Unlock Dashboard</span>
-                  <span>✓</span>
+                  <CheckIcon size={15} color="#ffffff" />
                 </>
               )}
             </button>
@@ -695,10 +724,10 @@ export function LoginCard({
                   padding: "4px 0",
                   display: "flex",
                   alignItems: "center",
-                  gap: 4,
+                  gap: 5,
                 }}
               >
-                <span>←</span>
+                <ArrowLeftIcon size={13} color="var(--wa-text-secondary)" />
                 <span>Change code</span>
               </button>
 
@@ -716,7 +745,7 @@ export function LoginCard({
                     border: "1px solid var(--wa-border)",
                   }}
                 >
-                  <span>⏳</span>
+                  <ClockIcon size={13} color="var(--wa-text-muted)" />
                   <span>Resend in {resendCooldown}s</span>
                 </div>
               ) : (
@@ -734,10 +763,10 @@ export function LoginCard({
                     padding: "4px 0",
                     display: "flex",
                     alignItems: "center",
-                    gap: 4,
+                    gap: 5,
                   }}
                 >
-                  <span>🔄</span>
+                  <RefreshIcon size={13} color="var(--wa-teal)" />
                   <span>Resend OTP</span>
                 </button>
               )}
@@ -766,3 +795,4 @@ export function LoginCard({
     </div>
   );
 }
+

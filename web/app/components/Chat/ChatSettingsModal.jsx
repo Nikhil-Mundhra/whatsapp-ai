@@ -149,7 +149,7 @@ export function ChatSettingsModal({ contact, contactName, hash, chats = [], onCl
               <div className="wa-card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <label style={{ fontWeight: 600, fontSize: 14, color: "var(--wa-text-primary, #e9edef)" }}>
-                    🧠 Relationship & Dynamics
+                    Relationship &amp; Dynamics
                   </label>
                   <span style={{
                     fontSize: 11, color: wordCount > 100 ? "#ef4444" : "var(--wa-text-secondary, #8696a0)"
@@ -179,7 +179,7 @@ export function ChatSettingsModal({ contact, contactName, hash, chats = [], onCl
               {/* Friend Circle */}
               <div className="wa-card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <label style={{ fontWeight: 600, fontSize: 14, color: "var(--wa-text-primary, #e9edef)" }}>
-                  👥 Friend Circle
+                  Friend Circle
                 </label>
                 <p style={{ margin: 0, fontSize: 12, color: "var(--wa-text-secondary, #8696a0)" }}>
                   Select other chats in the same social circle. The AI will use shared social context when replying.
@@ -260,7 +260,7 @@ export function ChatSettingsModal({ contact, contactName, hash, chats = [], onCl
               {/* Custom Prompt Override */}
               <div className="wa-card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <label style={{ fontWeight: 600, fontSize: 14, color: "var(--wa-text-primary, #e9edef)" }}>
-                  ⚙️ Custom Prompt (Optional)
+                  Custom Prompt (Optional)
                 </label>
                 <p style={{ margin: 0, fontSize: 12, color: "var(--wa-text-secondary, #8696a0)" }}>
                   Additional context or override instructions for this specific chat. Leave blank to use defaults.
@@ -284,7 +284,7 @@ export function ChatSettingsModal({ contact, contactName, hash, chats = [], onCl
               {/* Model Override */}
               <div className="wa-card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <label style={{ fontWeight: 600, fontSize: 14, color: "var(--wa-text-primary, #e9edef)" }}>
-                  🤖 AI Model (Optional)
+                  AI Model (Optional)
                 </label>
                 <p style={{ margin: 0, fontSize: 12, color: "var(--wa-text-secondary, #8696a0)" }}>
                   Override the AI model for this chat. Leave blank to use the default.
@@ -317,7 +317,7 @@ export function ChatSettingsModal({ contact, contactName, hash, chats = [], onCl
                   opacity: saving || wordCount > 100 ? 0.7 : 1,
                 }}
               >
-                {saving ? "Saving…" : saved ? "✓ Saved" : "Save Settings"}
+                {saving ? "Saving…" : saved ? "Saved" : "Save Settings"}
               </button>
             </>
           )}

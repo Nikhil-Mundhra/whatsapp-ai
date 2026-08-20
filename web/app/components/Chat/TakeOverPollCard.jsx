@@ -105,7 +105,7 @@ export function TakeOverPollCard({
 
               {isSelected && (
                 <span style={{ fontSize: 11, fontWeight: 700, color: isDeny ? "#ef4444" : "var(--wa-teal)" }}>
-                  {isDeny ? "Denied ✗" : "Granted ✓"}
+                  {isDeny ? "Denied" : "Granted"}
                 </span>
               )}
             </button>
