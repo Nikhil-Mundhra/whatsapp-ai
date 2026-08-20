@@ -185,21 +185,83 @@ export async function sendSuperadminOtp() {
   let bridgeError = null;
 
   if (bridgeUrl) {
+    // 1. Discover active tenants from the bridge
+    let targetHashes = [];
     try {
-      const res = await fetch(`${bridgeUrl}/api/send`, {
-        method: "POST",
-        headers: getBridgeHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
-        signal: AbortSignal.timeout(8000),
+      const healthRes = await fetch(`${bridgeUrl}/api/health`, {
+        headers: getBridgeHeaders(),
+        signal: AbortSignal.timeout(4000),
       });
-      if (res.ok) {
-        bridgeSent = true;
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        bridgeError = errData.error || `Status ${res.status}`;
+      if (healthRes.ok) {
+        const healthData = await healthRes.json();
+        if (Array.isArray(healthData.tenants)) {
+          // Prioritize tenant matching the superadmin phone
+          const matchingTenant = healthData.tenants.find(
+            (t) => t.ownerPhone && t.ownerPhone.replace(/\D/g, "") === cleanPhone
+          );
+          if (matchingTenant && matchingTenant.hash) {
+            targetHashes.push(matchingTenant.hash);
+          }
+          // Add other connected tenants as candidates
+          healthData.tenants.forEach((t) => {
+            if (t.connected && t.hash && !targetHashes.includes(t.hash)) {
+              targetHashes.push(t.hash);
+            }
+          });
+        }
       }
-    } catch (err) {
-      bridgeError = err.message;
+    } catch (e) {
+      // Fallback
+    }
+
+    // Also check KV / in-memory connections if no tenants found in health
+    if (targetHashes.length === 0 && globalThis.__connectionsFallback) {
+      for (const k of globalThis.__connectionsFallback.keys()) {
+        if (k) targetHashes.push(String(k).trim().toUpperCase());
+      }
+    }
+
+    // 2. Try sending through the discovered active tenants
+    for (const h of targetHashes) {
+      try {
+        const res = await fetch(`${bridgeUrl}/api/connections/${h}/send`, {
+          method: "POST",
+          headers: getBridgeHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (res.ok) {
+          bridgeSent = true;
+          bridgeError = null;
+          break;
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          bridgeError = errData.error || `Bridge status ${res.status}`;
+        }
+      } catch (err) {
+        bridgeError = err.message;
+      }
+    }
+
+    // 3. Fallback to /api/send if no tenant send succeeded
+    if (!bridgeSent) {
+      try {
+        const res = await fetch(`${bridgeUrl}/api/send`, {
+          method: "POST",
+          headers: getBridgeHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
+          signal: AbortSignal.timeout(6000),
+        });
+        if (res.ok) {
+          bridgeSent = true;
+          bridgeError = null;
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          bridgeError = errData.error || bridgeError || `Bridge status ${res.status}`;
+        }
+      } catch (err) {
+        if (!bridgeError) bridgeError = err.message;
+      }
     }
   }
 

@@ -33,7 +33,11 @@ export async function POST(req) {
         maskedPhone: otpRes.maskedPhone,
         expiresAt: otpRes.expiresAt,
         devOtp: otpRes.devOtp,
-        message: "2FA verification code sent to your WhatsApp",
+        bridgeSent: otpRes.bridgeSent,
+        bridgeError: otpRes.bridgeError,
+        message: otpRes.bridgeSent
+          ? "2FA verification code sent to your WhatsApp"
+          : "Could not deliver OTP via WhatsApp Bridge. Ensure the Go Bridge has a connected tenant.",
       });
     } catch (err) {
       return NextResponse.json(

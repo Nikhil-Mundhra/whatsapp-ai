@@ -23,6 +23,8 @@ export default function SuperadminPage() {
   const [otp, setOtp] = useState("");
   const [maskedPhone, setMaskedPhone] = useState("");
   const [devOtp, setDevOtp] = useState("");
+  const [bridgeSent, setBridgeSent] = useState(true);
+  const [bridgeError, setBridgeError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState("");
 
@@ -118,6 +120,8 @@ export default function SuperadminPage() {
       if (json.require2fa) {
         setOtpStep(true);
         setMaskedPhone(json.maskedPhone || "");
+        setBridgeSent(json.bridgeSent !== false);
+        setBridgeError(json.bridgeError || "");
         if (json.devOtp) setDevOtp(json.devOtp);
       } else {
         setAuthenticated(true);
@@ -433,6 +437,22 @@ export default function SuperadminPage() {
                     outline: "none",
                   }}
                 />
+                {!bridgeSent && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: "10px 12px",
+                      backgroundColor: "rgba(234, 179, 8, 0.12)",
+                      border: "1px solid rgba(234, 179, 8, 0.3)",
+                      borderRadius: 8,
+                      fontSize: "12px",
+                      color: "#eab308",
+                      lineHeight: "1.4",
+                    }}
+                  >
+                    ⚠️ <strong>Bridge Delivery Warning</strong>: WhatsApp bridge could not deliver the text message ({bridgeError || "no active connected sender"}). Ensure at least one WhatsApp account is linked & online on the bridge.
+                  </div>
+                )}
                 {devOtp && (
                   <div style={{ marginTop: 8, fontSize: "12px", color: "var(--wa-teal)", textAlign: "center" }}>
                     Dev Auto-Code: <strong>{devOtp}</strong>
