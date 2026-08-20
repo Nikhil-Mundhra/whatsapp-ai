@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server.js";
 import { createConnection, createSessionForConnection } from "../../../lib/connections.js";
 import { setAuthCookies } from "../../../lib/jwt.js";
+import { getActiveCoupon } from "../../../lib/config.js";
 
 export async function POST(req) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "invalid body" }, { status: 400 });
 
-  const expectedCoupon = (process.env.COUPON || "coupon").trim().toLowerCase();
+  const activeCoupon = (await getActiveCoupon()).toLowerCase();
+  const envCoupon = (process.env.COUPON || "coupon").trim().toLowerCase();
   const providedCoupon = String(body.coupon || "").trim().toLowerCase();
-  if (providedCoupon !== expectedCoupon) {
+
+  if (providedCoupon !== activeCoupon && providedCoupon !== envCoupon) {
     return NextResponse.json(
       { error: "invalid coupon. Contact wa.me/+917060410033 to get one." },
       { status: 403 }

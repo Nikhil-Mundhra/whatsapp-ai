@@ -199,4 +199,44 @@ test("Superadmin API Routes Unit Tests", async (t) => {
     const delJson = await delRes.json();
     assert.equal(delJson.success, true);
   });
+
+  await t.test("GET and POST /api/superadmin/coupon manages active registration coupon", async () => {
+    const { GET: couponGET, POST: couponPOST } = await import("../app/api/superadmin/coupon/route.js");
+    const token = createSuperadminSessionToken();
+    const authHeader = { cookie: `${SUPERADMIN_COOKIE_NAME}=${token}` };
+
+    // 1. Unauthenticated -> 401
+    const unauthReq = new NextRequest("http://localhost/api/superadmin/coupon");
+    const unauthRes = await couponGET(unauthReq);
+    assert.equal(unauthRes.status, 401);
+
+    // 2. Authenticated GET
+    const getReq = new NextRequest("http://localhost/api/superadmin/coupon", { headers: authHeader });
+    const getRes = await couponGET(getReq);
+    assert.equal(getRes.status, 200);
+    const getJson = await getRes.json();
+    assert.ok(getJson.coupon);
+
+    // 3. Authenticated POST to auto-generate
+    const genReq = new NextRequest("http://localhost/api/superadmin/coupon", {
+      method: "POST",
+      headers: authHeader,
+      body: JSON.stringify({}),
+    });
+    const genRes = await couponPOST(genReq);
+    assert.equal(genRes.status, 200);
+    const genJson = await genRes.json();
+    assert.ok(genJson.coupon.startsWith("VIP-"));
+
+    // 4. Authenticated POST with custom coupon
+    const customReq = new NextRequest("http://localhost/api/superadmin/coupon", {
+      method: "POST",
+      headers: authHeader,
+      body: JSON.stringify({ coupon: "CUSTOM-TEST-99" }),
+    });
+    const customRes = await couponPOST(customReq);
+    assert.equal(customRes.status, 200);
+    const customJson = await customRes.json();
+    assert.equal(customJson.coupon, "CUSTOM-TEST-99");
+  });
 });

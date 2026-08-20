@@ -38,6 +38,13 @@ export default function SuperadminPage() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [actionLoading, setActionLoading] = useState({});
 
+  // Coupon state
+  const [activeCoupon, setActiveCoupon] = useState("");
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponCopied, setCouponCopied] = useState(false);
+  const [customCouponInput, setCustomCouponInput] = useState("");
+  const [showCustomCoupon, setShowCustomCoupon] = useState(false);
+
   // Initialize theme
   useEffect(() => {
     const savedTheme = localStorage.getItem("wa_theme") || "dark";
@@ -66,6 +73,7 @@ export default function SuperadminPage() {
         if (json.authenticated) {
           setAuthenticated(true);
           fetchUsers();
+          fetchCoupon();
           return;
         }
       }
@@ -96,6 +104,48 @@ export default function SuperadminPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchCoupon = async () => {
+    try {
+      const res = await fetch("/api/superadmin/coupon", { cache: "no-store" });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.coupon) setActiveCoupon(json.coupon);
+      }
+    } catch {}
+  };
+
+  const handleRefreshCoupon = async (customVal = null) => {
+    setCouponLoading(true);
+    try {
+      const res = await fetch("/api/superadmin/coupon", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(customVal ? { coupon: customVal } : {}),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.coupon) {
+          setActiveCoupon(json.coupon);
+          setShowCustomCoupon(false);
+          setCustomCouponInput("");
+        }
+      } else {
+        alert("Failed to update coupon");
+      }
+    } catch (err) {
+      alert(`Error updating coupon: ${err.message}`);
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const handleCopyCoupon = () => {
+    if (!activeCoupon) return;
+    navigator.clipboard.writeText(activeCoupon);
+    setCouponCopied(true);
+    setTimeout(() => setCouponCopied(false), 2000);
   };
 
   const handleLoginSubmit = async (e) => {
@@ -772,6 +822,210 @@ export default function SuperadminPage() {
             <div style={{ fontSize: "12px", color: "var(--wa-text-secondary)", marginTop: 4 }}>
               Autonomous Takeover replies
             </div>
+          </div>
+        </div>
+
+        {/* Valid Coupon Widget */}
+        <div
+          style={{
+            backgroundColor: "var(--wa-card-bg)",
+            border: "1px solid var(--wa-teal)",
+            borderRadius: 10,
+            padding: "16px 20px",
+            marginBottom: "20px",
+            boxShadow: "0 2px 8px rgba(0, 168, 132, 0.08)",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "16px",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          {/* Left: Info & Coupon Display */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 10,
+                backgroundColor: "rgba(0, 168, 132, 0.15)",
+                color: "var(--wa-teal)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "20px",
+              }}
+            >
+              🎟️
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: "12px", fontWeight: "700", textTransform: "uppercase", color: "var(--wa-text-muted)" }}>
+                  Valid Registration Coupon:
+                </span>
+                <span
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: "800",
+                    fontFamily: "monospace",
+                    letterSpacing: "1.5px",
+                    padding: "4px 12px",
+                    borderRadius: 6,
+                    backgroundColor: "var(--wa-search-input)",
+                    border: "1px solid var(--wa-border-strong)",
+                    color: "var(--wa-teal)",
+                  }}
+                >
+                  {activeCoupon || "LOADING..."}
+                </span>
+                <button
+                  onClick={handleCopyCoupon}
+                  title="Copy Coupon"
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    backgroundColor: couponCopied ? "rgba(16, 185, 129, 0.15)" : "var(--wa-btn-secondary-bg)",
+                    border: couponCopied ? "1px solid #10b981" : "1px solid var(--wa-border)",
+                    color: couponCopied ? "#10b981" : "var(--wa-text-primary)",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  {couponCopied ? "Copied! ✓" : "Copy 📋"}
+                </button>
+              </div>
+              <p style={{ fontSize: "12px", color: "var(--wa-text-secondary)", margin: "4px 0 0 0" }}>
+                Users must enter this coupon at <strong>/setup</strong> to register a new WhatsApp account.
+              </p>
+            </div>
+          </div>
+
+          {/* Right: Actions & Custom Coupon Input */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {showCustomCoupon ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  type="text"
+                  placeholder="CUSTOM-CODE"
+                  value={customCouponInput}
+                  onChange={(e) => setCustomCouponInput(e.target.value.toUpperCase())}
+                  style={{
+                    padding: "7px 10px",
+                    backgroundColor: "var(--wa-search-input)",
+                    border: "1px solid var(--wa-teal)",
+                    borderRadius: 6,
+                    color: "var(--wa-text-primary)",
+                    fontSize: "13px",
+                    fontWeight: "700",
+                    fontFamily: "monospace",
+                    outline: "none",
+                    width: 140,
+                  }}
+                />
+                <button
+                  onClick={() => customCouponInput.trim() && handleRefreshCoupon(customCouponInput.trim())}
+                  disabled={couponLoading || !customCouponInput.trim()}
+                  style={{
+                    padding: "7px 12px",
+                    backgroundColor: "var(--wa-teal)",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: 6,
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  Set
+                </button>
+                <button
+                  onClick={() => {
+                    setShowCustomCoupon(false);
+                    setCustomCouponInput("");
+                  }}
+                  style={{
+                    padding: "7px 10px",
+                    backgroundColor: "transparent",
+                    color: "var(--wa-text-muted)",
+                    border: "1px solid var(--wa-border)",
+                    borderRadius: 6,
+                    fontSize: "12px",
+                    cursor: "pointer",
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowCustomCoupon(true)}
+                style={{
+                  padding: "7px 12px",
+                  backgroundColor: "var(--wa-btn-secondary-bg)",
+                  border: "1px solid var(--wa-border)",
+                  borderRadius: 6,
+                  color: "var(--wa-text-primary)",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                Custom Coupon
+              </button>
+            )}
+
+            <button
+              onClick={() => handleRefreshCoupon()}
+              disabled={couponLoading}
+              title="Generate a new valid registration coupon"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "7px 14px",
+                backgroundColor: "var(--wa-teal)",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 6,
+                fontSize: "12px",
+                fontWeight: "600",
+                cursor: couponLoading ? "not-allowed" : "pointer",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
+              }}
+            >
+              <span style={{ display: "inline-block", transform: couponLoading ? "rotate(360deg)" : "none", transition: "transform 0.5s" }}>
+                🔄
+              </span>
+              <span>{couponLoading ? "Generating..." : "Generate New Coupon"}</span>
+            </button>
+
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(
+                `Here is your WhatsApp AI Setup Access Coupon: *${activeCoupon}*\n\nGet started here: https://whatsapp-ai-nikhil.vercel.app/setup`
+              )}`}
+              target="_blank"
+              rel="noreferrer"
+              title="Share Coupon via WhatsApp"
+              style={{
+                padding: "7px 12px",
+                backgroundColor: "rgba(37, 211, 102, 0.15)",
+                border: "1px solid rgba(37, 211, 102, 0.3)",
+                borderRadius: 6,
+                color: "#10b981",
+                fontSize: "12px",
+                fontWeight: "600",
+                textDecoration: "none",
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              Share ↗
+            </a>
           </div>
         </div>
 
