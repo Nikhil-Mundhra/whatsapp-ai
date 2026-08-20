@@ -1,12 +1,13 @@
 import { randomBytes } from "crypto";
 import { kv } from "./polls.js";
+import { createJwt, verifyJwt, decodeJwt, SESSION_TTL_SECONDS } from "./jwt.js";
 
 const PREFIX = "conn:";
 const INDEX = "connections";
 const OTP_PREFIX = "otp:";
 const SESSION_PREFIX = "session:";
+const REVOKED_PREFIX = "revoked:";
 const OTP_TTL_SECONDS = 600; // 10 minutes
-const SESSION_TTL_SECONDS = 30 * 24 * 3600; // 30 days
 
 const HASH_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const HASH_LEN = 6;
@@ -15,6 +16,7 @@ const HASH_LEN = 6;
 globalThis.__connectionsFallback = globalThis.__connectionsFallback || new Map();
 globalThis.__otpFallback = globalThis.__otpFallback || new Map();
 globalThis.__sessionFallback = globalThis.__sessionFallback || new Map();
+globalThis.__revokedTokensFallback = globalThis.__revokedTokensFallback || new Set();
 
 export function generateHash() {
   const bytes = randomBytes(HASH_LEN);
@@ -321,7 +323,7 @@ export async function verifyConnectionOtp(hash, inputOtp) {
     } catch {}
   }
 
-  const sessionToken = randomBytes(32).toString("hex");
+  const sessionToken = createJwt({ hash: cleanHash, type: "session" }, SESSION_TTL_SECONDS);
   const sessionRecord = {
     token: sessionToken,
     hash: cleanHash,
@@ -352,6 +354,28 @@ export async function verifySession(hash, token) {
 
   if (!cleanHash || !cleanToken) return false;
 
+  // Check if token was explicitly revoked
+  if (globalThis.__revokedTokensFallback.has(cleanToken)) {
+    return false;
+  }
+  if (kv) {
+    try {
+      const isRevoked = await kv.get(REVOKED_PREFIX + cleanToken);
+      if (isRevoked) return false;
+    } catch {}
+  }
+
+  // 1. Try JWT verification first
+  const jwtPayload = verifyJwt(cleanToken);
+  if (jwtPayload) {
+    const tokenHash = String(jwtPayload.hash || "").trim().toUpperCase();
+    if (tokenHash === cleanHash) {
+      return true;
+    }
+    return false;
+  }
+
+  // 2. Fallback to opaque KV / in-memory session (legacy tokens)
   let sessionRecord = null;
   if (kv) {
     try {
@@ -368,7 +392,7 @@ export async function verifySession(hash, token) {
   }
 
   if (!sessionRecord) return false;
-  if (sessionRecord.hash !== cleanHash) return false;
+  if (String(sessionRecord.hash || "").trim().toUpperCase() !== cleanHash) return false;
   if (Date.now() > sessionRecord.expiresAt) {
     globalThis.__sessionFallback.delete(cleanToken);
     if (kv) {
@@ -386,7 +410,7 @@ export async function createSessionForConnection(hash) {
   const cleanHash = String(hash || "").trim().toUpperCase();
   if (!cleanHash) throw new Error("Hash is required");
 
-  const sessionToken = randomBytes(32).toString("hex");
+  const sessionToken = createJwt({ hash: cleanHash, type: "session" }, SESSION_TTL_SECONDS);
   const sessionRecord = {
     token: sessionToken,
     hash: cleanHash,
@@ -404,6 +428,7 @@ export async function createSessionForConnection(hash) {
   }
 
   return {
+    valid: true,
     token: sessionToken,
     hash: cleanHash,
     expiresAt: sessionRecord.expiresAt,
@@ -413,9 +438,13 @@ export async function createSessionForConnection(hash) {
 export async function revokeSession(token) {
   const cleanToken = String(token || "").trim();
   if (!cleanToken) return;
+
+  globalThis.__revokedTokensFallback.add(cleanToken);
   globalThis.__sessionFallback.delete(cleanToken);
+
   if (kv) {
     try {
+      await kv.set(REVOKED_PREFIX + cleanToken, "1", { ex: SESSION_TTL_SECONDS });
       await kv.del(SESSION_PREFIX + cleanToken);
     } catch (err) {
       console.error("[kv revokeSession error]", err);

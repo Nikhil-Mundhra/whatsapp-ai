@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server.js";
 import { verifyConnectionOtp } from "../../../../../../lib/connections.js";
+import { setAuthCookies } from "../../../../../../lib/jwt.js";
 
 export async function POST(req, props) {
   const { hash } = await props.params;
@@ -24,5 +25,9 @@ export async function POST(req, props) {
     );
   }
 
-  return NextResponse.json(result, { status: 200 });
+  const response = NextResponse.json(result, { status: 200 });
+  if (result.token) {
+    setAuthCookies(response, result.token, cleanHash);
+  }
+  return response;
 }

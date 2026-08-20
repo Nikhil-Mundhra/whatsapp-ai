@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server.js";
 import { createConnection, createSessionForConnection } from "../../../lib/connections.js";
+import { setAuthCookies } from "../../../lib/jwt.js";
 
 export async function POST(req) {
   const body = await req.json().catch(() => null);
@@ -37,8 +38,14 @@ export async function POST(req) {
 
   const session = await createSessionForConnection(conn.hash);
 
-  return NextResponse.json(
+  const response = NextResponse.json(
     { hash: conn.hash, connection: conn, token: session.token },
     { status: 201 }
   );
+
+  if (session.token) {
+    setAuthCookies(response, session.token, conn.hash);
+  }
+
+  return response;
 }

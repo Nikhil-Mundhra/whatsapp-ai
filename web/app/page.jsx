@@ -81,7 +81,7 @@ export default function Home() {
     document.documentElement.setAttribute("data-theme", newTheme);
   }
 
-  // 1. Initialize hash, verify session from URL query or localStorage
+  // 1. Initialize hash, verify session from Cookies, URL query, or localStorage
   useEffect(() => {
     async function checkSession() {
       const params = new URLSearchParams(window.location.search);
@@ -97,39 +97,40 @@ export default function Home() {
         }
       }
 
-      if (!active) {
-        setSessionChecked(true);
-        setLoading(false);
-        return;
+      if (active) {
+        setHash(active);
       }
 
-      setHash(active);
-
       const token =
-        localStorage.getItem(`wa_session_${active}`) ||
+        (active ? localStorage.getItem(`wa_session_${active}`) : "") ||
         localStorage.getItem("wa_auth_token") ||
         "";
 
-      if (token) {
-        try {
-          const res = await fetch("/api/auth/session/verify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ hash: active, token }),
-          });
-          const data = await res.json();
-          if (data.valid) {
-            setIsAuthenticated(true);
-            localStorage.setItem("wa_hash", active);
-            localStorage.setItem(`wa_session_${active}`, token);
-          } else {
-            setIsAuthenticated(false);
+      try {
+        const res = await fetch("/api/auth/session/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            hash: active || undefined,
+            token: token || undefined,
+          }),
+        });
+        const data = await res.json();
+        if (data.valid && data.hash) {
+          setHash(data.hash);
+          setIsAuthenticated(true);
+          localStorage.setItem("wa_hash", data.hash);
+          if (data.token) {
+            localStorage.setItem(`wa_session_${data.hash}`, data.token);
+            localStorage.setItem("wa_auth_token", data.token);
+          }
+        } else {
+          setIsAuthenticated(false);
+          if (active) {
             localStorage.removeItem(`wa_session_${active}`);
           }
-        } catch {
-          setIsAuthenticated(false);
         }
-      } else {
+      } catch {
         setIsAuthenticated(false);
       }
 

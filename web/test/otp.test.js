@@ -20,8 +20,9 @@ import { POST as hashOtpSendPOST } from "../app/api/connections/[hash]/otp/send/
 import { POST as hashOtpVerifyPOST } from "../app/api/connections/[hash]/otp/verify/route.js";
 import { POST as authOtpSendPOST } from "../app/api/auth/otp/send/route.js";
 import { POST as authOtpVerifyPOST } from "../app/api/auth/otp/verify/route.js";
-import { POST as sessionVerifyPOST } from "../app/api/auth/session/verify/route.js";
+import { POST as sessionVerifyPOST, GET as sessionVerifyGET } from "../app/api/auth/session/verify/route.js";
 import { POST as logoutPOST } from "../app/api/auth/logout/route.js";
+import { AUTH_COOKIE_NAME, HASH_COOKIE_NAME } from "../lib/jwt.js";
 
 function mockFetch(handler) {
   const original = globalThis.fetch;
@@ -449,14 +450,17 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
       const verifyData = await resVerify.json();
       assert.equal(verifyData.valid, true);
       assert.ok(verifyData.token);
+      assert.ok(resVerify.cookies.get(AUTH_COOKIE_NAME));
+      assert.equal(resVerify.cookies.get(AUTH_COOKIE_NAME).value, verifyData.token);
+      assert.equal(resVerify.cookies.get(HASH_COOKIE_NAME).value, "API001");
     });
 
-    // 4. POST /api/auth/session/verify and /api/auth/logout
-    await st.test("POST /api/auth/session/verify and /api/auth/logout", async () => {
+    // 4. POST & GET /api/auth/session/verify and /api/auth/logout
+    await st.test("POST & GET /api/auth/session/verify and /api/auth/logout with cookies & tokens", async () => {
       await createConnection({ hash: "API001", ownerPhone: "+919876543210" });
       const session = await createSessionForConnection("API001");
 
-      // Verify session error with missing body
+      // Verify session error with missing body and no cookies
       const resVerifyErr = await sessionVerifyPOST(
         new NextRequest("http://localhost", {
           method: "POST",
@@ -465,7 +469,7 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
       );
       assert.equal(resVerifyErr.status, 400);
 
-      // Verify session route
+      // Verify session route via POST body
       const resVerify = await sessionVerifyPOST(
         new NextRequest("http://localhost", {
           method: "POST",
@@ -476,6 +480,35 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
       assert.equal(resVerify.status, 200);
       const verifyData = await resVerify.json();
       assert.equal(verifyData.valid, true);
+      assert.equal(verifyData.hash, "API001");
+
+      // Verify session route via Cookie (GET request without body)
+      const resVerifyCookie = await sessionVerifyGET(
+        new NextRequest("http://localhost", {
+          method: "GET",
+          headers: {
+            cookie: `${AUTH_COOKIE_NAME}=${session.token}`,
+          },
+        })
+      );
+      assert.equal(resVerifyCookie.status, 200);
+      const verifyCookieData = await resVerifyCookie.json();
+      assert.equal(verifyCookieData.valid, true);
+      assert.equal(verifyCookieData.hash, "API001");
+
+      // Verify session route via Authorization: Bearer header
+      const resVerifyBearer = await sessionVerifyGET(
+        new NextRequest("http://localhost", {
+          method: "GET",
+          headers: {
+            authorization: `Bearer ${session.token}`,
+          },
+        })
+      );
+      assert.equal(resVerifyBearer.status, 200);
+      const verifyBearerData = await resVerifyBearer.json();
+      assert.equal(verifyBearerData.valid, true);
+      assert.equal(verifyBearerData.hash, "API001");
 
       // Logout route with empty / no token
       const resLogoutEmpty = await logoutPOST(
@@ -486,18 +519,21 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
         })
       );
       assert.equal(resLogoutEmpty.status, 200);
+      assert.equal(resLogoutEmpty.cookies.get(AUTH_COOKIE_NAME).maxAge, 0);
 
-      // Logout route with token
-      const resLogout = await logoutPOST(
+      // Logout route with token from cookie
+      const resLogoutCookie = await logoutPOST(
         new NextRequest("http://localhost", {
           method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token: session.token }),
+          headers: {
+            cookie: `${AUTH_COOKIE_NAME}=${session.token}`,
+          },
         })
       );
-      assert.equal(resLogout.status, 200);
+      assert.equal(resLogoutCookie.status, 200);
+      assert.equal(resLogoutCookie.cookies.get(AUTH_COOKIE_NAME).maxAge, 0);
 
-      // Verify session after logout
+      // Verify session after logout is now rejected (revoked)
       const resVerifyAfter = await sessionVerifyPOST(
         new NextRequest("http://localhost", {
           method: "POST",

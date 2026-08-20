@@ -208,15 +208,15 @@ Built for **Amazfit T-Rex 3** (Zepp OS 4.0, 480x480 round AMOLED display):
   * `pending`: Set containing IDs of currently active, unanswered polls.
   * `polls`: Sorted set ordered by creation timestamp (`createdAt`).
 * **Endpoints**:
-  * `POST /api/connections`: Validate coupon & register connection parameters.
+  * `POST /api/connections`: Validate coupon & register connection parameters (sets `wa_auth_token` & `wa_hash` cookies).
   * `POST /api/connections/:hash/qr`: Request QR pairing code from bridge.
   * `GET /api/connections/:hash/status`: Check WhatsApp Web authentication state.
   * `POST /api/connections/:hash/otp/send`: Generate and send 6-digit WhatsApp OTP to owner's phone.
-  * `POST /api/connections/:hash/otp/verify`: Validate WhatsApp OTP and mint authenticated session token.
+  * `POST /api/connections/:hash/otp/verify`: Validate WhatsApp OTP, mint signed JWT session token, and set HTTP cookies.
   * `POST /api/auth/otp/send`: Generic OTP dispatch endpoint.
-  * `POST /api/auth/otp/verify`: Generic OTP verification endpoint.
-  * `POST /api/auth/session/verify`: Check validity of active session token.
-  * `POST /api/auth/logout`: Revoke active session token.
+  * `POST /api/auth/otp/verify`: Generic OTP verification endpoint (sets auth cookies).
+  * `GET` & `POST /api/auth/session/verify`: Check validity of active session token via cookie, header, or body.
+  * `POST /api/auth/logout`: Revoke active session token and clear auth cookies.
   * `GET /api/polls`: List all historical and pending polls.
   * `GET /api/polls/pending`: Retrieve pending poll scoped to a pairing hash.
   * `POST /api/polls/[id]`: Record a vote from the Web UI or smartwatch.
@@ -273,8 +273,9 @@ ZADD connections 1723760000000 K9X2P4
 # OTP Challenge (10 min TTL)
 SETEX otp:K9X2P4 600 '{"hash":"K9X2P4","code":"584920","ownerPhone":"+917060410033","attempts":0,"expiresAt":1723760600000}'
 
-# Authenticated Session Token (30 days TTL)
-SETEX session:a8f9e2...b410 2592000 '{"token":"a8f9e2...b410","hash":"K9X2P4","createdAt":1723760000000,"expiresAt":1726352000000}'
+# Authenticated Session JWT / Revocation List (30 days TTL)
+SETEX session:<jwt_token> 2592000 '{"token":"<jwt_token>","hash":"K9X2P4","createdAt":1723760000000,"expiresAt":1726352000000}'
+SETEX revoked:<jwt_token> 2592000 '1'
 
 # Poll Entry
 HSET poll:msg_12345 data '{"id":"msg_12345","hash":"K9X2P4","contactDisplay":"Alex","question":"Take over?","options":["Send 1 text","5 minutes","2 hours","Deny"],"status":"pending","createdAt":1723760100000}'
