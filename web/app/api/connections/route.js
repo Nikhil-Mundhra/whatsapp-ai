@@ -7,11 +7,10 @@ export async function POST(req) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "invalid body" }, { status: 400 });
 
-  const activeCoupon = (await getActiveCoupon()).toLowerCase();
-  const envCoupon = (process.env.COUPON || "coupon").trim().toLowerCase();
+  const activeCoupon = (await getActiveCoupon()).trim().toLowerCase();
   const providedCoupon = String(body.coupon || "").trim().toLowerCase();
 
-  if (providedCoupon !== activeCoupon && providedCoupon !== envCoupon) {
+  if (providedCoupon !== activeCoupon) {
     return NextResponse.json(
       { error: "invalid coupon. Contact wa.me/+917060410033 to get one." },
       { status: 403 }
