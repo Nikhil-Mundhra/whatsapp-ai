@@ -14,6 +14,7 @@ export function MessageBubble({ message }) {
   const isAi = Boolean(message.isAi || message.aiGenerated || message.sender === "ai" || message.origin === "ai" || message.origin === "takeover");
   const text = message.content || message.body || message.text || message.message || "";
   const time = formatTime(message.timestamp || message.createdAt || message.time);
+  const imageUrls = Array.isArray(message.imageUrls) ? message.imageUrls : [];
 
   return (
     <div className={`wa-bubble-wrapper ${isOutgoing ? "outgoing" : "incoming"}`}>
@@ -41,8 +42,23 @@ export function MessageBubble({ message }) {
           </div>
         )}
 
+        {/* Attached Images (UI-only, not sent to AI) */}
+        {imageUrls.length > 0 && (
+          <div className="wa-bubble-images">
+            {imageUrls.map((url, i) => (
+              <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="wa-bubble-image-link">
+                <img src={url} alt={`attachment-${i + 1}`} className="wa-bubble-image" />
+              </a>
+            ))}
+            <div className="wa-bubble-image-note">
+              <span>📷</span>
+              <span>Not visible to AI</span>
+            </div>
+          </div>
+        )}
+
         {/* Message Text */}
-        <span style={{ whiteSpace: "pre-wrap" }}>{text}</span>
+        {text ? <span style={{ whiteSpace: "pre-wrap" }}>{text}</span> : null}
 
         {/* Timestamp & Status Metadata */}
         <div className="wa-bubble-meta">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { AttachIcon, SmileIcon, SendIcon, PollIcon, CloseIcon, ClockIcon, StopIcon } from "../Icons/WhatsAppIcons";
+import { AttachIcon, SmileIcon, SendIcon, PollIcon, CloseIcon, ClockIcon, StopIcon, ImageIcon } from "../Icons/WhatsAppIcons";
 
 function formatDuration(sec) {
   if (sec <= 0) return "00:00";
@@ -32,6 +32,10 @@ export function ChatInputBar({
   const [showQuickPoll, setShowQuickPoll] = useState(false);
   const [votingOption, setVotingOption] = useState(null);
   const [secondsLeft, setSecondsLeft] = useState(0);
+
+  // Image attachment state: { id, localPreview, blobUrl, uploading, error }
+  const [pendingImages, setPendingImages] = useState([]);
+  const fileInputRef = useRef(null);
 
   const popoverRef = useRef(null);
 
@@ -79,12 +83,73 @@ export function ChatInputBar({
     }
   }, [showQuickPoll]);
 
+  // Clear pending images when contact changes
+  useEffect(() => {
+    setPendingImages([]);
+  }, [contact]);
+
   function handleSubmit(e) {
     e.preventDefault();
     const text = inputText.trim();
-    if (!text || loading) return;
-    onSendManual?.(text);
+    const readyImages = pendingImages.filter((img) => img.blobUrl && !img.uploading);
+    if ((!text && readyImages.length === 0) || loading) return;
+
+    // Pass only the blob URLs to the parent — no large base64 in state
+    onSendManual?.(text, readyImages.map((img) => img.blobUrl));
+
+    // Revoke remaining object URLs
+    pendingImages.forEach((img) => {
+      if (img.localPreview) URL.revokeObjectURL(img.localPreview);
+    });
     setInputText("");
+    setPendingImages([]);
+  }
+
+  async function handleImageSelect(e) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    // Reset input so the same file can be re-selected later
+    e.target.value = "";
+
+    for (const file of files) {
+      const id = `img-${Date.now()}-${Math.random()}`;
+      // Object URL for instant thumbnail — revoked after upload
+      const localPreview = URL.createObjectURL(file);
+
+      // Add placeholder in "uploading" state immediately
+      setPendingImages((prev) => [
+        ...prev,
+        { id, localPreview, blobUrl: null, uploading: true, error: false },
+      ]);
+
+      try {
+        const res = await fetch(
+          `/api/images/upload?filename=${encodeURIComponent(file.name)}`,
+          { method: "POST", body: file }
+        );
+        if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+        const data = await res.json();
+        setPendingImages((prev) =>
+          prev.map((img) =>
+            img.id === id ? { ...img, blobUrl: data.url, uploading: false } : img
+          )
+        );
+      } catch {
+        setPendingImages((prev) =>
+          prev.map((img) =>
+            img.id === id ? { ...img, uploading: false, error: true } : img
+          )
+        );
+      }
+    }
+  }
+
+  function removeImage(id) {
+    setPendingImages((prev) => {
+      const img = prev.find((i) => i.id === id);
+      if (img?.localPreview) URL.revokeObjectURL(img.localPreview);
+      return prev.filter((i) => i.id !== id);
+    });
   }
 
   async function handleOptionSelect(option) {
@@ -283,6 +348,61 @@ export function ChatInputBar({
         </div>
       )}
 
+      {/* Image Preview Strip (shown when images are pending) */}
+      {pendingImages.length > 0 && (
+        <div className="wa-image-preview-strip">
+          <div className="wa-image-preview-thumbnails">
+            {pendingImages.map((img) => (
+              <div
+                key={img.id}
+                className={`wa-image-preview-thumb ${img.error ? "error" : ""}`}
+              >
+                <img src={img.localPreview} alt="preview" />
+
+                {/* Upload spinner overlay */}
+                {img.uploading && (
+                  <div className="wa-image-preview-uploading">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
+                      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83">
+                        <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/>
+                      </path>
+                    </svg>
+                  </div>
+                )}
+
+                {/* Error overlay */}
+                {img.error && (
+                  <div className="wa-image-preview-error" title="Upload failed">⚠</div>
+                )}
+
+                <button
+                  type="button"
+                  className="wa-image-preview-remove"
+                  onClick={() => removeImage(img.id)}
+                  title="Remove image"
+                >
+                  <CloseIcon size={10} color="#ffffff" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="wa-image-not-visible-note">
+            <span>📷</span>
+            <span>Not visible to AI</span>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden file input for image selection */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: "none" }}
+        onChange={handleImageSelect}
+      />
+
       {/* Main WhatsApp Chat Input Bar */}
       <form className="wa-chat-input-bar" onSubmit={handleSubmit}>
         <button type="button" className="wa-icon-btn" title="Emojis">
@@ -293,11 +413,47 @@ export function ChatInputBar({
           <AttachIcon size={20} color="var(--wa-icon-color)" />
         </button>
 
+        {/* Image Attach Button */}
+        <button
+          type="button"
+          className="wa-icon-btn"
+          title="Attach image (not visible to AI)"
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            color: pendingImages.length > 0 ? "var(--wa-teal)" : undefined,
+            position: "relative",
+          }}
+        >
+          <ImageIcon size={20} color={pendingImages.length > 0 ? "var(--wa-teal)" : "var(--wa-icon-color)"} />
+          {pendingImages.length > 0 && (
+            <span
+              style={{
+                position: "absolute",
+                top: 2,
+                right: 2,
+                width: 14,
+                height: 14,
+                borderRadius: "50%",
+                background: "var(--wa-teal)",
+                color: "#fff",
+                fontSize: 9,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                lineHeight: 1,
+              }}
+            >
+              {pendingImages.length}
+            </span>
+          )}
+        </button>
+
         {/* Input Field */}
         <input
           type="text"
           className="wa-chat-input-field"
-          placeholder="Type a message..."
+          placeholder={pendingImages.length > 0 ? "Add a caption… (not visible to AI)" : "Type a message..."}
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           disabled={loading}
@@ -381,7 +537,7 @@ export function ChatInputBar({
         <button
           type="submit"
           className="wa-send-btn"
-          disabled={!inputText.trim() || loading}
+          disabled={(!inputText.trim() && !pendingImages.some((img) => img.blobUrl)) || loading}
           title="Send message"
         >
           <SendIcon size={16} />
@@ -390,3 +546,4 @@ export function ChatInputBar({
     </div>
   );
 }
+

@@ -575,9 +575,10 @@ export default function Home() {
   // 9. Handle Real WhatsApp Outgoing Messages
   const [isSendingMessage, setIsSendingMessage] = useState(false);
 
-  async function handleSendManual(text) {
+  async function handleSendManual(text, imageUrls = []) {
     const cleanText = (text || "").trim();
-    if (!cleanText || !selectedContact || !hash) return;
+    if (!cleanText && imageUrls.length === 0) return;
+    if (!selectedContact || !hash) return;
 
     const tempId = `temp-${Date.now()}`;
     const optimisticMsg = {
@@ -585,6 +586,7 @@ export default function Home() {
       sender: "me",
       chatJid: selectedContact,
       content: cleanText,
+      imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
       timestamp: new Date().toISOString(),
       isFromMe: true,
       isAi: false,
@@ -599,6 +601,13 @@ export default function Home() {
       ...prev,
       [selectedContact]: { type: "none" },
     }));
+
+    // Only send text to the API — images are local/blob display only
+    if (!cleanText) {
+      setIsSendingMessage(false);
+      setTimeout(() => fetchDashboardData(), 1000);
+      return;
+    }
 
     try {
       const res = await fetch(`/api/connections/${hash}/messages`, {
