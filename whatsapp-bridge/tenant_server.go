@@ -12,6 +12,7 @@ import (
 	"time"
 
 	waLog "go.mau.fi/whatsmeow/util/log"
+	"go.mau.fi/whatsmeow/types"
 )
 
 func getWebhookBaseURL() string {
@@ -113,6 +114,8 @@ func connectionsHandler(manager *TenantManager) http.HandlerFunc {
 			handleGrant(w, r, manager.Get(hash))
 		case sub == "send" && r.Method == http.MethodPost:
 			handleSend(w, r, manager.Get(hash))
+		case len(parts) >= 4 && parts[1] == "chats" && parts[3] == "settings":
+			handleChatSettings(w, r, manager.Get(hash), parts[2])
 		default:
 			http.NotFound(w, r)
 		}
@@ -329,6 +332,97 @@ func handleSend(w http.ResponseWriter, r *http.Request, tenant *Tenant) {
 		"messageId": msgID,
 		"status":    statusStr,
 	})
+}
+
+func handleChatSettings(w http.ResponseWriter, r *http.Request, tenant *Tenant, jid string) {
+	if tenant == nil || tenant.messageStore == nil {
+		http.Error(w, "tenant or message store not found", http.StatusNotFound)
+		return
+	}
+
+	var altJIDs []string
+	if tenant.client != nil && tenant.client.Store != nil && tenant.client.Store.LIDs != nil {
+		ctx := context.Background()
+		if strings.HasSuffix(jid, "@s.whatsapp.net") {
+			if parsed, err := types.ParseJID(jid); err == nil {
+				if lid, err := tenant.client.Store.LIDs.GetLIDForPN(ctx, parsed); err == nil && !lid.IsEmpty() {
+					altJIDs = append(altJIDs, lid.String())
+				}
+			}
+		} else if strings.HasSuffix(jid, "@lid") {
+			if parsed, err := types.ParseJID(jid); err == nil {
+				if pn, err := tenant.client.Store.LIDs.GetPNForLID(ctx, parsed); err == nil && !pn.IsEmpty() {
+					altJIDs = append(altJIDs, pn.String())
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodGet:
+		settings, err := tenant.messageStore.GetChatSettingsFlexible(jid, altJIDs)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+			return
+		}
+		if settings == nil {
+			settings = &ChatSettings{
+				JID:          jid,
+				Relationship: "",
+				FriendCircle: []string{},
+				CustomPrompt: "",
+				Model:        "",
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"settings": settings,
+		})
+
+	case http.MethodPost:
+		var body struct {
+			Relationship string   `json:"relationship"`
+			FriendCircle []string `json:"friendCircle"`
+			CustomPrompt string   `json:"customPrompt"`
+			Model        string   `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "invalid json body"})
+			return
+		}
+		cs := &ChatSettings{
+			JID:          jid,
+			Relationship: strings.TrimSpace(body.Relationship),
+			FriendCircle: body.FriendCircle,
+			CustomPrompt: strings.TrimSpace(body.CustomPrompt),
+			Model:        strings.TrimSpace(body.Model),
+			UpdatedAt:    time.Now(),
+		}
+		if err := tenant.messageStore.SaveChatSettings(cs); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+			return
+		}
+		// Also save under any alternative LID/PN JID so both reference the same configuration
+		for _, alt := range altJIDs {
+			if alt != "" && alt != jid {
+				altCS := *cs
+				altCS.JID = alt
+				_ = tenant.messageStore.SaveChatSettings(&altCS)
+			}
+		}
+		tenant.logger.Infof("Updated chat settings for %s (relationship length: %d)", jid, len(cs.Relationship))
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"settings": cs,
+		})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func startMultiTenantServer(port int, logger waLog.Logger) {

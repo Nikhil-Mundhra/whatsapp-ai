@@ -139,12 +139,78 @@ func (t *Tenant) buildIdentityClause() string {
 	return identityClause
 }
 
-// buildSystemPrompt creates the tailored system prompt for 1-on-1 or group chat dynamics.
-func (t *Tenant) buildSystemPrompt(identityClause string, targetJID types.JID, isGroup bool) string {
+// resolveContactDisplayName returns a human-friendly name for a JID or phone number.
+func (t *Tenant) resolveContactDisplayName(contactJID string) string {
+	if t.client != nil && t.client.Store != nil {
+		ctx := context.Background()
+		norm := normalizePhone(contactJID)
+		if norm != "" {
+			pnJID := types.NewJID(norm, types.DefaultUserServer)
+			if c, err := t.client.Store.Contacts.GetContact(ctx, pnJID); err == nil {
+				if c.FullName != "" {
+					return c.FullName
+				}
+				if c.PushName != "" && !isAllDigits(c.PushName) {
+					return c.PushName
+				}
+			}
+		}
+		if strings.HasSuffix(contactJID, "@lid") {
+			if parsed, err := types.ParseJID(contactJID); err == nil {
+				if pn, err := t.client.Store.LIDs.GetPNForLID(ctx, parsed); err == nil && !pn.IsEmpty() {
+					if c, err := t.client.Store.Contacts.GetContact(ctx, pn); err == nil && c.FullName != "" {
+						return c.FullName
+					}
+				}
+			}
+		}
+	}
+	clean := cleanPhoneDigits(contactJID)
+	if clean != "" {
+		return clean
+	}
+	return contactJID
+}
+
+// buildSystemPrompt creates the tailored system prompt with relationship context and friend circles.
+func (t *Tenant) buildSystemPrompt(identityClause string, targetJID types.JID, isGroup bool, settings *ChatSettings) string {
+	var extraContext strings.Builder
+
+	if settings != nil {
+		if settings.Relationship != "" {
+			extraContext.WriteString(fmt.Sprintf(`
+RELATIONSHIP CONTEXT & DYNAMICS:
+- Relationship with this person: %s
+- Always align with this exact relationship dynamic, tone, intimacy, banter, or sarcasm.`, strings.TrimSpace(settings.Relationship)))
+		}
+
+		if len(settings.FriendCircle) > 0 {
+			var friendNames []string
+			for _, f := range settings.FriendCircle {
+				name := t.resolveContactDisplayName(f)
+				if name != "" {
+					friendNames = append(friendNames, name)
+				}
+			}
+			if len(friendNames) > 0 {
+				extraContext.WriteString(fmt.Sprintf(`
+SHARED FRIEND CIRCLE & MUTUAL CONNECTIONS:
+- You share mutual friends, common groups, and social history with: %s.
+- Keep social context, references, and shared group vibes aligned.`, strings.Join(friendNames, ", ")))
+			}
+		}
+
+		if settings.CustomPrompt != "" {
+			extraContext.WriteString(fmt.Sprintf(`
+CUSTOM INSTRUCTIONS:
+%s`, strings.TrimSpace(settings.CustomPrompt)))
+		}
+	}
+
 	if isGroup {
 		groupName := t.resolveGroupName(targetJID)
 		return fmt.Sprintf(`%s That is your own writing style: mirror your own message length, tone, capitalization, punctuation, slang, and emoji usage. If your messages are one-liners, reply with one-liners. If you use emojis, use emojis; if you don't, don't.
-
+%s
 YOU ARE IN A GROUP CHAT ("%s"):
 1. GROUP DYNAMICS & BREVITY:
    - Group texts must be very short, natural, and casual (often 1 to 8 words). Never write long paragraphs or sound like an assistant.
@@ -159,11 +225,11 @@ YOU ARE IN A GROUP CHAT ("%s"):
 3. ABSOLUTE RULES:
    - Never say you are an AI or bot.
    - No formal greetings ("Hey guys", "Hello all").
-   - Output ONLY the exact text message to send and nothing else.`, identityClause, groupName)
+   - Output ONLY the exact text message to send and nothing else.`, identityClause, extraContext.String(), groupName)
 	}
 
 	return fmt.Sprintf(`%s That is your own writing style: mirror your own message length, tone, capitalization, punctuation, slang, and emoji usage. If your messages are one-liners, reply with one-liners. If you use emojis, use emojis; if you don't, don't.
-
+%s
 LANGUAGE PREFERENCE:
 - If the other person or the chat history uses non-English languages, regional dialects, vernacular phrases, or code-mixed speech (e.g. Hindi/Hinglish, Telugu/Tanglish, etc. written in Latin/English script), ALWAYS prefer and reply in that language or code-mixed style over plain English, even if English is commonly used in the chat.
 - Match the casual Romanized transliteration style naturally (e.g., respond in natural regional vernacular/slang instead of reverting to formal English).
@@ -172,7 +238,7 @@ READ THE ROOM:
 - The last message from the other person is the one you are replying to. Answer what THEY just said and stay on that topic. Never reply with a generic or off-topic one-liner.
 - Never repeat a message you already sent in the history, and never send the same text twice in a row.
 - Never continue your own monologue: if the other person has not spoken since your last message, you have nothing to reply to.
-- Reply naturally and human. Don't mention that you're an AI. Don't use markdown. Output only the message text and nothing else.`, identityClause)
+- Reply naturally and human. Don't mention that you're an AI. Don't use markdown. Output only the message text and nothing else.`, identityClause, extraContext.String())
 }
 
 // callGeminiAPI invokes Google Gemini REST API directly.
@@ -381,12 +447,22 @@ func (t *Tenant) replyToChat(targetJID types.JID) {
 		return
 	}
 
+	var chatSettings *ChatSettings
+	if t.messageStore != nil {
+		if cs, err := t.messageStore.GetChatSettingsFlexible(targetJID.String(), altJIDs); err == nil && cs != nil {
+			chatSettings = cs
+		}
+	}
+
 	isGroup := targetJID.Server == "g.us"
 	history := t.buildChatHistory(msgs, isGroup)
 	identityClause := t.buildIdentityClause()
-	systemPrompt := t.buildSystemPrompt(identityClause, targetJID, isGroup)
+	systemPrompt := t.buildSystemPrompt(identityClause, targetJID, isGroup, chatSettings)
 
 	model := t.aiModel
+	if chatSettings != nil && chatSettings.Model != "" {
+		model = chatSettings.Model
+	}
 	if model == "" {
 		model = os.Getenv("AI_MODEL")
 	}

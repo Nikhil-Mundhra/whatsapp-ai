@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -104,6 +105,18 @@ func migrateSchema(db *sql.DB) error {
 		selected_options TEXT,
 		timestamp TIMESTAMP,
 		PRIMARY KEY (poll_msg_id, voter_jid)
+	)`)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS chat_settings (
+		jid TEXT PRIMARY KEY,
+		relationship TEXT,
+		friend_circle TEXT,
+		custom_prompt TEXT,
+		model TEXT,
+		updated_at TIMESTAMP
 	)`)
 	if err != nil {
 		return err
@@ -305,4 +318,91 @@ func (store *MessageStore) GetMediaInfo(id, chatJID string) (string, string, str
 	).Scan(&mediaType, &filename, &url, &mediaKey, &fileSHA256, &fileEncSHA256, &fileLength)
 
 	return mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength, err
+}
+
+// ChatSettings stores per-chat relationship context, friend circle, and persona overrides.
+type ChatSettings struct {
+	JID          string    `json:"jid"`
+	Relationship string    `json:"relationship"`
+	FriendCircle []string  `json:"friendCircle"`
+	CustomPrompt string    `json:"customPrompt"`
+	Model        string    `json:"model"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+// SaveChatSettings persists relationship context and friend circle for a chat.
+func (store *MessageStore) SaveChatSettings(settings *ChatSettings) error {
+	if settings == nil || settings.JID == "" {
+		return fmt.Errorf("settings and jid are required")
+	}
+	friendCircleJSON, _ := json.Marshal(settings.FriendCircle)
+	if settings.UpdatedAt.IsZero() {
+		settings.UpdatedAt = time.Now()
+	}
+	_, err := store.db.Exec(
+		`INSERT OR REPLACE INTO chat_settings (jid, relationship, friend_circle, custom_prompt, model, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		settings.JID, settings.Relationship, string(friendCircleJSON), settings.CustomPrompt, settings.Model, settings.UpdatedAt,
+	)
+	return err
+}
+
+// GetChatSettings retrieves settings for a specific chat JID.
+func (store *MessageStore) GetChatSettings(jid string) (*ChatSettings, error) {
+	if jid == "" {
+		return nil, nil
+	}
+	var cs ChatSettings
+	var friendCircleJSON string
+	var updatedAt time.Time
+	err := store.db.QueryRow(
+		"SELECT jid, relationship, friend_circle, custom_prompt, model, updated_at FROM chat_settings WHERE jid = ?",
+		jid,
+	).Scan(&cs.JID, &cs.Relationship, &friendCircleJSON, &cs.CustomPrompt, &cs.Model, &updatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	cs.UpdatedAt = updatedAt
+	if friendCircleJSON != "" {
+		_ = json.Unmarshal([]byte(friendCircleJSON), &cs.FriendCircle)
+	}
+	return &cs, nil
+}
+
+// GetChatSettingsFlexible retrieves chat settings using primary JID and candidate/alt JIDs.
+func (store *MessageStore) GetChatSettingsFlexible(jid string, altJIDs []string) (*ChatSettings, error) {
+	cs, err := store.GetChatSettings(jid)
+	if err == nil && cs != nil {
+		return cs, nil
+	}
+	for _, alt := range altJIDs {
+		if alt == "" || alt == jid {
+			continue
+		}
+		if altCS, altErr := store.GetChatSettings(alt); altErr == nil && altCS != nil {
+			return altCS, nil
+		}
+	}
+	cleanUser := cleanPhoneDigits(jid)
+	if cleanUser != "" && len(cleanUser) >= 5 {
+		pattern := "%" + cleanUser + "%"
+		var csFallback ChatSettings
+		var friendCircleJSON string
+		var updatedAt time.Time
+		err := store.db.QueryRow(
+			"SELECT jid, relationship, friend_circle, custom_prompt, model, updated_at FROM chat_settings WHERE jid LIKE ? ORDER BY updated_at DESC LIMIT 1",
+			pattern,
+		).Scan(&csFallback.JID, &csFallback.Relationship, &friendCircleJSON, &csFallback.CustomPrompt, &csFallback.Model, &updatedAt)
+		if err == nil {
+			csFallback.UpdatedAt = updatedAt
+			if friendCircleJSON != "" {
+				_ = json.Unmarshal([]byte(friendCircleJSON), &csFallback.FriendCircle)
+			}
+			return &csFallback, nil
+		}
+	}
+	return cs, err
 }

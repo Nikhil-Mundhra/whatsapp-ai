@@ -21,19 +21,30 @@ export function ChatHeader({
   contactName,
   pendingCount = 0,
   isWhitelisted = false,
+  onOpenSettings,
 }) {
   const displayName = contactName || formatPhoneDisplay(contact);
   const initial = displayName ? displayName.slice(0, 2).toUpperCase() : "";
 
   return (
     <div className="wa-chat-header">
-      {/* Contact Info */}
-      <div className="wa-chat-header-info">
+      {/* Contact Info — clickable to open settings */}
+      <div
+        className="wa-chat-header-info"
+        onClick={onOpenSettings}
+        style={{ cursor: onOpenSettings ? "pointer" : "default" }}
+        title={onOpenSettings ? "Open contact settings" : undefined}
+      >
         <div className="wa-avatar" style={{ background: "linear-gradient(135deg, #008069, #00a884)" }}>
           {initial}
         </div>
         <div>
-          <div className="wa-chat-contact-title">{displayName}</div>
+          <div className="wa-chat-contact-title" style={{
+            color: onOpenSettings ? "var(--wa-text-primary)" : undefined,
+            transition: "color 0.15s",
+          }}>
+            {displayName}
+          </div>
           <div className="wa-chat-contact-subtitle">
             {pendingCount > 0 ? (
               <>
@@ -62,7 +73,11 @@ export function ChatHeader({
         <button className="wa-icon-btn" title="Search in chat">
           <SearchIcon size={18} color="var(--wa-icon-color)" />
         </button>
-        <button className="wa-icon-btn" title="Menu">
+        <button
+          className="wa-icon-btn"
+          title="Contact info & AI settings"
+          onClick={onOpenSettings}
+        >
           <MoreVertIcon size={18} color="var(--wa-icon-color)" />
         </button>
       </div>

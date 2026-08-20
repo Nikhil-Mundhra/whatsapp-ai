@@ -12,6 +12,7 @@ import { ConnectionSwitcherModal } from "./components/Modals/ConnectionSwitcherM
 import { QRPairingModal } from "./components/Modals/QRPairingModal";
 import { CreatePollModal } from "./components/Modals/CreatePollModal";
 import { UnlistedContactConfirmModal } from "./components/Modals/UnlistedContactConfirmModal";
+import { ChatSettingsModal } from "./components/Chat/ChatSettingsModal";
 import { LoginCard } from "./components/Auth/LoginCard";
 import { LockIcon, RobotIcon } from "./components/Icons/WhatsAppIcons";
 
@@ -40,6 +41,7 @@ export default function Home() {
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
   const [isUnlistedModalOpen, setIsUnlistedModalOpen] = useState(false);
+  const [isChatSettingsOpen, setIsChatSettingsOpen] = useState(false);
   const [pendingTakeoverAction, setPendingTakeoverAction] = useState(null);
   const [unlistedActionDesc, setUnlistedActionDesc] = useState("take over conversation");
 
@@ -863,6 +865,7 @@ export default function Home() {
                 contactName={selectedContactName}
                 pendingCount={currentPendingPolls}
                 isWhitelisted={isSelectedWhitelisted}
+                onOpenSettings={() => setIsChatSettingsOpen(true)}
               />
 
               <ChatTimeline
@@ -979,6 +982,19 @@ export default function Home() {
         contactName={selectedContactName}
         actionDescription={unlistedActionDesc}
       />
+
+      {/* Chat Settings / AI Persona Modal */}
+      {isChatSettingsOpen && selectedContact && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100 }}>
+          <ChatSettingsModal
+            contact={selectedContact}
+            contactName={selectedContactName}
+            hash={hash}
+            chats={chats}
+            onClose={() => setIsChatSettingsOpen(false)}
+          />
+        </div>
+      )}
     </main>
   );
 }
