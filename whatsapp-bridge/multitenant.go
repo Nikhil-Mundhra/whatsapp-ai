@@ -1414,8 +1414,19 @@ func (t *Tenant) status() map[string]interface{} {
 }
 
 func (t *Tenant) sendToRecipient(recipient, message string) (bool, string, string) {
-	if t.client == nil || !t.client.IsConnected() {
+	if t.client == nil {
 		return false, "tenant not connected", ""
+	}
+	if !t.client.IsConnected() {
+		if t.client.Store != nil && t.client.Store.ID != nil {
+			t.logger.Infof("Tenant %s is paired but disconnected. Reconnecting before send...", t.Hash)
+			if err := t.client.Connect(); err == nil {
+				time.Sleep(600 * time.Millisecond)
+			}
+		}
+		if !t.client.IsConnected() {
+			return false, "tenant not connected", ""
+		}
 	}
 	ok, status, msgID := sendWhatsAppMessage(t.client, t.messageStore, recipient, message, "", t.logger)
 	if ok && msgID != "" {
@@ -1425,8 +1436,19 @@ func (t *Tenant) sendToRecipient(recipient, message string) (bool, string, strin
 }
 
 func (t *Tenant) sendPollToRecipient(recipient, question string, options []string, selectableCount int) (bool, string, string) {
-	if t.client == nil || !t.client.IsConnected() {
+	if t.client == nil {
 		return false, "tenant not connected", ""
+	}
+	if !t.client.IsConnected() {
+		if t.client.Store != nil && t.client.Store.ID != nil {
+			t.logger.Infof("Tenant %s is paired but disconnected. Reconnecting before send poll...", t.Hash)
+			if err := t.client.Connect(); err == nil {
+				time.Sleep(600 * time.Millisecond)
+			}
+		}
+		if !t.client.IsConnected() {
+			return false, "tenant not connected", ""
+		}
 	}
 	return sendWhatsAppPoll(t.client, recipient, question, options, selectableCount)
 }
