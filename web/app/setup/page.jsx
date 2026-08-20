@@ -114,6 +114,10 @@ export default function SetupPage() {
       setHash(data.hash);
       if (typeof window !== "undefined") {
         localStorage.setItem("wa_hash", data.hash);
+        if (data.token) {
+          localStorage.setItem(`wa_session_${data.hash}`, data.token);
+          localStorage.setItem("wa_auth_token", data.token);
+        }
       }
       setStep(2);
       await provisionQr(data.hash);

@@ -211,6 +211,12 @@ Built for **Amazfit T-Rex 3** (Zepp OS 4.0, 480x480 round AMOLED display):
   * `POST /api/connections`: Validate coupon & register connection parameters.
   * `POST /api/connections/:hash/qr`: Request QR pairing code from bridge.
   * `GET /api/connections/:hash/status`: Check WhatsApp Web authentication state.
+  * `POST /api/connections/:hash/otp/send`: Generate and send 6-digit WhatsApp OTP to owner's phone.
+  * `POST /api/connections/:hash/otp/verify`: Validate WhatsApp OTP and mint authenticated session token.
+  * `POST /api/auth/otp/send`: Generic OTP dispatch endpoint.
+  * `POST /api/auth/otp/verify`: Generic OTP verification endpoint.
+  * `POST /api/auth/session/verify`: Check validity of active session token.
+  * `POST /api/auth/logout`: Revoke active session token.
   * `GET /api/polls`: List all historical and pending polls.
   * `GET /api/polls/pending`: Retrieve pending poll scoped to a pairing hash.
   * `POST /api/polls/[id]`: Record a vote from the Web UI or smartwatch.
@@ -264,6 +270,12 @@ CREATE TABLE IF NOT EXISTS poll_votes (
 HSET conn:K9X2P4 data '{"hash":"K9X2P4","ownerPhone":"917060410033","allowedRecipients":["917893472546"],"status":"linked","createdAt":1723760000000}'
 ZADD connections 1723760000000 K9X2P4
 
+# OTP Challenge (10 min TTL)
+SETEX otp:K9X2P4 600 '{"hash":"K9X2P4","code":"584920","ownerPhone":"+917060410033","attempts":0,"expiresAt":1723760600000}'
+
+# Authenticated Session Token (30 days TTL)
+SETEX session:a8f9e2...b410 2592000 '{"token":"a8f9e2...b410","hash":"K9X2P4","createdAt":1723760000000,"expiresAt":1726352000000}'
+
 # Poll Entry
 HSET poll:msg_12345 data '{"id":"msg_12345","hash":"K9X2P4","contactDisplay":"Alex","question":"Take over?","options":["Send 1 text","5 minutes","2 hours","Deny"],"status":"pending","createdAt":1723760100000}'
 SADD pending msg_12345
@@ -276,6 +288,7 @@ ZADD polls 1723760100000 msg_12345
 
 | Threat Vector | Mitigation Strategy |
 | :--- | :--- |
+| **Unauthorized Dashboard Login** | 2-Factor Authentication required: entering connection hash triggers a 6-digit WhatsApp OTP sent directly to the owner's phone. Maximum 5 attempts and 10-minute validity. |
 | **Unauthorized messaging** | Hard whitelist check in `controller.py` and `send.py` (`ALLOWED_RECIPIENTS`). |
 | **Runaway AI loops** | Floor control verifies last sender $\neq$ Me; count limits enforce 1-reply bounds. |
 | **Accidental autonomous takeover** | Owner must explicitly click a poll option; default state is `idle`. |

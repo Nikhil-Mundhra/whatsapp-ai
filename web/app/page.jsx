@@ -12,10 +12,13 @@ import { ConnectionSwitcherModal } from "./components/Modals/ConnectionSwitcherM
 import { QRPairingModal } from "./components/Modals/QRPairingModal";
 import { CreatePollModal } from "./components/Modals/CreatePollModal";
 import { UnlistedContactConfirmModal } from "./components/Modals/UnlistedContactConfirmModal";
+import { LoginCard } from "./components/Auth/LoginCard";
 import { LockIcon, RobotIcon } from "./components/Icons/WhatsAppIcons";
 
 export default function Home() {
   const [hash, setHash] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [connInfo, setConnInfo] = useState(null);
   const [chats, setChats] = useState([]);
   const [polls, setPolls] = useState([]);
@@ -78,25 +81,63 @@ export default function Home() {
     document.documentElement.setAttribute("data-theme", newTheme);
   }
 
-  // 1. Initialize hash and sidebar width from URL query or localStorage
+  // 1. Initialize hash, verify session from URL query or localStorage
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const urlHash = params.get("hash");
-    const storedHash = localStorage.getItem("wa_hash");
-    const active = urlHash || storedHash || "";
-    if (active) {
-      setHash(active.toUpperCase());
-    } else {
+    async function checkSession() {
+      const params = new URLSearchParams(window.location.search);
+      const urlHash = params.get("hash");
+      const storedHash = localStorage.getItem("wa_hash");
+      const active = (urlHash || storedHash || "").toUpperCase();
+
+      const savedWidth = localStorage.getItem("wa_sidebar_width");
+      if (savedWidth) {
+        const parsed = parseFloat(savedWidth);
+        if (!isNaN(parsed) && parsed >= 15 && parsed <= 50) {
+          setSidebarWidth(parsed);
+        }
+      }
+
+      if (!active) {
+        setSessionChecked(true);
+        setLoading(false);
+        return;
+      }
+
+      setHash(active);
+
+      const token =
+        localStorage.getItem(`wa_session_${active}`) ||
+        localStorage.getItem("wa_auth_token") ||
+        "";
+
+      if (token) {
+        try {
+          const res = await fetch("/api/auth/session/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ hash: active, token }),
+          });
+          const data = await res.json();
+          if (data.valid) {
+            setIsAuthenticated(true);
+            localStorage.setItem("wa_hash", active);
+            localStorage.setItem(`wa_session_${active}`, token);
+          } else {
+            setIsAuthenticated(false);
+            localStorage.removeItem(`wa_session_${active}`);
+          }
+        } catch {
+          setIsAuthenticated(false);
+        }
+      } else {
+        setIsAuthenticated(false);
+      }
+
+      setSessionChecked(true);
       setLoading(false);
     }
 
-    const savedWidth = localStorage.getItem("wa_sidebar_width");
-    if (savedWidth) {
-      const parsed = parseFloat(savedWidth);
-      if (!isNaN(parsed) && parsed >= 15 && parsed <= 50) {
-        setSidebarWidth(parsed);
-      }
-    }
+    checkSession();
   }, []);
 
   // Handle Dragging Divider (Clamped between 15% and 50%)
@@ -252,21 +293,56 @@ export default function Home() {
   }, [hash]);
 
   // 4. Handle Switching Connection Code
-  function handleSwitchHash(newHash) {
+  function handleSwitchHash(newHash, newToken) {
     const clean = newHash.trim().toUpperCase();
     if (clean) {
       setHash(clean);
+      setIsAuthenticated(true);
       localStorage.setItem("wa_hash", clean);
+      if (newToken) {
+        localStorage.setItem(`wa_session_${clean}`, newToken);
+        localStorage.setItem("wa_auth_token", newToken);
+      }
       setLoading(true);
       window.history.replaceState(null, "", `?hash=${clean}`);
     }
   }
 
+  // Handle Successful Login
+  function handleLoginSuccess({ hash: loggedInHash, token }) {
+    setHash(loggedInHash);
+    setIsAuthenticated(true);
+    localStorage.setItem("wa_hash", loggedInHash);
+    localStorage.setItem(`wa_session_${loggedInHash}`, token);
+    localStorage.setItem("wa_auth_token", token);
+    window.history.replaceState(null, "", `?hash=${loggedInHash}`);
+    setLoading(true);
+  }
+
   // Handle Logout / Disconnect
-  function handleLogout() {
+  async function handleLogout() {
+    const token =
+      localStorage.getItem(`wa_session_${hash}`) ||
+      localStorage.getItem("wa_auth_token") ||
+      "";
+    if (token) {
+      try {
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+      } catch {}
+    }
+
     selectedContactRef.current = "";
     localStorage.removeItem("wa_hash");
+    if (hash) {
+      localStorage.removeItem(`wa_session_${hash}`);
+    }
+    localStorage.removeItem("wa_auth_token");
     setHash("");
+    setIsAuthenticated(false);
     setConnInfo(null);
     setChats([]);
     setMessages([]);
@@ -691,6 +767,52 @@ export default function Home() {
 
   const pendingPollsCount = polls.filter((p) => p.status === "pending").length;
   const currentPendingPolls = currentChatPolls.filter((p) => p.status === "pending").length;
+
+  if (!sessionChecked) {
+    return (
+      <main
+        className="wa-container"
+        data-theme={theme}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "100vh",
+          backgroundColor: "var(--wa-bg)",
+        }}
+      >
+        <div style={{ textAlign: "center", color: "var(--wa-text-secondary)" }}>
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              backgroundColor: "var(--wa-teal)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 16,
+              boxShadow: "0 4px 12px rgba(0, 168, 132, 0.3)",
+            }}
+          >
+            <RobotIcon size={26} color="#ffffff" />
+          </div>
+          <p style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>Connecting to Take-Over...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <LoginCard
+        initialHash={hash}
+        onLoginSuccess={handleLoginSuccess}
+        theme={theme}
+        onThemeChange={handleThemeChange}
+      />
+    );
+  }
 
   return (
     <main className="wa-container" data-theme={theme}>

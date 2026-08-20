@@ -90,8 +90,20 @@ Upon successful validation, the backend generates an unambiguous 6-character has
 
 ---
 
+### Step 4: Web Dashboard Login & WhatsApp OTP Verification
+
+When accessing or switching connections on the Web Take-Over Panel (`https://whatsapp-ai-nikhil.vercel.app/`):
+
+1. **Step 1: Enter Connection Code**: The user provides the 6-character connection hash (e.g., `K9X2P4`).
+2. **Step 2: WhatsApp OTP Dispatch**: The backend immediately generates a secure 6-digit OTP (10-minute expiration) and dispatches it directly to the owner's WhatsApp phone number registered to that connection.
+3. **Step 3: OTP Verification**: The user inputs the 6-digit code received on their phone.
+4. **Step 4: Authenticated Session**: Upon successful verification, the server issues a 32-byte cryptographic session token (valid for 30 days), unlocking the live Take-Over dashboard.
+
+---
+
 ## 🔒 Security & Session Scoping
 
+* **Two-Factor WhatsApp OTP Protection**: Merely knowing the 6-character connection hash is insufficient to access the dashboard. A 6-digit one-time password delivered via WhatsApp to the registered owner's phone is required for every login and connection switch.
 * **No Plaintext API Keys on Devices**: The AI API key and sensitive credentials remain secured in the server-side KV store. The watch only requires the public session hash.
 * **Granular Whitelist Enforcement**: The controller strictly verifies incoming chats against `ALLOWED_RECIPIENTS` registered to the connection.
 * **Instant Revocation**: If the owner texts the contact manually from WhatsApp, the grant is instantly invalidated across all platforms (WhatsApp, Web, Watch).

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server.js";
-import { createConnection } from "../../../lib/connections.js";
+import { createConnection, createSessionForConnection } from "../../../lib/connections.js";
 
 export async function POST(req) {
   const body = await req.json().catch(() => null);
@@ -35,5 +35,10 @@ export async function POST(req) {
     aiModel,
   });
 
-  return NextResponse.json({ hash: conn.hash, connection: conn }, { status: 201 });
+  const session = await createSessionForConnection(conn.hash);
+
+  return NextResponse.json(
+    { hash: conn.hash, connection: conn, token: session.token },
+    { status: 201 }
+  );
 }
