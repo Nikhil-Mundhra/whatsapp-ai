@@ -50,6 +50,7 @@ test("API Routes Unit Tests", async (t) => {
     _setKv(null);
     _setDatabaseSync(null);
     globalThis.__connectionsFallback.clear();
+    globalThis.__couponFallback = null;
     delete process.env.BRIDGE_URL;
     delete process.env.COUPON;
     delete process.env.BRIDGE_AUTH_TOKEN;
@@ -573,6 +574,7 @@ test("API Routes Unit Tests", async (t) => {
 
     await st.test("creates connection with array and string recipients", async () => {
       process.env.COUPON = "validcoupon";
+      globalThis.__couponFallback = "validcoupon";
 
       // 1. Array recipients
       const req1 = new NextRequest("http://localhost/api/connections", {
@@ -593,12 +595,13 @@ test("API Routes Unit Tests", async (t) => {
       assert.equal(data1.connection.ownerPhone, "+1234567890");
       assert.deepEqual(data1.connection.allowedRecipients, ["+1111111111", "+2222222222"]);
 
-      // 2. Comma separated string recipients
+      // 2. Comma separated string recipients using the newly auto-generated active coupon!
+      const currentActiveCoupon = globalThis.__couponFallback;
       const req2 = new NextRequest("http://localhost/api/connections", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          coupon: "validcoupon",
+          coupon: currentActiveCoupon,
           ownerPhone: "+1987654321",
           allowedRecipients: "+3333333333, +4444444444",
           aiApiKey: "my-key-2",

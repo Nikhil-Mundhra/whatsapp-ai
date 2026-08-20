@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server.js";
 import { createConnection, createSessionForConnection } from "../../../lib/connections.js";
 import { setAuthCookies } from "../../../lib/jwt.js";
-import { getActiveCoupon } from "../../../lib/config.js";
+import { getActiveCoupon, consumeAndRegenerateCoupon } from "../../../lib/config.js";
 
 export async function POST(req) {
   const body = await req.json().catch(() => null);
@@ -37,6 +37,9 @@ export async function POST(req) {
     aiApiKey,
     aiModel,
   });
+
+  // Consume used coupon and auto-regenerate a fresh coupon for next user
+  await consumeAndRegenerateCoupon();
 
   const session = await createSessionForConnection(conn.hash);
 

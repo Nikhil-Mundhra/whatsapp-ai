@@ -85,6 +85,16 @@ export default function SuperadminPage() {
     }
   };
 
+  // Live polling every 12 seconds when authenticated
+  useEffect(() => {
+    if (!authenticated) return;
+    const interval = setInterval(() => {
+      fetchUsersSilent();
+      fetchCoupon();
+    }, 12000);
+    return () => clearInterval(interval);
+  }, [authenticated]);
+
   const fetchUsers = async () => {
     setLoading(true);
     setError("");
@@ -99,11 +109,22 @@ export default function SuperadminPage() {
       }
       const json = await res.json();
       setData(json);
+      fetchCoupon();
     } catch (err) {
       setError(err.message || "Failed to load users overview");
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchUsersSilent = async () => {
+    try {
+      const res = await fetch("/api/superadmin/users", { cache: "no-store" });
+      if (res.ok) {
+        const json = await res.json();
+        setData(json);
+      }
+    } catch {}
   };
 
   const fetchCoupon = async () => {

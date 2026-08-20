@@ -52,6 +52,12 @@ export async function setActiveCoupon(couponCode) {
   return clean;
 }
 
+export async function consumeAndRegenerateCoupon() {
+  const newCoupon = generateCouponCode();
+  await setActiveCoupon(newCoupon);
+  return newCoupon;
+}
+
 export async function getConfig() {
   if (!kv) return null;
   try {
