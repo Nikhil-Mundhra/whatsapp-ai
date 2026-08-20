@@ -1076,3 +1076,512 @@ body {
   border: 1px solid var(--wa-card-border);
   box-shadow: 0 1px 3px rgba(11, 20, 26, 0.08);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ARTISTIC AUTH & ONBOARDING DESIGN SYSTEM
+   "Emerald Glass & Atmospheric Cyber-WhatsApp"
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.wa-auth-page {
+  min-height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow-x: hidden;
+  background-color: var(--wa-outer-bg);
+  color: var(--wa-text-primary);
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+[data-theme="dark"] .wa-auth-page {
+  background: radial-gradient(circle at 50% 20%, #10221e 0%, #0c1317 60%, #060b0d 100%);
+}
+
+[data-theme="light"] .wa-auth-page {
+  background: radial-gradient(circle at 50% 15%, #e1f5ee 0%, #eae6df 65%, #d8d3cb 100%);
+}
+
+/* Ambient Floating Luminous Orbs */
+.wa-ambient-orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(80px);
+  z-index: 0;
+  opacity: 0.5;
+  animation: floatOrb 14s ease-in-out infinite alternate;
+}
+
+.wa-orb-1 {
+  width: 380px;
+  height: 380px;
+  top: -80px;
+  left: 10%;
+  background: radial-gradient(circle, rgba(0, 168, 132, 0.45), transparent 70%);
+}
+
+.wa-orb-2 {
+  width: 420px;
+  height: 420px;
+  bottom: -100px;
+  right: 10%;
+  background: radial-gradient(circle, rgba(37, 211, 102, 0.35), transparent 70%);
+  animation-delay: -6s;
+}
+
+.wa-orb-3 {
+  width: 260px;
+  height: 260px;
+  top: 40%;
+  right: 25%;
+  background: radial-gradient(circle, rgba(18, 140, 126, 0.3), transparent 70%);
+  animation-delay: -10s;
+}
+
+@keyframes floatOrb {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-24px) scale(1.06) translateX(12px); }
+  100% { transform: translateY(18px) scale(0.96) translateX(-10px); }
+}
+
+/* Subtle Geometric Grid Backdrop */
+.wa-auth-grid-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(to right, rgba(134, 150, 160, 0.04) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(134, 150, 160, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+  z-index: 0;
+}
+
+/* High-Craft Frosted Glass Card */
+.wa-glass-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  background-color: var(--wa-modal-bg);
+  border: 1px solid var(--wa-modal-border);
+  border-radius: 20px;
+  box-shadow: 0 20px 48px -8px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="dark"] .wa-glass-card {
+  background: rgba(17, 27, 33, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 56px -12px rgba(0, 0, 0, 0.55), 0 0 32px -8px rgba(0, 168, 132, 0.15);
+}
+
+[data-theme="light"] .wa-glass-card {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  box-shadow: 0 20px 48px -12px rgba(11, 20, 26, 0.12), 0 0 24px -6px rgba(0, 168, 132, 0.08);
+}
+
+/* Top Glow Line on Glass Cards */
+.wa-glass-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--wa-teal), transparent);
+  opacity: 0.7;
+}
+
+/* Auth Brand Emblem */
+.wa-brand-emblem {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wa-brand-emblem-glow {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--wa-teal), transparent 70%);
+  opacity: 0.45;
+  animation: pulseGlow 3s ease-in-out infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { transform: scale(1); opacity: 0.35; }
+  50% { transform: scale(1.18); opacity: 0.6; }
+}
+
+.wa-brand-icon-box {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #00a884 0%, #008069 50%, #075e54 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0, 168, 132, 0.4);
+  position: relative;
+  z-index: 1;
+}
+
+/* Modern Gradient CTA Button */
+.wa-btn-primary-gradient {
+  background: linear-gradient(135deg, #00a884 0%, #008f70 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  padding: 13px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(0, 168, 132, 0.35);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.wa-btn-primary-gradient::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+  transform: skewX(-20deg);
+  transition: 0.6s;
+}
+
+.wa-btn-primary-gradient:hover:not(:disabled)::after {
+  left: 150%;
+}
+
+.wa-btn-primary-gradient:hover:not(:disabled) {
+  background: linear-gradient(135deg, #00b890 0%, #00a07e 100%);
+  box-shadow: 0 6px 20px rgba(0, 168, 132, 0.48);
+  transform: translateY(-1px);
+}
+
+.wa-btn-primary-gradient:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
+}
+
+.wa-btn-primary-gradient:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Secondary Button */
+.wa-btn-secondary-glass {
+  background: var(--wa-btn-secondary-bg);
+  border: 1px solid var(--wa-btn-secondary-border);
+  color: var(--wa-text-primary);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.wa-btn-secondary-glass:hover {
+  background: var(--wa-hover-bg);
+  border-color: var(--wa-teal);
+}
+
+/* Discrete 6-Digit PIN Slot Grid */
+.wa-pin-grid {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.wa-pin-slot {
+  width: 48px;
+  height: 56px;
+  border-radius: 12px;
+  border: 1.5px solid var(--wa-border-strong);
+  background-color: var(--wa-input-bg);
+  color: var(--wa-text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.wa-pin-slot:focus,
+.wa-pin-slot.filled {
+  border-color: var(--wa-teal);
+  box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.22), inset 0 1px 2px rgba(0, 0, 0, 0.05);
+  transform: translateY(-2px);
+}
+
+/* Interactive Multi-Step Stepper Rail */
+.wa-stepper-container {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  margin-bottom: 28px;
+  padding: 0 8px;
+}
+
+.wa-stepper-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  z-index: 2;
+  cursor: default;
+}
+
+.wa-stepper-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  border: 2px solid var(--wa-border-strong);
+  background: var(--wa-panel-bg);
+  color: var(--wa-text-muted);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.wa-stepper-step.active .wa-stepper-badge {
+  border-color: var(--wa-teal);
+  background: var(--wa-teal);
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(0, 168, 132, 0.45);
+  transform: scale(1.08);
+}
+
+.wa-stepper-step.completed .wa-stepper-badge {
+  border-color: var(--wa-green);
+  background: var(--wa-green);
+  color: #ffffff;
+}
+
+.wa-stepper-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--wa-text-muted);
+  letter-spacing: 0.3px;
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+.wa-stepper-step.active .wa-stepper-label {
+  color: var(--wa-teal);
+  font-weight: 700;
+}
+
+.wa-stepper-step.completed .wa-stepper-label {
+  color: var(--wa-text-primary);
+}
+
+.wa-stepper-track {
+  position: absolute;
+  top: 18px;
+  left: 40px;
+  right: 40px;
+  height: 2px;
+  background: var(--wa-border);
+  z-index: 1;
+}
+
+.wa-stepper-progress {
+  height: 100%;
+  background: linear-gradient(90deg, var(--wa-teal), var(--wa-green));
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Scanner Frame for QR Code Pairing */
+.wa-scanner-frame {
+  position: relative;
+  display: inline-block;
+  padding: 14px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.wa-scanner-corner {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-color: var(--wa-teal);
+  border-style: solid;
+  pointer-events: none;
+}
+
+.wa-corner-tl { top: 6px; left: 6px; border-width: 3px 0 0 3px; border-top-left-radius: 10px; }
+.wa-corner-tr { top: 6px; right: 6px; border-width: 3px 3px 0 0; border-top-right-radius: 10px; }
+.wa-corner-bl { bottom: 6px; left: 6px; border-width: 0 0 3px 3px; border-bottom-left-radius: 10px; }
+.wa-corner-br { bottom: 6px; right: 6px; border-width: 0 3px 3px 0; border-bottom-right-radius: 10px; }
+
+.wa-scanner-laser {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #00a884, #25d366, #00a884, transparent);
+  box-shadow: 0 0 12px #25d366, 0 0 4px #00a884;
+  animation: scanLaser 3s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes scanLaser {
+  0% { top: 5%; opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { top: 95%; opacity: 0; }
+}
+
+/* Circular Timer Ring */
+.wa-timer-ring-container {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wa-timer-ring-svg {
+  transform: rotate(-90deg);
+  width: 44px;
+  height: 44px;
+}
+
+.wa-timer-ring-bg {
+  stroke: var(--wa-border);
+  stroke-width: 3.5;
+  fill: none;
+}
+
+.wa-timer-ring-bar {
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  fill: none;
+  transition: stroke-dashoffset 1s linear, stroke 0.5s ease;
+}
+
+/* Styled Form Field Groups */
+.wa-form-card {
+  background: var(--wa-card-bg);
+  border: 1px solid var(--wa-border);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.wa-form-card:focus-within {
+  border-color: var(--wa-teal);
+  box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.12);
+}
+
+.wa-input-stylish {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--wa-border-strong);
+  background-color: var(--wa-input-bg);
+  color: var(--wa-text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+
+.wa-input-stylish:focus {
+  border-color: var(--wa-teal);
+  box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.16);
+}
+
+.wa-input-stylish::placeholder {
+  color: var(--wa-text-muted);
+}
+
+/* Smartwatch UI Preview Card */
+.wa-watch-mockup {
+  width: 160px;
+  height: 190px;
+  background: #000000;
+  border-radius: 36px;
+  border: 4px solid #334155;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.4), inset 0 0 10px rgba(255,255,255,0.1);
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  color: #ffffff;
+  position: relative;
+  margin: 0 auto;
+}
+
+.wa-watch-screen-header {
+  font-size: 9px;
+  font-weight: 700;
+  color: #00a884;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.wa-watch-screen-poll {
+  background: #182229;
+  border: 1px solid #00a884;
+  border-radius: 10px;
+  padding: 6px;
+  width: 100%;
+  text-align: center;
+}
+
+.wa-watch-screen-poll h4 {
+  font-size: 9px;
+  margin: 0 0 4px;
+  color: #e9edef;
+  line-height: 1.2;
+}
+
+.wa-watch-screen-btn {
+  background: #00a884;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 8px;
+  font-weight: 700;
+  padding: 3px 0;
+  margin-top: 3px;
+}
+
