@@ -112,7 +112,7 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
     assert.equal(result.maskedPhone, "+91 ••••••• 033");
     assert.ok(result.expiresAt > Date.now());
     assert.equal(result.bridgeSent, true);
-    assert.equal(sentRecipient, "+917060410033");
+    assert.equal(sentRecipient, "917060410033");
     assert.match(sentMessage, /verification code is/);
   });
 
@@ -123,13 +123,13 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
     let fallbackCalled = false;
     const restore = mockFetch(async (url) => {
       if (url.includes("/api/connections/TEST02/send")) {
-        return { ok: false, status: 404 };
+        return { ok: false, status: 404, json: async () => ({}) };
       }
       if (url.includes("/api/send")) {
         fallbackCalled = true;
         return { ok: true, json: async () => ({ success: true }) };
       }
-      return { ok: false };
+      return { ok: false, json: async () => ({}) };
     });
 
     const result = await sendConnectionOtp("TEST02");

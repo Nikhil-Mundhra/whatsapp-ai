@@ -156,9 +156,13 @@ func sendWhatsAppMessage(client *whatsmeow.Client, messageStore *MessageStore, r
 			return false, fmt.Sprintf("Error parsing JID: %v", err), ""
 		}
 	} else {
-		// Create JID from phone number
+		// Create JID from phone number (stripping +, spaces, dashes)
+		clean := cleanPhoneDigits(recipient)
+		if clean == "" {
+			return false, fmt.Sprintf("Invalid recipient phone number: %s", recipient), ""
+		}
 		recipientJID = types.JID{
-			User:   recipient,
+			User:   clean,
 			Server: "s.whatsapp.net", // For personal chats
 		}
 	}

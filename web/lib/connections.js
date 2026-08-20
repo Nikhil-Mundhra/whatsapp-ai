@@ -142,6 +142,11 @@ export async function sendConnectionOtp(hash, options = {}) {
     throw new Error("Owner phone number is not configured for this connection");
   }
 
+  const cleanPhone = String(ownerPhone).replace(/\D/g, "");
+  if (!cleanPhone) {
+    throw new Error("Invalid owner phone number");
+  }
+
   const otp = generateOtp();
   const expiresAt = Date.now() + OTP_TTL_SECONDS * 1000;
   const otpRecord = {
@@ -176,23 +181,30 @@ export async function sendConnectionOtp(hash, options = {}) {
       const res = await fetch(`${bridgeUrl}/api/connections/${cleanHash}/send`, {
         method: "POST",
         headers: getBridgeHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ recipient: ownerPhone, message: otpMessage }),
+        body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
         signal: AbortSignal.timeout(8000),
       });
       if (res.ok) {
         bridgeSent = true;
       } else {
-        const fallbackRes = await fetch(`${bridgeUrl}/api/send`, {
-          method: "POST",
-          headers: getBridgeHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ recipient: ownerPhone, message: otpMessage }),
-          signal: AbortSignal.timeout(8000),
-        });
-        if (fallbackRes.ok) {
-          bridgeSent = true;
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          bridgeError = errData.error || `Bridge status ${res.status}`;
+        const tenantErrData = await res.json().catch(() => ({}));
+        const tenantErrMsg = tenantErrData.error || `Bridge status ${res.status}`;
+
+        try {
+          const fallbackRes = await fetch(`${bridgeUrl}/api/send`, {
+            method: "POST",
+            headers: getBridgeHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
+            signal: AbortSignal.timeout(8000),
+          });
+          if (fallbackRes.ok) {
+            bridgeSent = true;
+          } else {
+            const fallbackErr = await fallbackRes.json().catch(() => ({}));
+            bridgeError = fallbackErr.error || tenantErrMsg;
+          }
+        } catch (fbErr) {
+          bridgeError = fbErr.message || tenantErrMsg;
         }
       }
     } catch (err) {

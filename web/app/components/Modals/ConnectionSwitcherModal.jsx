@@ -16,6 +16,7 @@ export function ConnectionSwitcherModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [bridgeWarning, setBridgeWarning] = useState("");
   const resendTimerRef = useRef(null);
 
   useEffect(() => {
@@ -24,6 +25,7 @@ export function ConnectionSwitcherModal({
       setInputCode(currentHash || "");
       setOtp("");
       setError("");
+      setBridgeWarning("");
       setMaskedPhone("");
       setResendCooldown(0);
     }
@@ -56,6 +58,7 @@ export function ConnectionSwitcherModal({
 
     setLoading(true);
     setError("");
+    setBridgeWarning("");
 
     try {
       const res = await fetch(`/api/connections/${clean}/otp/send`, {
@@ -69,6 +72,11 @@ export function ConnectionSwitcherModal({
       }
 
       setMaskedPhone(data.maskedPhone || "");
+      if (data.bridgeSent === false) {
+        setBridgeWarning(
+          `⚠️ Note: Could not deliver WhatsApp message (${data.bridgeError || "Bridge not connected"}). Please check that the WhatsApp bridge is paired and running.`
+        );
+      }
       setStep(2);
       setResendCooldown(30);
     } catch (err) {
@@ -242,6 +250,22 @@ export function ConnectionSwitcherModal({
                 >
                   <span>📱</span>
                   <code>{maskedPhone}</code>
+                </div>
+              )}
+              {bridgeWarning && (
+                <div
+                  style={{
+                    background: "rgba(245, 158, 11, 0.12)",
+                    border: "1px solid rgba(245, 158, 11, 0.35)",
+                    color: "#f59e0b",
+                    borderRadius: 6,
+                    padding: "6px 10px",
+                    fontSize: 11,
+                    marginTop: 8,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {bridgeWarning}
                 </div>
               )}
             </div>

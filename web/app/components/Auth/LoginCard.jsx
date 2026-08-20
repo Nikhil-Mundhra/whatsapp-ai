@@ -39,6 +39,8 @@ export function LoginCard({
     return () => clearInterval(resendTimerRef.current);
   }, [resendCooldown]);
 
+  const [bridgeWarning, setBridgeWarning] = useState("");
+
   // Handle Step 1: Send OTP to WhatsApp
   async function handleSendOtp(e) {
     if (e) e.preventDefault();
@@ -50,6 +52,7 @@ export function LoginCard({
 
     setLoading(true);
     setError("");
+    setBridgeWarning("");
 
     try {
       const res = await fetch(`/api/connections/${cleanHash}/otp/send`, {
@@ -63,6 +66,11 @@ export function LoginCard({
       }
 
       setMaskedPhone(data.maskedPhone || "");
+      if (data.bridgeSent === false) {
+        setBridgeWarning(
+          `⚠️ Note: Could not deliver WhatsApp message (${data.bridgeError || "Bridge not connected"}). Please check that the WhatsApp bridge is paired and running.`
+        );
+      }
       setStep(2);
       setResendCooldown(30); // 30-second cooldown
     } catch (err) {
@@ -338,6 +346,22 @@ export function LoginCard({
                 >
                   <span>📱</span>
                   <code>{maskedPhone}</code>
+                </div>
+              )}
+              {bridgeWarning && (
+                <div
+                  style={{
+                    background: "rgba(245, 158, 11, 0.12)",
+                    border: "1px solid rgba(245, 158, 11, 0.35)",
+                    color: "#f59e0b",
+                    borderRadius: 8,
+                    padding: "8px 12px",
+                    fontSize: 12,
+                    marginTop: 10,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {bridgeWarning}
                 </div>
               )}
             </div>
