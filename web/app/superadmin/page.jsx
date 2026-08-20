@@ -535,6 +535,64 @@ export default function SuperadminPage() {
               <button
                 type="submit"
                 disabled={loginLoading || otp.length < 6}
+                className="wa-btn-primary-gradient"
+                style={{ width: "100%", padding: "12px", fontSize: "14px", marginBottom: 12 }}
+              >
+                {loginLoading ? "Verifying..." : "Verify & Enter Superadmin"}
+              </button>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOtpStep(false);
+                    setOtp("");
+                    setLoginError("");
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--wa-text-secondary)",
+                    fontSize: "12px",
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  Back to Password
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLoginSubmit}
+                  disabled={loginLoading}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--wa-teal)",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  Resend OTP
+                </button>
+              </div>
+            </form>
+          )}
+
+          <div style={{ marginTop: 24, textAlign: "center", borderTop: "1px solid var(--wa-border)", paddingTop: 16 }}>
+            <Link href="/" style={{ color: "var(--wa-teal)", fontSize: "13px", textDecoration: "none" }}>
+              Return to User Control Panel
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Authenticated Superadmin Dashboard
+  const summary = data?.summary || {
+    totalUsers: 0,
     connectedUsers: 0,
     totalStorageFormatted: "0 B",
     totalMessages: 0,
@@ -576,7 +634,7 @@ export default function SuperadminPage() {
               fontSize: "16px",
             }}
           >
-            🛡️
+            <LockIcon size={18} color="#ffffff" />
           </div>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -946,9 +1004,11 @@ export default function SuperadminPage() {
                     borderRadius: 6,
                     fontSize: "12px",
                     cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
                   }}
                 >
-                  ✕
+                  <CloseIcon size={12} color="var(--wa-text-muted)" />
                 </button>
               </div>
             ) : (
