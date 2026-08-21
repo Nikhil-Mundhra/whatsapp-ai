@@ -280,7 +280,7 @@ func (store *MessageStore) GetRecentMessages(limit int) ([]map[string]interface{
 		limit = 20
 	}
 	rows, err := store.db.Query(`
-		SELECT m.chat_jid, coalesce(c.name, m.sender), m.sender, m.content, m.timestamp, m.is_from_me, m.media_type
+		SELECT m.chat_jid, coalesce(c.name, m.sender), m.sender, m.content, m.timestamp, m.is_from_me, m.media_type, coalesce(m.filename, ''), coalesce(m.url, '')
 		FROM messages m
 		LEFT JOIN chats c ON m.chat_jid = c.jid
 		ORDER BY m.timestamp DESC
@@ -293,10 +293,10 @@ func (store *MessageStore) GetRecentMessages(limit int) ([]map[string]interface{
 
 	var result []map[string]interface{}
 	for rows.Next() {
-		var chatJID, name, sender, content, mediaType string
+		var chatJID, name, sender, content, mediaType, filename, url string
 		var timestamp time.Time
 		var isFromMe bool
-		if err := rows.Scan(&chatJID, &name, &sender, &content, &timestamp, &isFromMe, &mediaType); err != nil {
+		if err := rows.Scan(&chatJID, &name, &sender, &content, &timestamp, &isFromMe, &mediaType, &filename, &url); err != nil {
 			continue
 		}
 		result = append(result, map[string]interface{}{
@@ -307,6 +307,8 @@ func (store *MessageStore) GetRecentMessages(limit int) ([]map[string]interface{
 			"timestamp":  timestamp.Format(time.RFC3339),
 			"isFromMe":   isFromMe,
 			"mediaType":  mediaType,
+			"filename":   filename,
+			"url":        url,
 		})
 	}
 	return result, nil

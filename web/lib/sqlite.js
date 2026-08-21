@@ -159,6 +159,8 @@ function _mapMessageRow(r, contactNames) {
     timestamp: r.timestamp,
     isFromMe: Boolean(r.is_from_me),
     mediaType: r.media_type || "",
+    filename: r.filename || "",
+    url: r.url || "",
     isAi: r.origin === "ai" || r.origin === "takeover",
   };
 }
@@ -264,6 +266,10 @@ export function getLocalMessages(chatJid = "", limit = 100) {
     const { lidToPn, pnToLid } = getLidMap();
     const msgDb = new DatabaseSync(messagesDbPath, { readOnly: true });
 
+    const cols = new Set(msgDb.prepare("PRAGMA table_info(messages)").all().map((c) => c.name));
+    const fnCol = cols.has("filename") ? "filename" : "'' AS filename";
+    const urlCol = cols.has("url") ? "url" : "'' AS url";
+
     let rows = [];
     if (chatJid) {
       const clean = chatJid.replace(/\D/g, "");
@@ -297,7 +303,7 @@ export function getLocalMessages(chatJid = "", limit = 100) {
       const jidList = Array.from(associatedJids);
       const placeholders = jidList.map(() => "?").join(",");
       const query = `
-        SELECT id, chat_jid, sender, content, timestamp, is_from_me, media_type, origin
+        SELECT id, chat_jid, sender, content, timestamp, is_from_me, media_type, ${fnCol}, ${urlCol}, origin
         FROM messages
         WHERE (chat_jid IN (${placeholders}) OR (is_from_me = 0 AND sender IN (${placeholders})) OR chat_jid LIKE ?)
         ORDER BY timestamp ASC
@@ -306,7 +312,7 @@ export function getLocalMessages(chatJid = "", limit = 100) {
       rows = msgDb.prepare(query).all(...jidList, ...jidList, `%${clean}%`, limit);
     } else {
       const query = `
-        SELECT id, chat_jid, sender, content, timestamp, is_from_me, media_type, origin
+        SELECT id, chat_jid, sender, content, timestamp, is_from_me, media_type, ${fnCol}, ${urlCol}, origin
         FROM messages
         WHERE chat_jid != 'status@broadcast'
         ORDER BY timestamp DESC

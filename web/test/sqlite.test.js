@@ -191,6 +191,8 @@ test("sqlite.js unit tests", async (t) => {
     assert.ok(takeoverMsg);
     assert.equal(takeoverMsg.isAi, true);
     assert.equal(takeoverMsg.mediaType, "image");
+    assert.equal(typeof takeoverMsg.filename, "string");
+    assert.equal(typeof takeoverMsg.url, "string");
   });
 
   await t.test("getLocalMessages works with default parameters", () => {

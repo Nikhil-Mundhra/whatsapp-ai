@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server.js";
 import { getConfig, saveConfig } from "../../../lib/config.js";
+import { maskApiKey } from "../../../lib/connections.js";
 
 export async function GET() {
   const config = await getConfig();
@@ -9,6 +10,7 @@ export async function GET() {
     config: {
       ...rest,
       aiApiKeySet: Boolean(aiApiKey),
+      aiApiKeyMasked: aiApiKey ? maskApiKey(aiApiKey) : "",
     },
   });
 }
@@ -46,5 +48,12 @@ export async function POST(req) {
   }
 
   await saveConfig(next);
-  return NextResponse.json({ config: { ownerPhone: next.ownerPhone, allowedRecipients: next.allowedRecipients, aiApiKeySet: Boolean(next.aiApiKey) } });
+  return NextResponse.json({
+    config: {
+      ownerPhone: next.ownerPhone,
+      allowedRecipients: next.allowedRecipients,
+      aiApiKeySet: Boolean(next.aiApiKey),
+      aiApiKeyMasked: next.aiApiKey ? maskApiKey(next.aiApiKey) : "",
+    },
+  });
 }

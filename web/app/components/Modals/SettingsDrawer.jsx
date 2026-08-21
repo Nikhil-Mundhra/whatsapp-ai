@@ -1,6 +1,7 @@
 "use client";
 
-import { CloseIcon, RobotIcon, SunIcon, MoonIcon, CheckIcon, WarningIcon, RefreshIcon } from "../Icons/WhatsAppIcons";
+import { useState, useEffect } from "react";
+import { CloseIcon, RobotIcon, SunIcon, MoonIcon, CheckIcon, WarningIcon, RefreshIcon, KeyIcon, EditIcon } from "../Icons/WhatsAppIcons";
 import { ContactPicker } from "../UI/ContactPicker";
 
 export function SettingsDrawer({
@@ -20,7 +21,16 @@ export function SettingsDrawer({
   chats = [],
   contacts = [],
   hash = "",
+  aiApiKeySet = false,
+  aiApiKeyMasked = "",
 }) {
+  const [isEditingKey, setIsEditingKey] = useState(!aiApiKeySet);
+
+  useEffect(() => {
+    if (isOpen) {
+      setIsEditingKey(!aiApiKeySet);
+    }
+  }, [isOpen, aiApiKeySet]);
   if (!isOpen) return null;
 
   return (

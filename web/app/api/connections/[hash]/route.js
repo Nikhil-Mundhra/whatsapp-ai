@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server.js";
-import { getConnection, updateConnection, getBridgeHeaders } from "../../../../lib/connections.js";
+import { getConnection, updateConnection, getBridgeHeaders, maskApiKey } from "../../../../lib/connections.js";
 
 const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
 
@@ -51,6 +51,7 @@ export async function GET(_req, props) {
       allowedRecipients: conn?.allowedRecipients || bridgeStatus?.allowedRecipients || [],
       aiModel: conn?.aiModel || bridgeStatus?.aiModel || "qwen/qwen3.8-27b",
       aiApiKeySet: Boolean(aiApiKey || bridgeStatus?.aiApiKeySet),
+      aiApiKeyMasked: aiApiKey ? maskApiKey(aiApiKey) : (bridgeStatus?.aiApiKeySet ? "••••••••••••" : ""),
     },
     whatsapp,
     bridgeStatus,
@@ -115,6 +116,7 @@ async function handleUpdate(req, props) {
     connection: {
       ...rest,
       aiApiKeySet: Boolean(aiApiKey),
+      aiApiKeyMasked: aiApiKey ? maskApiKey(aiApiKey) : "",
     },
   });
 }

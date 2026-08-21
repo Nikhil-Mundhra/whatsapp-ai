@@ -47,6 +47,17 @@ export function maskPhone(phone) {
   return `+${start} ${maskedMiddle} ${end}`;
 }
 
+export function maskApiKey(key) {
+  if (!key) return "";
+  const clean = String(key).trim();
+  if (clean.length === 0) return "";
+  if (clean.length <= 6) return clean.slice(0, 2) + "••••••";
+  if (clean.length <= 12) return clean.slice(0, 3) + "••••••" + clean.slice(-2);
+  const start = clean.slice(0, Math.min(6, Math.max(3, Math.floor(clean.length / 4))));
+  const end = clean.slice(-4);
+  return `${start}••••••••${end}`;
+}
+
 export async function createConnection(config = {}) {
   let hash = config.hash ? String(config.hash).trim().toUpperCase() : generateHash();
   if (kv && !config.hash) {

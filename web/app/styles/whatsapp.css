@@ -1005,6 +1005,44 @@ body {
   opacity: 0.85;
 }
 
+/* ── Photo Card / Attachment ─────────────────────────────────────── */
+.wa-photo-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  min-width: 140px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] .wa-photo-card {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.wa-photo-icon-box {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--wa-emerald);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.wa-photo-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--wa-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 
 .wa-chat-input-field {
   flex: 1;
