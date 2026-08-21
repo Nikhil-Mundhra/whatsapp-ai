@@ -911,6 +911,14 @@ export default function Home() {
     setIsSettingsOpen(true);
   }
 
+  function toggleSettings() {
+    if (isSettingsOpen) {
+      setIsSettingsOpen(false);
+    } else {
+      openSettings();
+    }
+  }
+
   function handleApiKeyChange(e) {
     const val = typeof e === "string" ? e : (e?.target?.value ?? "");
     setConfigForm((prev) => ({ ...prev, aiApiKey: val }));
@@ -1161,11 +1169,15 @@ export default function Home() {
         {/* 1. Left Vertical Navigation Rail (Width 60px) */}
         <NavRail
           activeNav={activeNav}
-          onSelectNav={setActiveNav}
+          onSelectNav={(nav) => {
+            setActiveNav(nav);
+            setIsSettingsOpen(false);
+          }}
+          isSettingsOpen={isSettingsOpen}
           unreadCount={unreadCount}
           archivedCount={archivedIds.length}
           starredCount={starredCount}
-          onOpenSettings={openSettings}
+          onOpenSettings={toggleSettings}
           ownerPhone={connInfo?.connection?.ownerPhone}
           hash={hash}
           theme={theme}
@@ -1346,28 +1358,29 @@ export default function Home() {
             </div>
           )}
         </div>
-      </div>
 
-      {/* Slide-out Settings Drawer */}
-      <SettingsDrawer
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        configForm={configForm}
-        setConfigForm={setConfigForm}
-        onSave={handleSaveConfig}
-        onLogout={handleLogout}
-        saving={savingConfig}
-        error={configError}
-        success={configSuccess}
-        keyStatus={keyStatus}
-        onApiKeyChange={handleApiKeyChange}
-        theme={theme}
-        onThemeChange={handleThemeChange}
-        chats={chats}
-        hash={hash}
-        aiApiKeySet={Boolean(connInfo?.connection?.aiApiKeySet)}
-        aiApiKeyMasked={connInfo?.connection?.aiApiKeyMasked || (connInfo?.connection?.aiApiKeySet ? "••••••••••••" : "")}
-      />
+        {/* Slide-out Settings Drawer attached from right end of NavRail (left: 60px) */}
+        <SettingsDrawer
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          configForm={configForm}
+          setConfigForm={setConfigForm}
+          onSave={handleSaveConfig}
+          onLogout={handleLogout}
+          saving={savingConfig}
+          error={configError}
+          success={configSuccess}
+          keyStatus={keyStatus}
+          onApiKeyChange={handleApiKeyChange}
+          theme={theme}
+          onThemeChange={handleThemeChange}
+          chats={chats}
+          contacts={chats}
+          hash={hash}
+          aiApiKeySet={Boolean(connInfo?.connection?.aiApiKeySet)}
+          aiApiKeyMasked={connInfo?.connection?.aiApiKeyMasked || (connInfo?.connection?.aiApiKeySet ? "••••••••••••" : "")}
+        />
+      </div>
 
       {/* Create / Edit Take-Over Poll Modal */}
       <CreatePollModal

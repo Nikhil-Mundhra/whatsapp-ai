@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
 import {
   ChatBubbleIcon,
   PhoneCallIcon,
@@ -10,7 +9,6 @@ import {
   StarIcon,
   MetaAiIcon,
   SettingsIcon,
-  ServerIcon,
 } from "../Icons/WhatsAppIcons";
 
 export function NavRail({
@@ -22,6 +20,7 @@ export function NavRail({
   hasStatusUpdate = true,
   hasMissedCall = false,
   onOpenSettings,
+  isSettingsOpen = false,
   ownerPhone = "",
   hash = "",
   theme = "dark",
@@ -257,40 +256,23 @@ export function NavRail({
 
       {/* Bottom Navigation Group */}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, width: "100%" }}>
-        {/* Superadmin Link */}
-        <Link
-          href="/superadmin"
-          title="Superadmin Fleet & AI Manager"
-          style={{
-            width: 42,
-            height: 42,
-            borderRadius: 12,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--wa-icon-color)",
-            textDecoration: "none",
-            transition: "all 0.15s ease",
-          }}
-        >
-          <ServerIcon size={20} color="currentColor" />
-        </Link>
-
         {/* Settings Button */}
         <button
+          className={`wa-nav-item ${isSettingsOpen ? "active" : ""}`}
           onClick={onOpenSettings}
           title="Settings & Credentials"
           style={{
-            width: 42,
-            height: 42,
+            width: 44,
+            height: 44,
             borderRadius: 12,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background: "transparent",
-            color: "var(--wa-icon-color)",
+            background: isSettingsOpen ? "rgba(0, 168, 132, 0.15)" : "transparent",
+            color: isSettingsOpen ? "var(--wa-teal)" : "var(--wa-icon-color)",
             border: "none",
             cursor: "pointer",
+            position: "relative",
             transition: "all 0.15s ease",
           }}
         >

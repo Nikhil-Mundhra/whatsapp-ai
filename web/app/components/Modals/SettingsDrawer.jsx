@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { CloseIcon, RobotIcon, SunIcon, MoonIcon, CheckIcon, WarningIcon, RefreshIcon, KeyIcon, EditIcon } from "../Icons/WhatsAppIcons";
+import { ArrowLeftIcon, CloseIcon, RobotIcon, SunIcon, MoonIcon, CheckIcon, WarningIcon, RefreshIcon, KeyIcon, EditIcon } from "../Icons/WhatsAppIcons";
 import { ContactPicker } from "../UI/ContactPicker";
 
 export function SettingsDrawer({
@@ -34,21 +34,28 @@ export function SettingsDrawer({
   if (!isOpen) return null;
 
   return (
-    <div className="wa-drawer-backdrop" onClick={onClose}>
-      <div className="wa-drawer" onClick={(e) => e.stopPropagation()}>
+    <div className="wa-settings-drawer-backdrop" onClick={onClose}>
+      <div className="wa-settings-drawer" onClick={(e) => e.stopPropagation()}>
         {/* Drawer Header */}
         <div className="wa-drawer-header">
           <button
+            type="button"
             onClick={onClose}
+            title="Back / Close Settings"
+            aria-label="Back / Close Settings"
             style={{
               background: "none",
               border: "none",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
+              justifyContent: "center",
+              padding: 4,
+              borderRadius: "50%",
+              color: "#ffffff",
             }}
           >
-            <CloseIcon size={22} color="#ffffff" />
+            <ArrowLeftIcon size={20} color="#ffffff" />
           </button>
           <h3>Take-Over Settings</h3>
         </div>

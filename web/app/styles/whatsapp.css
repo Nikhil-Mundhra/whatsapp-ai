@@ -1160,7 +1160,33 @@ body {
   line-height: 1.5;
 }
 
-/* Slide-in Settings Drawer */
+/* Slide-in Settings Drawer (anchored to the right of the 60px NavRail) */
+.wa-settings-drawer-backdrop {
+  position: absolute;
+  top: 0;
+  left: 60px;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(11, 20, 26, 0.55);
+  z-index: 10;
+  display: flex;
+  justify-content: flex-start;
+  animation: fadeIn 0.2s ease;
+}
+
+.wa-settings-drawer {
+  width: 450px;
+  max-width: calc(100% - 10px);
+  height: 100%;
+  background-color: var(--wa-drawer-bg);
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  animation: slideInLeft 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 11;
+}
+
+/* Generic Drawer & Modal Backdrop */
 .wa-drawer-backdrop {
   position: absolute;
   top: 0;
