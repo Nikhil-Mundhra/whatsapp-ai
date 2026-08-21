@@ -34,6 +34,8 @@ export function LoginCard({
 
   const resendTimerRef = useRef(null);
   const pinInputRefs = useRef([]);
+  const isSendingRef = useRef(false);
+  const isVerifyingRef = useRef(false);
 
   useEffect(() => {
     if (initialHash) {
@@ -69,12 +71,15 @@ export function LoginCard({
   // Handle Step 1: Send OTP to WhatsApp
   async function handleSendOtp(e, targetHash = hash) {
     if (e) e.preventDefault();
+    if (isSendingRef.current) return;
+
     const cleanHash = (targetHash || hash).trim().toUpperCase();
     if (!cleanHash) {
       setError("Please enter your 6-character connection code.");
       return;
     }
 
+    isSendingRef.current = true;
     setLoading(true);
     setError("");
     setBridgeWarning("");
@@ -83,6 +88,7 @@ export function LoginCard({
       const res = await fetch(`/api/connections/${cleanHash}/otp/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(8000),
       });
       const data = await res.json();
 
@@ -106,12 +112,15 @@ export function LoginCard({
     } catch (err) {
       setError(err.message || "Failed to send verification code. Please verify your connection code.");
     } finally {
+      isSendingRef.current = false;
       setLoading(false);
     }
   }
 
   // Handle Step 2: Verify OTP
   async function handleVerifyOtp(fullOtp) {
+    if (isVerifyingRef.current) return;
+
     const cleanHash = hash.trim().toUpperCase();
     const cleanOtp = (fullOtp || otpDigits.join("")).trim();
 
@@ -120,6 +129,7 @@ export function LoginCard({
       return;
     }
 
+    isVerifyingRef.current = true;
     setLoading(true);
     setError("");
 
@@ -128,6 +138,7 @@ export function LoginCard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ otp: cleanOtp }),
+        signal: AbortSignal.timeout(6000),
       });
       const data = await res.json();
 
@@ -146,6 +157,7 @@ export function LoginCard({
     } catch (err) {
       setError(err.message || "Verification failed. Please check the code sent to your WhatsApp.");
     } finally {
+      isVerifyingRef.current = false;
       setLoading(false);
     }
   }
@@ -158,7 +170,7 @@ export function LoginCard({
     const newDigits = [...otpDigits];
 
     if (digitsOnly.length > 1) {
-      // Pasted full code or multiple digits
+      // Pasted full code or multiple digits directly into input
       const chars = digitsOnly.slice(0, 6).split("");
       for (let i = 0; i < 6; i++) {
         newDigits[i] = chars[i] || "";
@@ -168,7 +180,7 @@ export function LoginCard({
       if (pinInputRefs.current[nextIndex]) {
         pinInputRefs.current[nextIndex].focus();
       }
-      if (chars.length === 6) {
+      if (chars.length === 6 && !isVerifyingRef.current) {
         handleVerifyOtp(chars.join(""));
       }
       return;
@@ -185,7 +197,7 @@ export function LoginCard({
     }
 
     // Auto-submit if all 6 digits are entered
-    if (newDigits.every((d) => d !== "") && newDigits.join("").length === 6) {
+    if (newDigits.every((d) => d !== "") && newDigits.join("").length === 6 && !isVerifyingRef.current) {
       handleVerifyOtp(newDigits.join(""));
     }
   }
@@ -209,16 +221,19 @@ export function LoginCard({
 
   function handlePaste(e) {
     e.preventDefault();
+    e.stopPropagation();
     const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
     if (pasted) {
-      const newDigits = [...otpDigits];
+      const newDigits = ["", "", "", "", "", ""];
       for (let i = 0; i < 6; i++) {
         newDigits[i] = pasted[i] || "";
       }
       setOtpDigits(newDigits);
       const nextFocus = Math.min(pasted.length, 5);
-      pinInputRefs.current[nextFocus]?.focus();
-      if (pasted.length === 6) {
+      if (pinInputRefs.current[nextFocus]) {
+        pinInputRefs.current[nextFocus].focus();
+      }
+      if (pasted.length === 6 && !isVerifyingRef.current) {
         handleVerifyOtp(pasted);
       }
     }

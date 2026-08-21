@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server.js";
 import { getLocalContacts } from "../../../lib/sqlite.js";
-import { getBridgeHeaders } from "../../../lib/connections.js";
-
-const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+import { getBridgeHeaders, getBridgeUrl } from "../../../lib/connections.js";
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q") || "";
   const hash = searchParams.get("hash") || "";
   const limit = parseInt(searchParams.get("limit") || "100", 10);
+  const BRIDGE_URL = getBridgeUrl();
 
   const localContacts = getLocalContacts(q, limit);
   if (localContacts && localContacts.length > 0) {

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server.js";
-import { getConnection, updateConnection, getBridgeHeaders, maskApiKey } from "../../../../lib/connections.js";
-
-const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+import { getConnection, updateConnection, getBridgeHeaders, maskApiKey, getBridgeUrl } from "../../../../lib/connections.js";
 
 export async function GET(_req, props) {
+  const BRIDGE_URL = getBridgeUrl();
   const { hash } = await props.params;
   if (!hash) return NextResponse.json({ error: "missing hash" }, { status: 400 });
 
@@ -90,6 +89,7 @@ async function handleUpdate(req, props) {
   if (body.aiModel) updates.aiModel = String(body.aiModel).trim();
 
   const conn = (await updateConnection(hash, updates)) || { hash, ...updates };
+  const BRIDGE_URL = getBridgeUrl();
 
   // Sync with multi-tenant bridge
   if (BRIDGE_URL) {

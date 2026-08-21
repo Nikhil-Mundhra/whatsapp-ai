@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual, randomBytes } from "crypto";
 import { kv } from "./polls.js";
 import { createJwt, verifyJwt } from "./jwt.js";
-import { getConnection, getBridgeHeaders } from "./connections.js";
+import { getConnection, getBridgeHeaders, getBridgeUrl } from "./connections.js";
 import { getLocalMessages } from "./sqlite.js";
 import fs from "fs";
 import path from "path";
@@ -178,7 +178,7 @@ export async function sendSuperadminOtp() {
     }
   }
 
-  const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+  const bridgeUrl = getBridgeUrl();
   const otpMessage = `*WhatsApp AI Superadmin 2FA Code*\n\nYour Master Admin access verification code is: *${otp}*\n\nValid for 10 minutes. NEVER share this code.`;
 
   let bridgeSent = false;
@@ -430,7 +430,7 @@ export function formatBytes(bytes) {
  * Aggregates all users, their metrics, storage used, chats automated, and message counts.
  */
 export async function getAllUsersOverview() {
-  const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+  const BRIDGE_URL = getBridgeUrl();
   const allHashes = new Set();
 
   // 1. Fetch hashes from KV sorted set

@@ -52,7 +52,7 @@ export function ChatInputBar({
 
   const isTakeoverActive = isDurationActive || isCountActive;
 
-  // Real-time ticking countdown
+  // Real-time ticking countdown and TTL expiry
   useEffect(() => {
     if (isDurationActive && activeGrant?.expiresAt) {
       const updateTimer = () => {
@@ -65,10 +65,19 @@ export function ChatInputBar({
       updateTimer();
       const timer = setInterval(updateTimer, 1000);
       return () => clearInterval(timer);
+    } else if (isCountActive && activeGrant?.expiresAt) {
+      const checkExpiry = () => {
+        if (activeGrant.expiresAt <= Date.now()) {
+          onRevokeGrant?.(false);
+        }
+      };
+      checkExpiry();
+      const timer = setInterval(checkExpiry, 2000);
+      return () => clearInterval(timer);
     } else {
       setSecondsLeft(0);
     }
-  }, [activeGrant?.expiresAt, isDurationActive]);
+  }, [activeGrant?.expiresAt, isDurationActive, isCountActive]);
 
   // Close popover on click outside
   useEffect(() => {

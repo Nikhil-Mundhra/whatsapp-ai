@@ -18,6 +18,10 @@ globalThis.__otpFallback = globalThis.__otpFallback || new Map();
 globalThis.__sessionFallback = globalThis.__sessionFallback || new Map();
 globalThis.__revokedTokensFallback = globalThis.__revokedTokensFallback || new Set();
 
+export function getBridgeUrl() {
+  return (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+}
+
 export function generateHash() {
   const bytes = randomBytes(HASH_LEN);
   let hash = "";
@@ -160,28 +164,53 @@ export async function sendConnectionOtp(hash, options = {}) {
     throw new Error("Invalid owner phone number");
   }
 
-  const otp = generateOtp();
-  const expiresAt = Date.now() + OTP_TTL_SECONDS * 1000;
-  const otpRecord = {
-    hash: cleanHash,
-    code: otp,
-    ownerPhone,
-    attempts: 0,
-    expiresAt,
-    createdAt: Date.now(),
-  };
+  // Check if there is already an active, unexpired OTP issued less than 60 seconds ago with < 2 attempts
+  let existingRecord = null;
+  if (kv) {
+    try {
+      const raw = await kv.get(OTP_PREFIX + cleanHash);
+      if (raw) {
+        existingRecord = typeof raw === "string" ? JSON.parse(raw) : raw;
+      }
+    } catch {}
+  }
+  if (!existingRecord) {
+    existingRecord = globalThis.__otpFallback.get(cleanHash);
+  }
+
+  const canReuse =
+    existingRecord &&
+    existingRecord.code &&
+    !existingRecord.used &&
+    Date.now() < existingRecord.expiresAt &&
+    existingRecord.attempts < 2 &&
+    Date.now() - (existingRecord.createdAt || 0) < 60000;
+
+  const otp = canReuse ? existingRecord.code : generateOtp();
+  const expiresAt = canReuse ? existingRecord.expiresAt : Date.now() + OTP_TTL_SECONDS * 1000;
+  const otpRecord = canReuse
+    ? existingRecord
+    : {
+        hash: cleanHash,
+        code: otp,
+        ownerPhone,
+        attempts: 0,
+        expiresAt,
+        createdAt: Date.now(),
+      };
 
   globalThis.__otpFallback.set(cleanHash, otpRecord);
 
   if (kv) {
     try {
-      await kv.set(OTP_PREFIX + cleanHash, JSON.stringify(otpRecord), { ex: OTP_TTL_SECONDS });
+      const remainingTtl = Math.max(1, Math.floor((expiresAt - Date.now()) / 1000));
+      await kv.set(OTP_PREFIX + cleanHash, JSON.stringify(otpRecord), { ex: remainingTtl });
     } catch (err) {
       console.error("[kv sendConnectionOtp error]", err);
     }
   }
 
-  const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+  const bridgeUrl = getBridgeUrl();
   const otpMessage =
     options.messageOverride ||
     `*WhatsApp AI Take-Over Verification Code*\n\nYour login verification code is: *${otp}*\n\nThis code is valid for 10 minutes.\nDo not share this code with anyone.`;
@@ -195,7 +224,7 @@ export async function sendConnectionOtp(hash, options = {}) {
         method: "POST",
         headers: getBridgeHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(4000),
       });
 
       if (res.ok) {
@@ -210,14 +239,14 @@ export async function sendConnectionOtp(hash, options = {}) {
             await fetch(`${bridgeUrl}/api/connections/${cleanHash}/reconnect`, {
               method: "POST",
               headers: getBridgeHeaders({ "Content-Type": "application/json" }),
-              signal: AbortSignal.timeout(4000),
+              signal: AbortSignal.timeout(2000),
             });
-            await new Promise((resolve) => setTimeout(resolve, 800));
+            await new Promise((resolve) => setTimeout(resolve, 400));
             const retryRes = await fetch(`${bridgeUrl}/api/connections/${cleanHash}/send`, {
               method: "POST",
               headers: getBridgeHeaders({ "Content-Type": "application/json" }),
               body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
-              signal: AbortSignal.timeout(8000),
+              signal: AbortSignal.timeout(3000),
             });
             if (retryRes.ok) {
               bridgeSent = true;
@@ -233,7 +262,7 @@ export async function sendConnectionOtp(hash, options = {}) {
               method: "POST",
               headers: getBridgeHeaders({ "Content-Type": "application/json" }),
               body: JSON.stringify({ recipient: cleanPhone, message: otpMessage }),
-              signal: AbortSignal.timeout(8000),
+              signal: AbortSignal.timeout(3000),
             });
             if (fallbackRes.ok) {
               bridgeSent = true;
@@ -289,6 +318,20 @@ export async function verifyConnectionOtp(hash, inputOtp) {
     return { valid: false, error: "No active verification code found. Please request a new code." };
   }
 
+  // Grace-period handling: If already successfully used within last 5 seconds and token is present, return the token gracefully
+  if (otpRecord.used && otpRecord.usedAt && Date.now() - otpRecord.usedAt < 5000 && otpRecord.token) {
+    return {
+      valid: true,
+      token: otpRecord.token,
+      hash: cleanHash,
+      expiresAt: otpRecord.sessionExpiresAt || Date.now() + SESSION_TTL_SECONDS * 1000,
+    };
+  }
+
+  if (otpRecord.used) {
+    return { valid: false, error: "Verification code has already been used. Please request a new code." };
+  }
+
   if (Date.now() > otpRecord.expiresAt) {
     globalThis.__otpFallback.delete(cleanHash);
     if (kv) {
@@ -326,21 +369,38 @@ export async function verifyConnectionOtp(hash, inputOtp) {
     };
   }
 
-  // OTP matches! Clear the OTP record
-  globalThis.__otpFallback.delete(cleanHash);
-  if (kv) {
-    try {
-      await kv.del(OTP_PREFIX + cleanHash);
-    } catch {}
-  }
-
+  // OTP matches! Issue session token
   const sessionToken = createJwt({ hash: cleanHash, type: "session" }, SESSION_TTL_SECONDS);
+  const sessionExpiresAt = Date.now() + SESSION_TTL_SECONDS * 1000;
   const sessionRecord = {
     token: sessionToken,
     hash: cleanHash,
     createdAt: Date.now(),
-    expiresAt: Date.now() + SESSION_TTL_SECONDS * 1000,
+    expiresAt: sessionExpiresAt,
   };
+
+  // Mark OTP record as used with 5s grace period to tolerate immediate duplicate/parallel verification calls
+  const graceOtpRecord = {
+    ...otpRecord,
+    used: true,
+    usedAt: Date.now(),
+    token: sessionToken,
+    sessionExpiresAt,
+  };
+
+  globalThis.__otpFallback.set(cleanHash, graceOtpRecord);
+  setTimeout(() => {
+    const cur = globalThis.__otpFallback.get(cleanHash);
+    if (cur && cur.used) {
+      globalThis.__otpFallback.delete(cleanHash);
+    }
+  }, 5000);
+
+  if (kv) {
+    try {
+      await kv.set(OTP_PREFIX + cleanHash, JSON.stringify(graceOtpRecord), { ex: 5 });
+    } catch {}
+  }
 
   globalThis.__sessionFallback.set(sessionToken, sessionRecord);
   if (kv) {
@@ -465,7 +525,7 @@ export async function revokeSession(token) {
 
 export async function reconnectBridgeTenant(hash) {
   const cleanHash = String(hash || "").trim().toUpperCase();
-  const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+  const bridgeUrl = getBridgeUrl();
   if (!bridgeUrl || !cleanHash) return { success: false, error: "invalid hash or bridge url" };
 
   try {
@@ -482,7 +542,7 @@ export async function reconnectBridgeTenant(hash) {
 
 export async function disconnectBridgeTenant(hash) {
   const cleanHash = String(hash || "").trim().toUpperCase();
-  const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+  const bridgeUrl = getBridgeUrl();
   if (!bridgeUrl || !cleanHash) return { success: false, error: "invalid hash or bridge url" };
 
   try {
@@ -499,7 +559,7 @@ export async function disconnectBridgeTenant(hash) {
 
 export async function deleteBridgeTenant(hash) {
   const cleanHash = String(hash || "").trim().toUpperCase();
-  const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+  const bridgeUrl = getBridgeUrl();
   if (!bridgeUrl || !cleanHash) return { success: false, error: "invalid hash or bridge url" };
 
   try {
@@ -515,7 +575,7 @@ export async function deleteBridgeTenant(hash) {
 }
 
 export async function fetchBridgeHealth() {
-  const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+  const bridgeUrl = getBridgeUrl();
   if (!bridgeUrl) return { status: "offline", error: "Bridge URL unconfigured" };
 
   try {

@@ -574,7 +574,7 @@ class TestWhatsAppDatabaseFunctions(unittest.TestCase):
         mock_conn.cursor.return_value = mock_cur
         mock_cur.fetchall.return_value = [
             ("1234567890@s.whatsapp.net", "Alice Smith"),
-            ("9876543210@s.whatsapp.net", "Bob Jones"),
+            ("7060410033@s.whatsapp.net", "Bob Jones"),
         ]
 
         with patch("sqlite3.connect", return_value=mock_conn):

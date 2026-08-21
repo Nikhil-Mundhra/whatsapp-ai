@@ -20,11 +20,32 @@ import {
 import { createConnection } from "../lib/connections.js";
 import { NextResponse } from "next/server.js";
 
+function mockFetch(handler) {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    return handler(url, options);
+  };
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
 test("Superadmin Security and Telemetry Unit Tests", async (t) => {
   const origSecret = process.env.SUPERADMIN_SECRET;
   const origPhone = process.env.SUPERADMIN_PHONE;
+  let restoreFetch;
+
+  t.beforeEach(() => {
+    delete process.env.BRIDGE_URL;
+    restoreFetch = mockFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: "ok", tenants: [] }),
+    }));
+  });
 
   t.afterEach(() => {
+    if (restoreFetch) restoreFetch();
     if (origSecret !== undefined) process.env.SUPERADMIN_SECRET = origSecret;
     else delete process.env.SUPERADMIN_SECRET;
 

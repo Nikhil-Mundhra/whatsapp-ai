@@ -8,9 +8,8 @@ import {
   disconnectBridgeTenant,
   deleteBridgeTenant,
   getBridgeHeaders,
+  getBridgeUrl,
 } from "../../../../../lib/connections.js";
-
-const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
 
 export async function GET(req, props) {
   const isAuthed = await verifySuperadminSession(req);
@@ -20,6 +19,7 @@ export async function GET(req, props) {
   const cleanHash = String(hash || "").trim().toUpperCase();
   if (!cleanHash) return NextResponse.json({ error: "Missing hash" }, { status: 400 });
 
+  const BRIDGE_URL = getBridgeUrl();
   const conn = await getConnection(cleanHash);
   let bridgeStatus = null;
   let messages = [];
@@ -86,6 +86,7 @@ export async function DELETE(req, props) {
   if (!cleanHash) return NextResponse.json({ error: "Missing hash" }, { status: 400 });
 
   await deleteConnection(cleanHash);
+  const BRIDGE_URL = getBridgeUrl();
   if (BRIDGE_URL) {
     try {
       await deleteBridgeTenant(cleanHash);

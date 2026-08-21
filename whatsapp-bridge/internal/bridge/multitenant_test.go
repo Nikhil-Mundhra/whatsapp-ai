@@ -135,7 +135,7 @@ func TestNormalizePhone(t *testing.T) {
 	if got := normalizePhone("+1 (555) 123-4567"); got != "15551234567" {
 		t.Errorf("normalizePhone failed: %s", got)
 	}
-	if got := normalizePhone("91-9876543210"); got != "919876543210" {
+	if got := normalizePhone("91-7060410033"); got != "917060410033" {
 		t.Errorf("normalizePhone failed: %s", got)
 	}
 	if got := normalizePhone("abc"); got != "" {

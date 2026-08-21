@@ -167,6 +167,28 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
     assert.ok(kvStore.has("otp:TEST03"));
   });
 
+  await t.test("sendConnectionOtp reuses active OTP code when called within 60 seconds", async () => {
+    process.env.BRIDGE_URL = "http://mockbridge:8080";
+    await createConnection({ hash: "REUSE1", ownerPhone: "+917060410033" });
+
+    let sentCount = 0;
+    const restore = mockFetch(async () => {
+      sentCount++;
+      return { ok: true, json: async () => ({ success: true }) };
+    });
+
+    const res1 = await sendConnectionOtp("REUSE1");
+    const firstOtp = res1.devOtp;
+
+    // Resend immediately (within 60 seconds)
+    const res2 = await sendConnectionOtp("REUSE1");
+    const secondOtp = res2.devOtp;
+    restore();
+
+    assert.equal(firstOtp, secondOtp);
+    assert.equal(sentCount, 2);
+  });
+
   // ==========================================
   // 3. verifyConnectionOtp
   // ==========================================
@@ -255,8 +277,14 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
       assert.ok(res.token);
       assert.equal(res.hash, "VALID1");
 
-      // Verify OTP is removed from KV
-      assert.equal(kvStore.has("otp:VALID1"), false);
+      // Verify OTP is marked used in KV for grace period
+      const storedOtp = JSON.parse(kvStore.get("otp:VALID1"));
+      assert.equal(storedOtp.used, true);
+
+      // Verify duplicate verify call within grace period succeeds gracefully
+      const dupRes = await verifyConnectionOtp("VALID1", "482019");
+      assert.equal(dupRes.valid, true);
+      assert.equal(dupRes.token, res.token);
 
       // Verify session is stored in KV
       assert.ok(kvStore.has(`session:${res.token}`));
@@ -308,7 +336,7 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
   await t.test("API route endpoints for OTP & Auth", async (st) => {
     // 1. POST /api/connections/[hash]/otp/send
     await st.test("POST /api/connections/[hash]/otp/send sends OTP", async () => {
-      await createConnection({ hash: "API001", ownerPhone: "+919876543210" });
+      await createConnection({ hash: "API001", ownerPhone: "+917060410033" });
       const res = await hashOtpSendPOST(new NextRequest("http://localhost"), {
         params: Promise.resolve({ hash: "API001" }),
       });
@@ -333,7 +361,7 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
 
     // 2. POST /api/connections/[hash]/otp/verify
     await st.test("POST /api/connections/[hash]/otp/verify verifies OTP", async () => {
-      await createConnection({ hash: "API001", ownerPhone: "+919876543210" });
+      await createConnection({ hash: "API001", ownerPhone: "+917060410033" });
       // Seed OTP
       globalThis.__otpFallback.set("API001", {
         hash: "API001",
@@ -375,7 +403,7 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
 
     // 3. POST /api/auth/otp/send and /api/auth/otp/verify
     await st.test("POST /api/auth/otp/send and /api/auth/otp/verify", async () => {
-      await createConnection({ hash: "API001", ownerPhone: "+919876543210" });
+      await createConnection({ hash: "API001", ownerPhone: "+917060410033" });
 
       // Auth send missing hash or invalid body
       const resSendErr1 = await authOtpSendPOST(
@@ -457,7 +485,7 @@ test("OTP & Session Authentication Unit Tests", async (t) => {
 
     // 4. POST & GET /api/auth/session/verify and /api/auth/logout
     await st.test("POST & GET /api/auth/session/verify and /api/auth/logout with cookies & tokens", async () => {
-      await createConnection({ hash: "API001", ownerPhone: "+919876543210" });
+      await createConnection({ hash: "API001", ownerPhone: "+917060410033" });
       const session = await createSessionForConnection("API001");
 
       // Verify session error with missing body and no cookies

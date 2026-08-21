@@ -27,6 +27,8 @@ export function ConnectionSwitcherModal({
   const [resendCooldown, setResendCooldown] = useState(0);
   const [bridgeWarning, setBridgeWarning] = useState("");
   const resendTimerRef = useRef(null);
+  const isSendingRef = useRef(false);
+  const isVerifyingRef = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -37,6 +39,8 @@ export function ConnectionSwitcherModal({
       setBridgeWarning("");
       setMaskedPhone("");
       setResendCooldown(0);
+      isSendingRef.current = false;
+      isVerifyingRef.current = false;
     }
   }, [isOpen, currentHash]);
 
@@ -59,12 +63,15 @@ export function ConnectionSwitcherModal({
 
   async function handleSendOtp(e) {
     if (e) e.preventDefault();
+    if (isSendingRef.current) return;
+
     const clean = inputCode.trim().toUpperCase();
     if (!clean) {
       setError("Please enter a connection code");
       return;
     }
 
+    isSendingRef.current = true;
     setLoading(true);
     setError("");
     setBridgeWarning("");
@@ -73,6 +80,7 @@ export function ConnectionSwitcherModal({
       const res = await fetch(`/api/connections/${clean}/otp/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(8000),
       });
       const data = await res.json();
 
@@ -91,12 +99,15 @@ export function ConnectionSwitcherModal({
     } catch (err) {
       setError(err.message || "Failed to send verification code. Please check your connection code.");
     } finally {
+      isSendingRef.current = false;
       setLoading(false);
     }
   }
 
   async function handleVerifyOtp(e) {
     if (e) e.preventDefault();
+    if (isVerifyingRef.current) return;
+
     const clean = inputCode.trim().toUpperCase();
     const cleanOtp = otp.trim();
 
@@ -105,6 +116,7 @@ export function ConnectionSwitcherModal({
       return;
     }
 
+    isVerifyingRef.current = true;
     setLoading(true);
     setError("");
 
@@ -113,6 +125,7 @@ export function ConnectionSwitcherModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ otp: cleanOtp }),
+        signal: AbortSignal.timeout(6000),
       });
       const data = await res.json();
 
@@ -125,6 +138,7 @@ export function ConnectionSwitcherModal({
     } catch (err) {
       setError(err.message || "Verification failed. Please check the code sent to your WhatsApp.");
     } finally {
+      isVerifyingRef.current = false;
       setLoading(false);
     }
   }

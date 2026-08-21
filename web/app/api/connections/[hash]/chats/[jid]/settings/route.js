@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server.js";
-import { getBridgeHeaders } from "../../../../../../../lib/connections.js";
-
-const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+import { getBridgeHeaders, getBridgeUrl } from "../../../../../../../lib/connections.js";
 
 export async function GET(req, props) {
   const { hash, jid } = await props.params;
   const cleanHash = String(hash || "").trim().toUpperCase();
   const cleanJid = decodeURIComponent(String(jid || "").trim());
+  const BRIDGE_URL = getBridgeUrl();
 
   if (!cleanHash || !cleanJid) {
     return NextResponse.json({ error: "hash and jid are required" }, { status: 400 });
@@ -28,6 +27,7 @@ export async function POST(req, props) {
   const { hash, jid } = await props.params;
   const cleanHash = String(hash || "").trim().toUpperCase();
   const cleanJid = decodeURIComponent(String(jid || "").trim());
+  const BRIDGE_URL = getBridgeUrl();
 
   if (!cleanHash || !cleanJid) {
     return NextResponse.json({ error: "hash and jid are required" }, { status: 400 });

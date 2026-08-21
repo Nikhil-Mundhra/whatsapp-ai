@@ -20,19 +20,47 @@ import {
 } from "../lib/superadmin.js";
 import { createConnection } from "../lib/connections.js";
 
+function mockFetch(handler) {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    return handler(url, options);
+  };
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
 test("Superadmin API Routes Unit Tests", async (t) => {
   const origSecret = process.env.SUPERADMIN_SECRET;
   const origPhone = process.env.SUPERADMIN_PHONE;
+  let restoreFetch;
 
   t.beforeEach(() => {
     process.env.SUPERADMIN_SECRET = "masterpass123";
     delete process.env.SUPERADMIN_PHONE;
+    delete process.env.BRIDGE_URL;
     resetRateLimit("test_ip");
     resetRateLimit("admin_client");
     resetRateLimit("global");
+
+    restoreFetch = mockFetch(async (url, opts) => {
+      if (url.includes("/api/health")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ status: "ok", tenants: [] }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true }),
+      };
+    });
   });
 
   t.afterEach(() => {
+    if (restoreFetch) restoreFetch();
     if (origSecret !== undefined) process.env.SUPERADMIN_SECRET = origSecret;
     else delete process.env.SUPERADMIN_SECRET;
 
@@ -76,7 +104,7 @@ test("Superadmin API Routes Unit Tests", async (t) => {
   });
 
   await t.test("POST /api/superadmin/auth/login triggers 2FA when SUPERADMIN_PHONE is set", async () => {
-    process.env.SUPERADMIN_PHONE = "919876543210";
+    process.env.SUPERADMIN_PHONE = "917060410033";
     const req = new NextRequest("http://localhost/api/superadmin/auth/login", {
       method: "POST",
       body: JSON.stringify({ password: "masterpass123" }),
@@ -135,7 +163,7 @@ test("Superadmin API Routes Unit Tests", async (t) => {
     // Seed test connection
     await createConnection({
       hash: "USERAPI1",
-      ownerPhone: "919876543210",
+      ownerPhone: "917060410033",
       allowedRecipients: ["911234567890"],
       aiModel: "qwen/qwen3.8-27b",
       status: "linked",

@@ -12,7 +12,7 @@ import {
 test("contacts.js validation and normalization unit tests", async (t) => {
   await t.test("cleanDigits extracts only numbers", () => {
     assert.equal(cleanDigits("+1 (415) 555-0100"), "14155550100");
-    assert.equal(cleanDigits("+91 98765 43210"), "919876543210");
+    assert.equal(cleanDigits("+91 70604 10033"), "917060410033");
     assert.equal(cleanDigits("abc-123-xyz"), "123");
     assert.equal(cleanDigits(null), "");
     assert.equal(cleanDigits(undefined), "");

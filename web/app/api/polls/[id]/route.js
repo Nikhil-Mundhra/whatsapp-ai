@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server.js";
 import { getPoll, voteOnPoll } from "../../../../lib/polls.js";
-import { getBridgeHeaders } from "../../../../lib/connections.js";
-
-const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+import { getBridgeHeaders, getBridgeUrl } from "../../../../lib/connections.js";
 
 export async function GET(req, props) {
   const { id } = await props.params;
@@ -45,6 +43,7 @@ export async function POST(req, props) {
   const updated = await voteOnPoll(hash, id, option, source);
 
   // 2. Notify WhatsApp Bridge to activate grant & trigger immediate reply
+  const BRIDGE_URL = getBridgeUrl();
   if (BRIDGE_URL && hash && hash !== "default") {
     try {
       await fetch(`${BRIDGE_URL}/api/connections/${hash}/grant`, {

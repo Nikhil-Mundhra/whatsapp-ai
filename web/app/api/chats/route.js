@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server.js";
 import { getLocalChats } from "../../../lib/sqlite.js";
-import { getBridgeHeaders } from "../../../lib/connections.js";
-
-const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+import { getBridgeHeaders, getBridgeUrl } from "../../../lib/connections.js";
 
 export async function GET(req) {
+  const BRIDGE_URL = getBridgeUrl();
   const { searchParams } = new URL(req.url);
   const hash = searchParams.get("hash") || "";
   const limit = parseInt(searchParams.get("limit") || "50", 10);

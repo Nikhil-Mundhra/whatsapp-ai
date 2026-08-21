@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server.js";
-import { getBridgeHeaders } from "../../../../../lib/connections.js";
-
-const BRIDGE_URL = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
+import { getBridgeHeaders, getBridgeUrl } from "../../../../../lib/connections.js";
 
 export async function POST(req, props) {
   const { hash } = await props.params;
   const cleanHash = String(hash || "").trim().toUpperCase();
+  const BRIDGE_URL = getBridgeUrl();
 
   if (!cleanHash) {
     return NextResponse.json({ error: "missing hash" }, { status: 400 });

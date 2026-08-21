@@ -613,6 +613,10 @@ func (t *Tenant) status() map[string]interface{} {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	connected := t.client != nil && t.client.IsConnected()
+	var grantExpiresStr string
+	if !t.grantExpiresAt.IsZero() {
+		grantExpiresStr = t.grantExpiresAt.Format(time.RFC3339)
+	}
 	return map[string]interface{}{
 		"hash":              t.Hash,
 		"linked":            t.paired,
@@ -628,6 +632,10 @@ func (t *Tenant) status() map[string]interface{} {
 		"lastError":         t.lastError,
 		"connectedAt":       t.connectedAt.Format(time.RFC3339),
 		"disconnectedAt":    t.disconnectedAt.Format(time.RFC3339),
+		"grantKind":         t.grantKind,
+		"grantRemaining":    t.grantRemaining,
+		"grantTarget":       t.grantTargetJID.String(),
+		"grantExpiresAt":    grantExpiresStr,
 	}
 }
 

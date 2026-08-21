@@ -280,6 +280,22 @@ export default function Home() {
         const connData = await connRes.json();
         setConnInfo(connData);
 
+        // Sync bridge grant status with local activeGrants
+        const bridgeStatus = connData?.bridgeStatus || connData?.connection?.bridgeStatus;
+        if (bridgeStatus) {
+          if (bridgeStatus.grantKind === "none" || (bridgeStatus.grantKind === "count" && bridgeStatus.grantRemaining <= 0)) {
+            if (bridgeStatus.grantTarget) {
+              setActiveGrants((prev) => {
+                const g = prev[bridgeStatus.grantTarget];
+                if (g && g.type === "count" && (!g.activatedAt || Date.now() - g.activatedAt > 2000)) {
+                  return { ...prev, [bridgeStatus.grantTarget]: { type: "none", remainingCount: 0 } };
+                }
+                return prev;
+              });
+            }
+          }
+        }
+
         // Auto-select first chat or first recipient ONLY if none is currently selected
         if (!selectedContactRef.current) {
           if (loadedChats.length > 0) {
@@ -422,6 +438,170 @@ export default function Home() {
   // Active Autonomy Grants State (by contact JID/phone)
   const [activeGrants, setActiveGrants] = useState({});
 
+  // Establish and apply optimistic takeover grant
+  function applyOptimisticGrant(option, targetContact = selectedContact) {
+    if (!targetContact) return;
+    const optLower = (option || "").toLowerCase();
+    const now = Date.now();
+
+    // Find the latest outbound message to targetContact to establish baseline ID
+    const cleanTarget = targetContact.replace(/\D/g, "");
+    const latestOutbound = messages
+      .filter((m) => {
+        const isFromMe = Boolean(
+          m.isFromMe ||
+          m.is_from_me ||
+          m.fromMe ||
+          m.isAi ||
+          m.origin === "api" ||
+          m.origin === "takeover"
+        );
+        if (!isFromMe) return false;
+        const chatJid = (m.chatJid || m.chat_jid || "").toLowerCase();
+        const cleanChat = chatJid.replace(/\D/g, "");
+        const recipient = (m.recipient || "").toLowerCase();
+        const cleanRecipient = recipient.replace(/\D/g, "");
+        const sender = (m.sender || "").toLowerCase();
+        const cleanSender = sender.replace(/\D/g, "");
+
+        return (
+          chatJid.includes(targetContact.toLowerCase()) ||
+          (cleanChat && cleanTarget && cleanChat === cleanTarget) ||
+          recipient.includes(targetContact.toLowerCase()) ||
+          (cleanRecipient && cleanTarget && cleanRecipient === cleanTarget) ||
+          sender.includes(targetContact.toLowerCase()) ||
+          (cleanSender && cleanTarget && cleanSender === cleanTarget)
+        );
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.timestamp || b.createdAt || b.time || 0).getTime() -
+          new Date(a.timestamp || a.createdAt || a.time || 0).getTime()
+      )[0];
+
+    const lastOutboundId = latestOutbound?.id || null;
+
+    if (optLower.includes("5 min")) {
+      setActiveGrants((prev) => ({
+        ...prev,
+        [targetContact]: {
+          type: "duration",
+          expiresAt: now + 5 * 60 * 1000,
+          activatedAt: now,
+          lastOutboundId,
+        },
+      }));
+    } else if (optLower.includes("2 hour") || optLower.includes("2 hr")) {
+      setActiveGrants((prev) => ({
+        ...prev,
+        [targetContact]: {
+          type: "duration",
+          expiresAt: now + 2 * 60 * 60 * 1000,
+          activatedAt: now,
+          lastOutboundId,
+        },
+      }));
+    } else if (optLower.includes("1 text") || optLower.includes("1") || optLower.includes("send 1")) {
+      setActiveGrants((prev) => ({
+        ...prev,
+        [targetContact]: {
+          type: "count",
+          remainingCount: 1,
+          expiresAt: now + 10 * 60 * 1000,
+          activatedAt: now,
+          lastOutboundId,
+        },
+      }));
+    } else {
+      setActiveGrants((prev) => ({
+        ...prev,
+        [targetContact]: { type: "none", remainingCount: 0 },
+      }));
+    }
+  }
+
+  // Auto-revert count-based grants when an AI/outbound message is sent and received
+  useEffect(() => {
+    if (!messages || messages.length === 0) return;
+
+    setActiveGrants((prevGrants) => {
+      let hasChanges = false;
+      const nextGrants = { ...prevGrants };
+
+      for (const [contactKey, grant] of Object.entries(nextGrants)) {
+        if (grant?.type === "count" && grant?.remainingCount > 0 && grant?.activatedAt) {
+          const cleanContact = contactKey.replace(/\D/g, "");
+          const targetContactItem = chats.find(
+            (c) =>
+              c.jid === contactKey ||
+              c.phone === contactKey ||
+              (c.aliases && (c.aliases.includes(contactKey) || (cleanContact && c.aliases.includes(cleanContact))))
+          );
+          const contactAliases = new Set(
+            [
+              contactKey,
+              cleanContact,
+              targetContactItem?.jid,
+              targetContactItem?.phone,
+              targetContactItem?.lid,
+              ...(targetContactItem?.aliases || []),
+            ]
+              .filter(Boolean)
+              .map((s) => String(s).toLowerCase())
+          );
+
+          // Find outbound messages for this contact sent at or after grant activation
+          const matchingOutbound = messages.filter((m) => {
+            const isFromMe = Boolean(
+              m.isFromMe ||
+              m.is_from_me ||
+              m.fromMe ||
+              m.isAi ||
+              m.origin === "api" ||
+              m.origin === "takeover"
+            );
+            if (!isFromMe) return false;
+
+            const chatJid = (m.chatJid || m.chat_jid || "").toLowerCase();
+            const cleanChat = chatJid.replace(/\D/g, "");
+            const recipient = (m.recipient || "").toLowerCase();
+            const cleanRecipient = recipient.replace(/\D/g, "");
+            const sender = (m.sender || "").toLowerCase();
+            const cleanSender = sender.replace(/\D/g, "");
+
+            const matchesChat =
+              contactAliases.has(chatJid) ||
+              (cleanChat && contactAliases.has(cleanChat)) ||
+              (recipient && contactAliases.has(recipient)) ||
+              (cleanRecipient && contactAliases.has(cleanRecipient)) ||
+              (sender && contactAliases.has(sender)) ||
+              (cleanSender && contactAliases.has(cleanSender)) ||
+              (cleanContact && cleanContact.length >= 7 && (
+                (chatJid && chatJid.includes(cleanContact)) ||
+                (recipient && recipient.includes(cleanContact)) ||
+                (sender && sender.includes(cleanContact))
+              ));
+
+            if (!matchesChat) return false;
+
+            const msgTime = new Date(m.timestamp || m.createdAt || m.time || 0).getTime();
+            const isAfterActivation = msgTime >= (grant.activatedAt - 4000);
+            const isDifferentId = !grant.lastOutboundId || m.id !== grant.lastOutboundId;
+
+            return isAfterActivation && isDifferentId;
+          });
+
+          if (matchingOutbound.length > 0) {
+            nextGrants[contactKey] = { type: "none", remainingCount: 0 };
+            hasChanges = true;
+          }
+        }
+      }
+
+      return hasChanges ? nextGrants : prevGrants;
+    });
+  }, [messages, chats]);
+
   // Poll Configuration Template
   const [pollConfig, setPollConfig] = useState({
     question: "Permission to take over conversation?",
@@ -431,6 +611,9 @@ export default function Home() {
   // 5. Execute Voting on Take-Over Polls
   async function executeVote(pollId, option, contact = selectedContact) {
     setVotingId(pollId);
+    const targetContact = contact || selectedContact;
+    applyOptimisticGrant(option, targetContact);
+
     try {
       const res = await fetch(`/api/polls/${pollId}?hash=${hash}`, {
         method: "POST",
@@ -438,7 +621,7 @@ export default function Home() {
         body: JSON.stringify({
           option,
           source: "panel",
-          contact: contact || selectedContact,
+          contact: targetContact,
         }),
       });
       if (res.ok) {
@@ -470,29 +653,7 @@ export default function Home() {
   async function executeQuickVote(option, question, options, targetContact = selectedContact) {
     if (!targetContact || !hash) return;
 
-    // Optimistic grant activation
-    const optLower = (option || "").toLowerCase();
-    if (optLower.includes("5 min")) {
-      setActiveGrants((prev) => ({
-        ...prev,
-        [targetContact]: { type: "duration", expiresAt: Date.now() + 5 * 60 * 1000 },
-      }));
-    } else if (optLower.includes("2 hour") || optLower.includes("2 hr")) {
-      setActiveGrants((prev) => ({
-        ...prev,
-        [targetContact]: { type: "duration", expiresAt: Date.now() + 2 * 60 * 60 * 1000 },
-      }));
-    } else if (optLower.includes("1 text") || optLower.includes("1") || optLower.includes("send 1")) {
-      setActiveGrants((prev) => ({
-        ...prev,
-        [targetContact]: { type: "count", remainingCount: 1, expiresAt: Date.now() + 10 * 60 * 1000 },
-      }));
-    } else {
-      setActiveGrants((prev) => ({
-        ...prev,
-        [targetContact]: { type: "none" },
-      }));
-    }
+    applyOptimisticGrant(option, targetContact);
 
     try {
       await fetch(`/api/connections/${hash}/grant`, {

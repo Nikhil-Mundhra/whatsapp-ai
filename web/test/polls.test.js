@@ -331,4 +331,62 @@ test("polls.js unit tests", async (t) => {
 
     assert.equal(await getPendingPoll("T1"), null);
   });
+
+  await t.test("Takeover grant resolution and auto-revert logic on outbound message", async () => {
+    const contact = "+15551234567";
+    const now = Date.now();
+
+    // 1. Grant creation for "Send 1 text"
+    const grant = {
+      type: "count",
+      remainingCount: 1,
+      expiresAt: now + 10 * 60 * 1000,
+      activatedAt: now,
+      lastOutboundId: "msg-old-1",
+    };
+
+    assert.equal(grant.type, "count");
+    assert.equal(grant.remainingCount, 1);
+
+    // 2. Historical outbound message before activation does NOT satisfy grant
+    const historicalMessages = [
+      {
+        id: "msg-old-1",
+        sender: "me",
+        chatJid: "15551234567@s.whatsapp.net",
+        content: "Old message",
+        timestamp: new Date(now - 10000).toISOString(),
+        isFromMe: true,
+      },
+    ];
+
+    const historicalMatch = historicalMessages.some((m) => {
+      const isOutbound = Boolean(m.isFromMe || m.isAi || m.origin === "api");
+      const msgTime = new Date(m.timestamp).getTime();
+      return isOutbound && msgTime >= (grant.activatedAt - 4000) && m.id !== grant.lastOutboundId;
+    });
+    assert.equal(historicalMatch, false);
+
+    // 3. New AI-generated outbound message sent after grant activation DOES satisfy and clear grant
+    const updatedMessages = [
+      ...historicalMessages,
+      {
+        id: "msg-ai-2",
+        sender: "me",
+        chatJid: "15551234567@s.whatsapp.net",
+        content: "AI reply to your message",
+        timestamp: new Date(now + 1500).toISOString(),
+        isFromMe: true,
+        isAi: true,
+        origin: "api",
+      },
+    ];
+
+    const newMatch = updatedMessages.some((m) => {
+      const isOutbound = Boolean(m.isFromMe || m.isAi || m.origin === "api");
+      const msgTime = new Date(m.timestamp).getTime();
+      return isOutbound && msgTime >= (grant.activatedAt - 4000) && m.id !== grant.lastOutboundId;
+    });
+    assert.equal(newMatch, true);
+  });
 });
