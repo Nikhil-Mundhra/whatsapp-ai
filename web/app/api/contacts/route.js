@@ -31,10 +31,11 @@ export async function GET(req) {
         const qLower = q.toLowerCase();
 
         for (const m of msgs) {
-          const jid = m.chatJid || m.chat_jid || m.sender || "";
+          const isFromMe = Boolean(m.isFromMe || m.is_from_me);
+          const jid = m.chatJid || m.chat_jid || (isFromMe ? (m.recipient || "") : (m.sender || ""));
           if (!jid || jid === "status@broadcast") continue;
           const num = jid.split("@")[0];
-          const name = m.senderName || m.chatName || num;
+          const name = m.chatName || (!isFromMe ? m.senderName : "") || num;
           const isGroup = jid.endsWith("@g.us");
 
           const matches =

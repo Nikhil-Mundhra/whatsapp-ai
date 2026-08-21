@@ -299,7 +299,7 @@ export function getLocalMessages(chatJid = "", limit = 100) {
       const query = `
         SELECT id, chat_jid, sender, content, timestamp, is_from_me, media_type, origin
         FROM messages
-        WHERE chat_jid IN (${placeholders}) OR sender IN (${placeholders}) OR chat_jid LIKE ?
+        WHERE (chat_jid IN (${placeholders}) OR (is_from_me = 0 AND sender IN (${placeholders})) OR chat_jid LIKE ?)
         ORDER BY timestamp ASC
         LIMIT ?
       `;

@@ -31,12 +31,13 @@ export async function GET(req) {
         // Group messages into distinct chat threads (merging LID and phone threads)
         const chatMap = new Map();
         for (const m of msgs) {
-          const jid = m.chatJid || m.chat_jid || m.sender || "";
+          const isFromMe = Boolean(m.isFromMe || m.is_from_me);
+          const jid = m.chatJid || m.chat_jid || (isFromMe ? (m.recipient || "") : (m.sender || ""));
           if (!jid || jid === "status@broadcast") continue;
 
           const num = jid.split("@")[0];
           const clean = num.replace(/\D/g, "");
-          const name = m.senderName || m.chatName || num;
+          const name = m.chatName || (!isFromMe ? m.senderName : "") || num;
           const isGroup = jid.endsWith("@g.us");
 
           let key = jid;
@@ -44,10 +45,6 @@ export async function GET(req) {
             for (const [k, v] of chatMap.entries()) {
               if (!v.isGroup) {
                 if (clean && v.phone === clean) {
-                  key = k;
-                  break;
-                }
-                if (name && v.name === name && !name.match(/^\+?\d+$/)) {
                   key = k;
                   break;
                 }

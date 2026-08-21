@@ -72,7 +72,6 @@ export function ContactList({
       if (cleanPhone && v.phone === cleanPhone) return k;
       if (cleanPhone && v.aliases && v.aliases.includes(cleanPhone)) return k;
       if (jid && v.aliases && v.aliases.includes(jid)) return k;
-      if (name && v.name === name && name !== cleanPhone && !name.match(/^\+?\d+$/)) return k;
     }
     return null;
   }

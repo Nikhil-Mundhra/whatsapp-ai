@@ -812,42 +812,43 @@ export default function Home() {
   );
 
   const selectedName = selectedContactName || selectedContactItem?.name;
-  const isRealName = selectedName && !selectedName.match(/^\+?\d+$/);
-
   const currentChatMessages = messages.filter((m) => {
+    const isFromMe = Boolean(m.isFromMe || m.is_from_me || m.fromMe);
     const chatJid = (m.chatJid || m.chat_jid || "").toLowerCase();
-    const sender = (m.sender || "").toLowerCase();
-    const recipient = (m.recipient || "").toLowerCase();
     const cleanChat = chatJid.replace(/\D/g, "");
-    const cleanSender = sender.replace(/\D/g, "");
+    const recipient = (m.recipient || "").toLowerCase();
     const cleanRecipient = recipient.replace(/\D/g, "");
+    const sender = (m.sender || "").toLowerCase();
+    const cleanSender = sender.replace(/\D/g, "");
 
-    // 1. Direct match with any alias
-    if (
-      selectedAliases.has(chatJid) ||
-      selectedAliases.has(sender) ||
-      selectedAliases.has(recipient) ||
-      (cleanChat && selectedAliases.has(cleanChat)) ||
-      (cleanSender && selectedAliases.has(cleanSender)) ||
-      (cleanRecipient && selectedAliases.has(cleanRecipient))
-    ) {
+    // 1. Direct match with chatJid
+    if (selectedAliases.has(chatJid) || (cleanChat && selectedAliases.has(cleanChat))) {
       return true;
     }
 
-    // 2. Real name match across threads
-    if (isRealName && (m.senderName === selectedName || m.chatName === selectedName)) {
-      return true;
-    }
-
-    // 3. Substring match for valid phone numbers (>= 7 digits)
-    if (cleanSelected && cleanSelected.length >= 7) {
+    // 2. Outbound message: match recipient JID/phone
+    if (isFromMe) {
       if (
-        chatJid.includes(cleanSelected) ||
-        sender.includes(cleanSelected) ||
-        recipient.includes(cleanSelected)
+        (recipient && selectedAliases.has(recipient)) ||
+        (cleanRecipient && selectedAliases.has(cleanRecipient))
       ) {
         return true;
       }
+    } else {
+      // 3. Inbound message: match sender JID/phone in 1-on-1 chats
+      if (
+        (sender && selectedAliases.has(sender)) ||
+        (cleanSender && selectedAliases.has(cleanSender))
+      ) {
+        return true;
+      }
+    }
+
+    // 4. Substring match for valid phone numbers (>= 7 digits) against target chat/recipient
+    if (cleanSelected && cleanSelected.length >= 7) {
+      if (chatJid && chatJid.includes(cleanSelected)) return true;
+      if (isFromMe && recipient && recipient.includes(cleanSelected)) return true;
+      if (!isFromMe && sender && sender.includes(cleanSelected)) return true;
     }
 
     return false;

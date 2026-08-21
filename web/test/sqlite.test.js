@@ -345,4 +345,26 @@ test("sqlite.js unit tests", async (t) => {
     assert.ok(msgsByLid.some((m) => m.content === "Hello from phone"));
     assert.ok(msgsByLid.some((m) => m.content === "Hello from LID"));
   });
+
+  await t.test("getLocalMessages does not leak outbound messages from owner into unrelated contact chat", () => {
+    const msgDb = new DatabaseSync(path.join(storeDir, "messages.db"));
+    const insertMsg = msgDb.prepare(`
+      INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, media_type, origin)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    // User (9999999999) sends message to Contact A (1111111111)
+    insertMsg.run("msg_out_a", "1111111111@s.whatsapp.net", "9999999999@s.whatsapp.net", "Hey Contact A", 8000, 1, "", "user");
+    // User (9999999999) has a self chat / contact with 9999999999
+    msgDb.close();
+
+    // Query messages for self/owner (9999999999)
+    const selfMsgs = getLocalMessages("9999999999@s.whatsapp.net", 50);
+    // Should NOT contain the outbound message sent to Contact A
+    assert.ok(!selfMsgs.some((m) => m.content === "Hey Contact A"));
+
+    // Query messages for Contact A (1111111111)
+    const contactAMsgs = getLocalMessages("1111111111@s.whatsapp.net", 50);
+    // SHOULD contain the message sent to Contact A
+    assert.ok(contactAMsgs.some((m) => m.content === "Hey Contact A"));
+  });
 });
