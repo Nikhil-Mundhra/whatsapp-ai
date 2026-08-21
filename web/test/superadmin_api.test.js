@@ -12,6 +12,13 @@ import {
   POST as superadminUserActionPOST,
   DELETE as superadminUserDELETE,
 } from "../app/api/superadmin/users/[hash]/route.js";
+import {
+  GET as aiProvidersGET,
+  POST as aiProvidersPOST,
+} from "../app/api/superadmin/ai-providers/route.js";
+import {
+  POST as aiProvidersTestPOST,
+} from "../app/api/superadmin/ai-providers/test/route.js";
 
 import {
   createSuperadminSessionToken,
@@ -267,4 +274,72 @@ test("Superadmin API Routes Unit Tests", async (t) => {
     const customJson = await customRes.json();
     assert.equal(customJson.coupon, "CUSTOM-TEST-99");
   });
+
+  await t.test("GET and POST /api/superadmin/ai-providers manages AI keys and telemetry", async () => {
+    const token = createSuperadminSessionToken();
+    const authHeader = { cookie: `${SUPERADMIN_COOKIE_NAME}=${token}` };
+
+    // 1. Unauthenticated GET -> 401
+    const unauthReq = new NextRequest("http://localhost/api/superadmin/ai-providers");
+    const unauthRes = await aiProvidersGET(unauthReq);
+    assert.equal(unauthRes.status, 401);
+
+    // 2. Authenticated GET -> 200
+    const getReq = new NextRequest("http://localhost/api/superadmin/ai-providers", { headers: authHeader });
+    const getRes = await aiProvidersGET(getReq);
+    assert.equal(getRes.status, 200);
+    const getJson = await getRes.json();
+    assert.ok(getJson.config);
+    assert.ok(getJson.usage);
+    assert.ok(Array.isArray(getJson.usage.providers));
+
+    // 3. Authenticated POST to update Groq and OpenRouter keys
+    const postReq = new NextRequest("http://localhost/api/superadmin/ai-providers", {
+      method: "POST",
+      headers: authHeader,
+      body: JSON.stringify({
+        groqApiKey: "gsk_live_test_1234567890",
+        openrouterApiKey: "sk-or-v1-live_test_0987654321",
+        aiModel: "groq/llama-3.3-70b-versatile",
+        whisperProvider: "groq",
+      }),
+    });
+    const postRes = await aiProvidersPOST(postReq);
+    assert.equal(postRes.status, 200);
+    const postJson = await postRes.json();
+    assert.equal(postJson.success, true);
+    assert.equal(postJson.config.groqApiKeySet, true);
+    assert.equal(postJson.config.aiModel, "groq/llama-3.3-70b-versatile");
+
+    // 4. Test connectivity endpoint POST /api/superadmin/ai-providers/test
+    // Mock successful Groq models response
+    restoreFetch();
+    restoreFetch = mockFetch(async (url) => {
+      if (url.includes("api.groq.com")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ id: "whisper-large-v3-turbo" }, { id: "llama-3.3-70b-versatile" }],
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+    const testReq = new NextRequest("http://localhost/api/superadmin/ai-providers/test", {
+      method: "POST",
+      headers: authHeader,
+      body: JSON.stringify({
+        provider: "groq",
+        apiKey: "gsk_mock_valid_key",
+      }),
+    });
+    const testRes = await aiProvidersTestPOST(testReq);
+    assert.equal(testRes.status, 200);
+    const testJson = await testRes.json();
+    assert.equal(testJson.success, true);
+    assert.equal(testJson.whisperAvailable, true);
+  });
 });
+

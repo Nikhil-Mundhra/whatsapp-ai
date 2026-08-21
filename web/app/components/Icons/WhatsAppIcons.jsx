@@ -333,4 +333,79 @@ export function EditIcon({ size = 14, color = "currentColor" }) {
   );
 }
 
+export function MicIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+      <line x1="12" y1="19" x2="12" y2="23"></line>
+      <line x1="8" y1="23" x2="16" y2="23"></line>
+    </svg>
+  );
+}
+
+export function ActivityIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+    </svg>
+  );
+}
+
+export function CpuIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+      <rect x="9" y="9" width="6" height="6"></rect>
+      <line x1="9" y1="1" x2="9" y2="4"></line>
+      <line x1="15" y1="1" x2="15" y2="4"></line>
+      <line x1="9" y1="20" x2="9" y2="23"></line>
+      <line x1="15" y1="20" x2="15" y2="23"></line>
+      <line x1="20" y1="9" x2="23" y2="9"></line>
+      <line x1="20" y1="14" x2="23" y2="14"></line>
+      <line x1="1" y1="9" x2="4" y2="9"></line>
+      <line x1="1" y1="14" x2="4" y2="14"></line>
+    </svg>
+  );
+}
+
+export function ServerIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+      <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+      <line x1="6" y1="6" x2="6.01" y2="6"></line>
+      <line x1="6" y1="18" x2="6.01" y2="18"></line>
+    </svg>
+  );
+}
+
+export function FingerprintIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4"></path>
+      <path d="M5 19.5C5.5 18 6 15 6 12c0-.7.12-1.37.34-2"></path>
+      <path d="M17.29 21.02c.12-.6.21-1.2.27-1.82.26-2.6-.56-5.07-2.06-7.2"></path>
+      <path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path>
+      <path d="M8.65 22c.21-.66.45-1.32.75-2"></path>
+      <path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path>
+      <path d="M2 16h.01"></path>
+      <path d="M21.8 16c.14-.65.2-1.32.2-2 0-3.87-2.69-7-6-7-2.58 0-4.78 1.89-5.63 4.5"></path>
+    </svg>
+  );
+}
+
+export function PasskeyIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="7.5" cy="15.5" r="4.5"></circle>
+      <path d="M11 12l9-9"></path>
+      <path d="M17 3l4 4"></path>
+      <path d="M14 6l2 2"></path>
+      <circle cx="7.5" cy="15.5" r="1.5" fill={color}></circle>
+    </svg>
+  );
+}
+
+
 

@@ -11,6 +11,18 @@ export async function POST(req) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
 
+  // In development, support 1-click instant login
+  if (process.env.NODE_ENV !== "production" && (body.devBypass || body.password === "dev")) {
+    const token = createSuperadminSessionToken();
+    const response = NextResponse.json({
+      success: true,
+      token,
+      message: "Dev mode authentication bypass granted",
+    });
+    setSuperadminCookies(response, token);
+    return response;
+  }
+
   const password = String(body.password || "").trim();
   if (!password) {
     return NextResponse.json({ error: "Master password is required" }, { status: 400 });

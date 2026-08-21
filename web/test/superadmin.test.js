@@ -15,6 +15,11 @@ import {
   clearSuperadminCookies,
   formatBytes,
   getAllUsersOverview,
+  maskApiKey,
+  getGlobalAiConfig,
+  setGlobalAiConfig,
+  getAiUsageStats,
+  recordAiAudioUsage,
   SUPERADMIN_COOKIE_NAME,
 } from "../lib/superadmin.js";
 import { createConnection } from "../lib/connections.js";
@@ -167,4 +172,46 @@ test("Superadmin Security and Telemetry Unit Tests", async (t) => {
     assert.ok(user.storageUsedBytes > 0);
     assert.ok(user.storageUsedFormatted);
   });
+
+  await t.test("maskApiKey masks keys with provider prefix and suffix", () => {
+    assert.equal(maskApiKey(""), "");
+    assert.equal(maskApiKey(null), "");
+    assert.equal(maskApiKey("gsk_1234567890abcdef1234"), "gsk_••••••••••••1234");
+    assert.equal(maskApiKey("sk-or-v1-abcdef0123456789"), "sk-or-••••••••••••6789");
+    assert.equal(maskApiKey("sk-regular-openai-key-9999"), "sk-••••••••••••9999");
+    assert.equal(maskApiKey("short"), "••••••••");
+  });
+
+  await t.test("getGlobalAiConfig and setGlobalAiConfig manage global keys and default models", async () => {
+    // 1. Initial config
+    const initial = await getGlobalAiConfig();
+    assert.ok(initial);
+    assert.ok(initial.aiModel);
+
+    // 2. Set Groq and OpenRouter keys
+    const updated = await setGlobalAiConfig({
+      groqApiKey: "gsk_testgroqkey1234567890",
+      openrouterApiKey: "sk-or-v1-testkey9876543210",
+      aiModel: "groq/llama-3.3-70b-versatile",
+      whisperProvider: "groq",
+    });
+
+    assert.equal(updated.groqApiKeySet, true);
+    assert.ok(updated.groqApiKeyMasked.startsWith("gsk_"));
+    assert.equal(updated.openrouterApiKeySet, true);
+    assert.ok(updated.openrouterApiKeyMasked.startsWith("sk-or-"));
+    assert.equal(updated.aiModel, "groq/llama-3.3-70b-versatile");
+    assert.equal(updated.whisperProvider, "groq");
+
+    // 3. Telemetry and usage metrics
+    await recordAiAudioUsage(30, 2); // 2 audio voice notes, 30s
+    const stats = await getAiUsageStats();
+    assert.ok(stats.config);
+    assert.ok(stats.usage);
+    assert.ok(stats.usage.totalVoiceNotesTranscribed >= 2);
+    assert.ok(stats.usage.totalAudioDurationSeconds >= 30);
+    assert.ok(Array.isArray(stats.usage.providers));
+    assert.ok(Array.isArray(stats.tenants));
+  });
 });
+

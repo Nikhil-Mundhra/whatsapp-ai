@@ -303,8 +303,13 @@ sequenceDiagram
    - Real-time generation of unambiguous `VIP-XXXX` onboarding tokens.
    - Automatic single-use consumption and regeneration on user registration.
    - Ability to copy, view, or assign custom registration coupons.
+5. **Global AI & Whisper STT Provider Management (`/api/superadmin/ai-providers`)**:
+   - Dedicated UI tab for viewing, setting, editing, and clearing `GROQ_API_KEY`, `OPENROUTER_API_KEY`, and default fleet LLM models.
+   - Live API connectivity ping testing for Groq Whisper and OpenRouter endpoints.
+   - Real-time telemetry tracking: total voice notes transcribed, audio duration processed, Groq daily free-tier quota (7,200s limit), estimated token volume, and per-tenant AI usage breakdown.
 
 ---
+
 
 ### 2.6 Zepp OS Smartwatch Architecture (`zepp/`)
 
