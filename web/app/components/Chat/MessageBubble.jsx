@@ -1,6 +1,7 @@
 "use client";
 
 import { DoubleCheckIcon, RobotIcon, ImageIcon } from "../Icons/WhatsAppIcons";
+import { FormattedMessage } from "./FormattedMessage";
 
 function formatTime(timestamp) {
   if (!timestamp) return "";
@@ -57,8 +58,8 @@ export function MessageBubble({ message }) {
           </div>
         )}
 
-        {/* Message Text */}
-        {text ? <span style={{ whiteSpace: "pre-wrap" }}>{text}</span> : null}
+        {/* Message Text with WhatsApp Formatting */}
+        {text ? <FormattedMessage text={text} /> : null}
 
         {/* Timestamp & Status Metadata */}
         <div className="wa-bubble-meta">

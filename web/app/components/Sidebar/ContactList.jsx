@@ -1,6 +1,7 @@
 "use client";
 
 import { RobotIcon } from "../Icons/WhatsAppIcons";
+import { stripWhatsAppFormatting } from "../../../lib/formatter.js";
 
 const AVATAR_COLORS = [
   "linear-gradient(135deg, #3b82f6, #1d4ed8)",
@@ -236,7 +237,7 @@ export function ContactList({
               <div className="wa-contact-bottom">
                 <span className="wa-contact-preview">
                   {item.lastIsFromMe && "You: "}
-                  {item.lastMessage || (item.isAllowed ? "AI Whitelisted" : "")}
+                  {stripWhatsAppFormatting(item.lastMessage) || (item.isAllowed ? "AI Whitelisted" : "")}
                 </span>
 
                 {/* Badges */}
