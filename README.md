@@ -13,10 +13,12 @@ An autonomous, self-hosted WhatsApp AI texting companion and [Model Context Prot
 * **Complete Web Client & Chat Timeline**: Rich web interface with WhatsApp styling, live message streaming, read receipts, interactive TakeOver cards, and per-contact relationship & persona prompt tuning.
 * **Multi-Channel Approval Gating**:
   * **Native WhatsApp Polls**: Get an interactive poll on your phone (`Send 1 text`, `5 minutes`, `2 hours`, `Deny`).
+  * **Conversation-Aware Anti-Ping-Pong**: Keeps unreplied polls alive indefinitely, and preserves a single persistent poll throughout active human chatting without rapid delete/recreate cycles on every message turn.
+  * **5-Minute Inactivity Auto-Expiry**: Automatically revokes armed AI grants and deletes pending polls after 5 minutes of silence following manual conversation activity.
   * **Zepp OS Smartwatch App**: Enter your pairing code and approve/deny requests right from your wrist (Amazfit T-Rex 3 / Zepp OS 4.0).
   * **Next.js Web Control Panel**: Cloud relay and web dashboard backed by Vercel KV / Redis with 2FA WhatsApp OTP verification.
 * **Superadmin Control Plane (`/superadmin`)**: Master dashboard with 2-Factor Authentication, global user telemetry, storage footprint tracking, dynamic VIP coupon rotation, and remote bridge tenant lifecycle controls.
-* **Automatic Human Override**: Picking up your phone and manually texting an allowed contact immediately revokes the AI's grant and sends you a confirmation notification.
+* **Automatic Human Override**: Picking up your phone and manually texting an allowed contact arms active conversation tracking and seamlessly manages takeover handoffs.
 * **Full Model Context Protocol (MCP) Server**: Provides standardized tools for Claude Desktop, Cursor, and other agent frameworks to read chats, download media, search contacts, and send messages.
 
 ---

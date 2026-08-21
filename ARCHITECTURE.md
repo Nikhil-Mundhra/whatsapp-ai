@@ -89,11 +89,14 @@ Built with Go and [whatsmeow](https://github.com/tulir/whatsmeow), this daemon a
     * `"remote"`: Incoming message from an external contact.
     * `"phone"`: Outgoing message originated manually from the owner's phone (`IsFromMe = true`).
     * `"api"`: Outgoing message sent programmatically via bridge API.
-* **Native Poll Engine**:
+* **Native Poll Engine & Conversation-Aware Session Manager**:
   * Emits interactive native WhatsApp polls using `whatsmeow.Client.BuildPollCreation()`.
   * Intercepts `events.Message` containing `PollUpdateMessage`, decrypts vote selections via `client.DecryptPollVote()`, maps SHA-256 option hashes back to text, and writes them to the `poll_votes` table.
+  * **Unreplied Poll Persistence**: If a contact messages and the owner has not replied manually, the poll remains alive indefinitely waiting for the owner's action.
+  * **Single Persistent Poll & Anti-Ping-Pong**: When the owner texts a contact manually, the bridge enters an active human conversation session. The single takeover poll is preserved throughout the active chat without rapid delete/recreate cycles on every message turn.
+  * **5-Minute Inactivity Auto-Expiry**: If an active human conversation goes silent for > 5 minutes after manual activity, the session times out, deleting the poll from WhatsApp and revoking any armed AI grants.
 * **LID & Phone Number Translation**: Seamlessly resolves between WhatsApp Phone Number JIDs (`@s.whatsapp.net`) and Linked ID JIDs (`@lid`) using the `whatsmeow_lid_map` and `whatsmeow_contacts` tables.
-* **Supervisor Watchdog**: Background supervisor running every 15 seconds to monitor tenant health and automatically reconnect dropped sockets.
+* **Supervisor Watchdog**: Background supervisor running every 15 seconds to monitor tenant health, auto-reconnect dropped sockets, and sweep timed-out conversation sessions.
 * **HTTP Microservice (`:8080`)**:
   * `POST /api/send`: Send standard text messages.
   * `POST /api/send-poll`: Send interactive polls.
@@ -103,9 +106,9 @@ Built with Go and [whatsmeow](https://github.com/tulir/whatsmeow), this daemon a
 
 ---
 
-### 2.2 TakeOver Controller & State Machine (`harness/controller.py`)
+### 2.2 TakeOver Controller & State Machine (`harness/controller.py` & `whatsapp-bridge`)
 
-The controller acts as the orchestrator. It runs an event loop evaluating contact chats:
+The controller and bridge act as the orchestrators. They evaluate incoming and outgoing messages with conversation session awareness:
 
 ```mermaid
 stateDiagram-v2
@@ -114,28 +117,45 @@ stateDiagram-v2
     IDLE --> POLLING : Incoming message from Allowed Contact
     note right of POLLING : Poll sent to Owner (WhatsApp / Zepp / Web)
     
+    POLLING --> POLLING : Contact sends more messages (Owner hasn't replied)
+    POLLING --> MANUAL_CHAT : Owner sends manual text from phone
+    note right of MANUAL_CHAT : Single poll stays alive; 5-min sliding activity timer active
+    
+    MANUAL_CHAT --> MANUAL_CHAT : Either party texts within 5 min (Refreshes timer)
+    MANUAL_CHAT --> IDLE : 5 minutes of silence (Session times out; Poll deleted)
+    
     POLLING --> GRANTED_COUNT : Owner votes 'Send 1 text'
     POLLING --> GRANTED_DURATION : Owner votes '5 minutes' or '2 hours'
     POLLING --> IDLE : Owner votes 'Deny'
     
-    GRANTED_COUNT --> IDLE : 1 message sent
-    GRANTED_DURATION --> IDLE : Expiration timer elapsed
+    MANUAL_CHAT --> GRANTED_COUNT : Owner votes 'Send 1 text' during active chat
+    MANUAL_CHAT --> GRANTED_DURATION : Owner votes '5 minutes' or '2 hours' during active chat
     
-    GRANTED_COUNT --> IDLE : Owner sends manual text from phone
-    GRANTED_DURATION --> IDLE : Owner sends manual text from phone
-    POLLING --> IDLE : Owner sends manual text from phone
+    GRANTED_COUNT --> IDLE : 1 message sent OR 5 min inactivity
+    GRANTED_DURATION --> IDLE : Expiration timer elapsed OR 5 min inactivity
+    
+    GRANTED_COUNT --> MANUAL_CHAT : Owner sends manual text from phone
+    GRANTED_DURATION --> MANUAL_CHAT : Owner sends manual text from phone
 ```
 
 #### State Transition Logic:
 1. **Seeding (`max_rowid`)**: On startup, reads the latest `rowid` for each contact in `ALLOWED_RECIPIENTS` to prevent replaying stale messages.
-2. **Poll Dispatch**: When an unreplied message arrives and state is `idle`, dispatches a poll to `OWNER_PHONE`.
-3. **Vote Resolution**: Checks `poll_votes` in SQLite and/or polls the Cloud Relay.
-4. **Autonomous Execution**:
+2. **Poll Dispatch**: When an unreplied message arrives and state is `idle`, dispatches a poll to `OWNER_PHONE` and starts an incoming session.
+3. **Unreplied Poll Retention**: As long as the owner has not replied manually or voted, the poll is kept alive indefinitely (even after 5 minutes) without sending duplicate polls.
+4. **Active Conversation Session (Sliding 5m Window)**:
+   * When the owner replies manually, the conversation enters `MANUAL_CHAT` mode.
+   * The single poll remains accessible in the owner's chat; it is **not deleted or recreated** on each text.
+   * Any incoming or outgoing message within 5 minutes refreshes the sliding activity timestamp.
+5. **Inactivity Auto-Expiry**:
+   * If silence exceeds 5 minutes after manual activity, the session times out: the poll is deleted from WhatsApp and expired on the Web relay, and any armed AI grant is revoked.
+   * The next message from the contact after 5 minutes of silence triggers a brand new session and fresh poll.
+6. **Vote Resolution**: Checks `poll_votes` in SQLite and/or polls the Cloud Relay.
+7. **Autonomous Execution**:
    * If grant is active and the contact has the floor, invokes `send_reply()`.
    * Increments message counts / tracks expiration timestamps.
-5. **Human Override Safety**:
-   * If any message in the target chat has `origin == "phone"`, the grant is immediately aborted.
-   * Sends a push confirmation to the owner: `"You just texted {contact}: Closing request"`.
+8. **Human Override Safety**:
+   * If any message in the target chat has `origin == "phone"`, the system arms active manual chat tracking.
+   * Sends a push confirmation to the owner if configured: `"You just texted {contact}: Closing request"`.
 
 ---
 

@@ -23,10 +23,16 @@ func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
 	// 1. If an active takeover grant was explicitly armed for this contact/chat, allow it!
 	t.mu.Lock()
 	activeGrant := false
-	if t.grantKind == "duration" && time.Now().Before(t.grantExpiresAt) {
-		activeGrant = true
+	now := time.Now()
+	timeout := 5 * time.Minute
+	if t.grantKind == "duration" && now.Before(t.grantExpiresAt) {
+		if t.grantArmedAt.IsZero() || now.Sub(t.grantArmedAt) < timeout {
+			activeGrant = true
+		}
 	} else if t.grantKind == "count" && t.grantRemaining > 0 {
-		activeGrant = true
+		if t.grantArmedAt.IsZero() || now.Sub(t.grantArmedAt) < timeout {
+			activeGrant = true
+		}
 	}
 	grantTarget := t.grantTargetJID
 	t.mu.Unlock()
@@ -350,6 +356,7 @@ func (t *Tenant) isGroupMessageDirectedToOwner(msg *events.Message) (bool, strin
 			if len(parts) > 0 && len(parts[0]) >= 3 {
 				ownerNames = append(ownerNames, strings.ToLower(parts[0]))
 			}
+		}
 		for _, name := range ownerNames {
 			if strings.Contains(text, name) {
 				return true, fmt.Sprintf("mentioned %s", name)
@@ -358,70 +365,6 @@ func (t *Tenant) isGroupMessageDirectedToOwner(msg *events.Message) (bool, strin
 	}
 
 	return false, ""
-}
-
-func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
-	// 1. If an active takeover grant was explicitly armed for this contact/chat, allow it!
-	t.mu.Lock()
-	activeGrant := false
-	now := time.Now()
-	timeout := 5 * time.Minute
-	if t.grantKind == "duration" && now.Before(t.grantExpiresAt) {
-		if t.grantArmedAt.IsZero() || now.Sub(t.grantArmedAt) < timeout {
-			activeGrant = true
-		}
-	} else if t.grantKind == "count" && t.grantRemaining > 0 {
-		if t.grantArmedAt.IsZero() || now.Sub(t.grantArmedAt) < timeout {
-			activeGrant = true
-		}
-	}
-	grantTarget := t.grantTargetJID
-	t.mu.Unlock()
-
-	if activeGrant && !grantTarget.IsEmpty() {
-		if t.matchesTarget(chatJID, grantTarget) || t.matchesTarget(senderJID, grantTarget) {
-			return true
-		}
-	}
-
-	// 2. If it's a group chat, check group JID and group name against configured recipients
-	if chatJID.Server == "g.us" {
-		groupName := strings.ToLower(t.resolveGroupName(chatJID))
-		for _, r := range t.recipients {
-			trimmed := strings.TrimSpace(r)
-			if trimmed == "" {
-				continue
-			}
-			if trimmed == chatJID.String() || trimmed == chatJID.User {
-				return true
-			}
-			if strings.EqualFold(trimmed, groupName) {
-				return true
-			}
-		}
-		return false
-	}
-
-	// 3. For 1-on-1 chats, verify against ownerPhone and allowed recipients
-	senderPhone := normalizePhone(senderJID.User)
-	chatPhone := normalizePhone(chatJID.User)
-	ownerPhone := normalizePhone(t.ownerPhone)
-
-	if ownerPhone != "" && (senderPhone == ownerPhone || chatPhone == ownerPhone) {
-		return true
-	}
-
-	for _, r := range t.recipients {
-		clean := normalizePhone(r)
-		if clean != "" && (senderPhone == clean || chatPhone == clean) {
-			return true
-		}
-		if r == senderJID.String() || r == chatJID.String() {
-			return true
-		}
-	}
-
-	return false
 }
 
 // handleEvent processes incoming whatsmeow events for a specific tenant.

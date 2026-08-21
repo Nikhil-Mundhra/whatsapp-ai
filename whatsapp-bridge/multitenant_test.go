@@ -749,10 +749,7 @@ func TestTenant_HandleEvent_AllCases(t *testing.T) {
 	}
 	tenant.handleEvent(msgApiEcho)
 
-	// 4. Outbound manual message by owner to allowed contact -> resets takeover grant & deletes old poll
-	tenant.grantKind = "count"
-	tenant.grantRemaining = 1
-	tenant.grantTargetJID = types.NewJID("15559998888", "s.whatsapp.net")
+	// 4. Outbound manual message by owner to allowed contact -> updates conversation session & preserves active poll
 	if tenant.activePollsByRecipient == nil {
 		tenant.activePollsByRecipient = make(map[string]string)
 	}
@@ -772,8 +769,11 @@ func TestTenant_HandleEvent_AllCases(t *testing.T) {
 	}
 	tenant.handleEvent(msgManual)
 
-	if tenant.grantKind != "none" || tenant.grantRemaining != 0 {
-		t.Errorf("expected takeover grant reset to none, got %s", tenant.grantKind)
+	if tenant.activePollsByRecipient["15559998888"] != "old_poll_to_delete" {
+		t.Errorf("expected takeover poll preserved during active conversation, got %s", tenant.activePollsByRecipient["15559998888"])
+	}
+	if tenant.lastManualTextTimeByRecipient["15559998888"].IsZero() {
+		t.Errorf("expected lastManualTextTime to be updated on manual text")
 	}
 
 	// 5. Outbound manual message to self-chat (recipientKey == ownerPhone) -> does not reset takeover
@@ -1002,4 +1002,184 @@ func TestNewLifecycleEvents(t *testing.T) {
 		t.Errorf("expected lastError to contain connect failure, got %q", tenant.lastError)
 	}
 }
+
+func TestConversationAware_UnrepliedPollPersistence(t *testing.T) {
+	tenant := &Tenant{
+		Hash:       "UNREPLIED_TEST",
+		logger:     waLog.Noop,
+		ownerPhone: "15551234567",
+		recipients: []string{"15559998888"},
+	}
+	tenant.initMapsLocked()
+
+	// Initial incoming message creates poll
+	recipientKey := "15559998888"
+	tenant.activePollsByRecipient[recipientKey] = "poll_unreplied_123"
+	tenant.lastPollTimeByRecipient[recipientKey] = time.Now().Add(-10 * time.Minute)
+	tenant.sessionStartedAtByRecipient[recipientKey] = time.Now().Add(-10 * time.Minute)
+	tenant.lastActivityTimeByRecipient[recipientKey] = time.Now().Add(-10 * time.Minute)
+	// Notice: owner has NOT replied (lastManualTextTime is zero)
+
+	// Run session expiry sweep
+	tenant.expireInactiveSessions(5 * time.Minute)
+
+	// Poll MUST stay alive because owner hasn't replied yet!
+	if tenant.activePollsByRecipient[recipientKey] != "poll_unreplied_123" {
+		t.Errorf("expected unreplied poll to stay alive indefinitely, but was deleted")
+	}
+}
+
+func TestConversationAware_InactivityTimeoutAfterManualChat(t *testing.T) {
+	tenant := &Tenant{
+		Hash:       "INACTIVE_TEST",
+		logger:     waLog.Noop,
+		ownerPhone: "15551234567",
+		recipients: []string{"15559998888"},
+	}
+	tenant.initMapsLocked()
+
+	recipientKey := "15559998888"
+	now := time.Now()
+	// Active conversation started and owner participated
+	tenant.activePollsByRecipient[recipientKey] = "poll_manual_active_123"
+	tenant.lastPollTimeByRecipient[recipientKey] = now.Add(-10 * time.Minute)
+	tenant.sessionStartedAtByRecipient[recipientKey] = now.Add(-10 * time.Minute)
+	tenant.lastManualTextTimeByRecipient[recipientKey] = now.Add(-7 * time.Minute) // Owner sent manual text
+	tenant.lastActivityTimeByRecipient[recipientKey] = now.Add(-6 * time.Minute)   // Last message 6m ago (> 5m silence)
+
+	// Armed "1 text" grant that went stale
+	tenant.grantKind = "count"
+	tenant.grantRemaining = 1
+	tenant.grantArmedAt = now.Add(-6 * time.Minute)
+
+	// Run session expiry sweep (5 min timeout)
+	tenant.expireInactiveSessions(5 * time.Minute)
+
+	// Poll should be deleted because owner participated and it went silent for > 5m
+	if tenant.activePollsByRecipient[recipientKey] != "" {
+		t.Errorf("expected poll to be deleted after 5m of silence in active conversation, got %s", tenant.activePollsByRecipient[recipientKey])
+	}
+	// Grant should be revoked
+	if tenant.grantKind != "none" || tenant.grantRemaining != 0 {
+		t.Errorf("expected takeover grant to be revoked after 5m silence, got %s (rem=%d)", tenant.grantKind, tenant.grantRemaining)
+	}
+}
+
+func TestConversationAware_SinglePollDuringActiveChat(t *testing.T) {
+	client, _, tmpDirClient := createTestClient(t)
+	defer os.RemoveAll(tmpDirClient)
+
+	store, tmpDirStore := createTestMessageStore(t)
+	defer os.RemoveAll(tmpDirStore)
+	defer store.Close()
+
+	tenant := &Tenant{
+		Hash:         "ACTIVE_CHAT_TEST",
+		logger:       waLog.Noop,
+		client:       client,
+		messageStore: store,
+		ownerPhone:   "15551234567",
+		recipients:   []string{"15559998888"},
+	}
+	tenant.initMapsLocked()
+
+	recipientKey := "15559998888"
+	tenant.activePollsByRecipient[recipientKey] = "persistent_poll_1"
+	tenant.sessionStartedAtByRecipient[recipientKey] = time.Now().Add(-2 * time.Minute)
+	tenant.lastManualTextTimeByRecipient[recipientKey] = time.Now().Add(-1 * time.Minute)
+	tenant.lastActivityTimeByRecipient[recipientKey] = time.Now().Add(-1 * time.Minute)
+
+	// Owner sends manual message
+	msgManual := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("15559998888", "s.whatsapp.net"),
+				Sender:   types.NewJID("15551234567", "s.whatsapp.net"),
+				IsFromMe: true,
+			},
+			ID:        "man_1",
+			Timestamp: time.Now(),
+		},
+		Message: &waProto.Message{Conversation: googleProto.String("Hello from owner")},
+	}
+	tenant.handleEvent(msgManual)
+
+	// Poll MUST NOT be deleted
+	if tenant.activePollsByRecipient[recipientKey] != "persistent_poll_1" {
+		t.Errorf("expected single poll to be preserved on owner text, got %v", tenant.activePollsByRecipient[recipientKey])
+	}
+
+	// Recipient replies 30s later (within 5m window)
+	msgIncoming := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:     types.NewJID("15559998888", "s.whatsapp.net"),
+				Sender:   types.NewJID("15559998888", "s.whatsapp.net"),
+				IsFromMe: false,
+			},
+			ID:        "inc_2",
+			Timestamp: time.Now(),
+		},
+		Message: &waProto.Message{Conversation: googleProto.String("Hello back!")},
+	}
+	tenant.handleEvent(msgIncoming)
+
+	// Poll MUST still be the same single poll
+	if tenant.activePollsByRecipient[recipientKey] != "persistent_poll_1" {
+		t.Errorf("expected single poll to be preserved on incoming reply, got %v", tenant.activePollsByRecipient[recipientKey])
+	}
+}
+
+func TestConversationAware_DurationGrantTimeoutDuringSilence(t *testing.T) {
+	tenant := &Tenant{
+		Hash:       "DURATION_TIMEOUT_TEST",
+		logger:     waLog.Noop,
+		ownerPhone: "15551234567",
+		recipients: []string{"15559998888"},
+	}
+	tenant.initMapsLocked()
+
+	now := time.Now()
+	// 5-minute grant armed 6 minutes ago (silent since armed)
+	tenant.grantKind = "duration"
+	tenant.grantExpiresAt = now.Add(10 * time.Minute)
+	tenant.grantArmedAt = now.Add(-6 * time.Minute)
+
+	tenant.expireInactiveSessions(5 * time.Minute)
+
+	if tenant.grantKind != "none" {
+		t.Errorf("expected duration grant to be revoked after > 5m silence, got %s", tenant.grantKind)
+	}
+}
+
+func TestConversationAware_SupervisorAutoSweep(t *testing.T) {
+	mgr := NewTenantManager(waLog.Noop)
+
+	now := time.Now()
+	t1 := &Tenant{
+		Hash:       "SWEEP_TEST",
+		logger:     waLog.Noop,
+		ownerPhone: "15551234567",
+		recipients: []string{"15559998888"},
+	}
+	t1.initMapsLocked()
+	recipientKey := "15559998888"
+	t1.activePollsByRecipient[recipientKey] = "sweep_poll_123"
+	t1.lastPollTimeByRecipient[recipientKey] = now.Add(-10 * time.Minute)
+	t1.sessionStartedAtByRecipient[recipientKey] = now.Add(-10 * time.Minute)
+	t1.lastManualTextTimeByRecipient[recipientKey] = now.Add(-8 * time.Minute)
+	t1.lastActivityTimeByRecipient[recipientKey] = now.Add(-7 * time.Minute)
+
+	mgr.Add(t1)
+
+	// Supervisor sweep
+	mgr.checkAndReconnectTenants()
+
+	// Sweep should have expired the inactive session poll
+	if t1.activePollsByRecipient[recipientKey] != "" {
+		t.Errorf("expected supervisor to auto-expire timed out session, but poll remained: %s", t1.activePollsByRecipient[recipientKey])
+	}
+}
+
+
 
