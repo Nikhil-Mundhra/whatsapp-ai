@@ -13,6 +13,7 @@ import (
 
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow"
 )
 
 func getWebhookBaseURL() string {
@@ -124,6 +125,8 @@ func connectionsHandler(manager *TenantManager) http.HandlerFunc {
 			handleGrant(w, r, manager.Get(hash))
 		case sub == "send" && r.Method == http.MethodPost:
 			handleSend(w, r, manager.Get(hash))
+		case sub == "avatar" && r.Method == http.MethodGet:
+			handleProfilePicture(w, r, manager.Get(hash))
 		case len(parts) >= 4 && parts[1] == "chats" && parts[3] == "settings":
 			handleChatSettings(w, r, manager.Get(hash), parts[2])
 		default:
@@ -433,6 +436,71 @@ func handleChatSettings(w http.ResponseWriter, r *http.Request, tenant *Tenant, 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func handleProfilePicture(w http.ResponseWriter, r *http.Request, tenant *Tenant) {
+	if tenant == nil || tenant.client == nil || !tenant.client.IsConnected() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "whatsapp client not connected"})
+		return
+	}
+
+	target := r.URL.Query().Get("jid")
+	if target == "" {
+		target = r.URL.Query().Get("phone")
+	}
+	if target == "" {
+		http.Error(w, "missing jid parameter", http.StatusBadRequest)
+		return
+	}
+
+	var targetJID types.JID
+	var err error
+	if strings.Contains(target, "@") {
+		targetJID, err = types.ParseJID(target)
+		if err != nil {
+			http.Error(w, "invalid jid", http.StatusBadRequest)
+			return
+		}
+	} else {
+		clean := cleanPhoneDigits(target)
+		if clean == "" {
+			http.Error(w, "invalid phone", http.StatusBadRequest)
+			return
+		}
+		targetJID = types.JID{User: clean, Server: "s.whatsapp.net"}
+	}
+
+	picInfo, err := tenant.client.GetProfilePictureInfo(targetJID, &whatsmeow.GetProfilePictureParams{
+		Preview: true,
+	})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"url":     "",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	if picInfo == nil || picInfo.URL == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"url":     "",
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"url":     picInfo.URL,
+		"id":      picInfo.ID,
+		"type":    picInfo.Type,
+	})
 }
 
 func startMultiTenantServer(port int, logger waLog.Logger) {

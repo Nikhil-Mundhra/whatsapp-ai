@@ -1,9 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { SidebarHeader } from "./components/Sidebar/SidebarHeader";
 import { SearchBar } from "./components/Sidebar/SearchBar";
 import { ContactList } from "./components/Sidebar/ContactList";
+import { NavRail } from "./components/Sidebar/NavRail";
+import { ArchivedList } from "./components/Sidebar/ArchivedList";
+import { CallsView } from "./components/Sidebar/CallsView";
+import { StatusView } from "./components/Sidebar/StatusView";
+import { StarredView } from "./components/Sidebar/StarredView";
+import { AiAssistantView } from "./components/Sidebar/AiAssistantView";
 import { ChatHeader } from "./components/Chat/ChatHeader";
 import { ChatTimeline } from "./components/Chat/ChatTimeline";
 import { ChatInputBar } from "./components/Chat/ChatInputBar";
@@ -32,6 +38,49 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [votingId, setVotingId] = useState(null);
+
+  // Navigation Rail State: "chats" | "calls" | "status" | "archived" | "starred" | "ai"
+  const [activeNav, setActiveNav] = useState("chats");
+
+  // Archived chats state
+  const [archivedIds, setArchivedIds] = useState([]);
+
+  // Load archived chats on hash change
+  useEffect(() => {
+    if (!hash) return;
+    try {
+      const stored = localStorage.getItem(`wa_archived_chats_${hash}`);
+      if (stored) {
+        setArchivedIds(JSON.parse(stored));
+      } else {
+        setArchivedIds([]);
+      }
+    } catch {
+      setArchivedIds([]);
+    }
+  }, [hash]);
+
+  function handleArchiveChat(contactId) {
+    if (!contactId) return;
+    setArchivedIds((prev) => {
+      const next = Array.from(new Set([...prev, contactId]));
+      if (hash) {
+        localStorage.setItem(`wa_archived_chats_${hash}`, JSON.stringify(next));
+      }
+      return next;
+    });
+  }
+
+  function handleUnarchiveChat(contactId) {
+    if (!contactId) return;
+    setArchivedIds((prev) => {
+      const next = prev.filter((id) => id !== contactId);
+      if (hash) {
+        localStorage.setItem(`wa_archived_chats_${hash}`, JSON.stringify(next));
+      }
+      return next;
+    });
+  }
 
   // Active Chat Selection & Filtering
   const [selectedContact, setSelectedContact] = useState("");
@@ -1034,6 +1083,32 @@ export default function Home() {
   const pendingPollsCount = polls.filter((p) => p.status === "pending").length;
   const currentPendingPolls = currentChatPolls.filter((p) => p.status === "pending").length;
 
+  // Filtered Archived chats list
+  const archivedChats = useMemo(() => {
+    const archivedSet = new Set(archivedIds);
+    return chats.filter((c) => {
+      const jid = c.jid || c.phone || "";
+      const cleanPhone = (c.phone || jid.split("@")[0] || "").replace(/\D/g, "");
+      return archivedSet.has(jid) || (cleanPhone && archivedSet.has(cleanPhone));
+    });
+  }, [chats, archivedIds]);
+
+  const unreadCount = useMemo(() => {
+    return polls.filter((p) => p.status === "pending").length;
+  }, [polls]);
+
+  const groupsCount = useMemo(() => {
+    return chats.filter((c) => c.isGroup || (c.jid && c.jid.endsWith("@g.us"))).length;
+  }, [chats]);
+
+  const favouritesCount = useMemo(() => {
+    return allowedRecipients.length;
+  }, [allowedRecipients]);
+
+  const starredCount = useMemo(() => {
+    return messages.filter((m) => Boolean(m.isAi || m.is_ai)).length;
+  }, [messages]);
+
   if (!sessionChecked) {
     return (
       <main
@@ -1082,43 +1157,114 @@ export default function Home() {
 
   return (
     <main className="wa-container" data-theme={theme}>
-      <div className="wa-app-window" ref={appWindowRef}>
-        {/* Left Sidebar */}
+      <div className="wa-app-window" ref={appWindowRef} style={{ display: "flex", flexDirection: "row", height: "100%", width: "100%" }}>
+        {/* 1. Left Vertical Navigation Rail (Width 60px) */}
+        <NavRail
+          activeNav={activeNav}
+          onSelectNav={setActiveNav}
+          unreadCount={unreadCount}
+          archivedCount={archivedIds.length}
+          starredCount={starredCount}
+          onOpenSettings={openSettings}
+          ownerPhone={connInfo?.connection?.ownerPhone}
+          hash={hash}
+          theme={theme}
+          onThemeChange={handleThemeChange}
+        />
+
+        {/* 2. Main Resizable Sidebar Pane */}
         <div
           className="wa-sidebar"
-          style={{ width: `${sidebarWidth}%` }}
+          style={{ width: `${sidebarWidth}%`, display: "flex", flexDirection: "column" }}
         >
-          <SidebarHeader
-            hash={hash}
-            connInfo={connInfo}
-            onOpenSettings={openSettings}
-            onOpenSwitcher={() => setIsSwitcherOpen(true)}
-            onRefresh={() => fetchDashboardData(true)}
-            refreshing={refreshing}
-          />
+          {activeNav === "chats" ? (
+            <>
+              <SidebarHeader
+                hash={hash}
+                connInfo={connInfo}
+                onOpenSettings={openSettings}
+                onOpenSwitcher={() => setIsSwitcherOpen(true)}
+                onRefresh={() => fetchDashboardData(true)}
+                refreshing={refreshing}
+              />
 
-          <SearchBar
-            searchQuery={searchQuery}
-            setSearchQuery={setSearchQuery}
-            filterType={filterType}
-            setFilterType={setFilterType}
-            pendingCount={pendingPollsCount}
-          />
+              <SearchBar
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+                filterType={filterType}
+                setFilterType={setFilterType}
+                unreadCount={unreadCount}
+                groupsCount={groupsCount}
+                favouritesCount={favouritesCount}
+              />
 
-          <ContactList
-            chats={chats}
-            allowedRecipients={allowedRecipients}
-            selectedContact={selectedContact}
-            onSelectContact={(c, name) => {
-              setSelectedContact(c);
-              setSelectedContactName(name || "");
-              selectedContactRef.current = c;
-            }}
-            polls={polls}
-            messages={messages}
-            searchQuery={searchQuery}
-            filterType={filterType}
-          />
+              <ContactList
+                chats={chats}
+                allowedRecipients={allowedRecipients}
+                selectedContact={selectedContact}
+                onSelectContact={(c, name) => {
+                  setSelectedContact(c);
+                  setSelectedContactName(name || "");
+                  selectedContactRef.current = c;
+                }}
+                polls={polls}
+                messages={messages}
+                searchQuery={searchQuery}
+                filterType={filterType}
+                archivedIds={archivedIds}
+                onArchiveChat={handleArchiveChat}
+                onOpenArchived={() => setActiveNav("archived")}
+                hash={hash}
+              />
+            </>
+          ) : activeNav === "archived" ? (
+            <ArchivedList
+              archivedChats={archivedChats}
+              selectedContact={selectedContact}
+              onSelectContact={(c, name) => {
+                setSelectedContact(c);
+                setSelectedContactName(name || "");
+                selectedContactRef.current = c;
+              }}
+              onUnarchiveChat={handleUnarchiveChat}
+              onBack={() => setActiveNav("chats")}
+              hash={hash}
+            />
+          ) : activeNav === "calls" ? (
+            <CallsView
+              messages={messages}
+              onSelectContact={(c) => {
+                setSelectedContact(c);
+                selectedContactRef.current = c;
+                setActiveNav("chats");
+              }}
+              onBack={() => setActiveNav("chats")}
+            />
+          ) : activeNav === "status" ? (
+            <StatusView
+              connInfo={connInfo}
+              hash={hash}
+              onBack={() => setActiveNav("chats")}
+            />
+          ) : activeNav === "starred" ? (
+            <StarredView
+              messages={messages}
+              onSelectContact={(c) => {
+                setSelectedContact(c);
+                selectedContactRef.current = c;
+                setActiveNav("chats");
+              }}
+              onBack={() => setActiveNav("chats")}
+            />
+          ) : activeNav === "ai" ? (
+            <AiAssistantView
+              connInfo={connInfo}
+              onOpenSettings={openSettings}
+              activeGrants={activeGrants}
+              polls={polls}
+              onBack={() => setActiveNav("chats")}
+            />
+          ) : null}
         </div>
 
         {/* Draggable Resizer Divider (15% - 50%) */}
@@ -1141,6 +1287,7 @@ export default function Home() {
                 pendingCount={currentPendingPolls}
                 isWhitelisted={isSelectedWhitelisted}
                 onOpenSettings={() => setIsChatSettingsOpen(true)}
+                hash={hash}
               />
 
               <ChatTimeline

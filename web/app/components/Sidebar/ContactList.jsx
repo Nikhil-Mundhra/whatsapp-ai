@@ -1,6 +1,13 @@
 "use client";
 
-import { RobotIcon } from "../Icons/WhatsAppIcons";
+import React, { useState } from "react";
+import {
+  RobotIcon,
+  ArchiveBoxIcon,
+  DoubleCheckIcon,
+  UsersIcon,
+} from "../Icons/WhatsAppIcons";
+import { Avatar } from "../Avatar/Avatar";
 import { stripWhatsAppFormatting } from "../../../lib/formatter.js";
 
 const AVATAR_COLORS = [
@@ -54,14 +61,21 @@ export function ContactList({
   messages = [],
   searchQuery = "",
   filterType = "all",
+  archivedIds = [],
+  onArchiveChat,
+  onOpenArchived,
+  hash = "",
 }) {
+  const [hoveredChat, setHoveredChat] = useState(null);
+
   // Convert allowed recipients to a clean phone set
   const allowedSet = new Set(
     allowedRecipients.map((r) => String(r).replace(/\D/g, "")).filter(Boolean)
   );
 
+  const archivedSet = new Set(archivedIds);
+
   // Build unified items list
-  // 1. From live SQLite / Bridge chats
   const chatMap = new Map();
 
   function findExistingChatKey(jid, cleanPhone, name, isGroup) {
@@ -80,7 +94,7 @@ export function ContactList({
     const jid = c.jid || c.phone || "";
     const cleanPhone = (c.phone || jid.split("@")[0] || "").replace(/\D/g, "");
     const isAllowed = allowedSet.has(cleanPhone) || allowedRecipients.includes(jid);
-    const isGroup = Boolean(c.isGroup);
+    const isGroup = Boolean(c.isGroup || jid.endsWith("@g.us"));
     const name = c.name || formatPhoneDisplay(cleanPhone);
 
     // Find pending polls for this chat
@@ -104,6 +118,7 @@ export function ContactList({
         lastIsFromMe: Boolean(c.lastIsFromMe),
         pendingCount: pendingPolls.length,
         aliases: [jid, cleanPhone, c.phone].filter(Boolean),
+        isArchived: archivedSet.has(jid) || (cleanPhone && archivedSet.has(cleanPhone)),
       });
     } else {
       const existing = chatMap.get(existingKey);
@@ -126,10 +141,13 @@ export function ContactList({
         existing.phone = cleanPhone || existing.phone;
       }
       existing.pendingCount = (existing.pendingCount || 0) + pendingPolls.length;
+      if (archivedSet.has(jid) || (cleanPhone && archivedSet.has(cleanPhone))) {
+        existing.isArchived = true;
+      }
     }
   }
 
-  // 2. Ensure any allowed recipients without chat entries are included
+  // Ensure any allowed recipients without chat entries are included
   for (const r of allowedRecipients) {
     const cleanPhone = String(r).replace(/\D/g, "");
     const jid = cleanPhone ? `${cleanPhone}@s.whatsapp.net` : String(r);
@@ -150,6 +168,7 @@ export function ContactList({
         lastIsFromMe: false,
         pendingCount: pendingPolls.length,
         aliases: [jid, cleanPhone, String(r)].filter(Boolean),
+        isArchived: archivedSet.has(jid) || (cleanPhone && archivedSet.has(cleanPhone)),
       });
     } else {
       const existing = chatMap.get(existingKey);
@@ -157,11 +176,13 @@ export function ContactList({
       existing.aliases = Array.from(
         new Set([...(existing.aliases || []), jid, cleanPhone, String(r)].filter(Boolean))
       );
+      if (archivedSet.has(jid) || (cleanPhone && archivedSet.has(cleanPhone))) {
+        existing.isArchived = true;
+      }
     }
   }
 
   const allItems = Array.from(chatMap.values()).sort((a, b) => {
-    // Pending polls first, then by latest message time
     if (a.pendingCount > 0 && b.pendingCount === 0) return -1;
     if (b.pendingCount > 0 && a.pendingCount === 0) return 1;
     const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
@@ -169,8 +190,12 @@ export function ContactList({
     return timeB - timeA;
   });
 
+  // Separate non-archived from archived
+  const nonArchivedItems = allItems.filter((item) => !item.isArchived);
+  const archivedCount = allItems.filter((item) => item.isArchived).length;
+
   // Filter items
-  const filtered = allItems.filter((item) => {
+  const filtered = nonArchivedItems.filter((item) => {
     const matchesSearch =
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.phone.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -178,96 +203,234 @@ export function ContactList({
 
     if (!matchesSearch) return false;
 
-    if (filterType === "pending") return item.pendingCount > 0;
-    if (filterType === "autonomy" || filterType === "whitelisted") return item.isAllowed;
+    if (filterType === "unread") {
+      return item.pendingCount > 0 || (!item.lastIsFromMe && item.lastMessageTime);
+    }
+    if (filterType === "favourites") {
+      return item.isAllowed;
+    }
+    if (filterType === "groups") {
+      return item.isGroup;
+    }
     return true;
   });
 
-  if (allItems.length === 0) {
-    return (
-      <div style={{ padding: "32px 20px", textAlign: "center", color: "#64748b" }}>
-        <p style={{ fontSize: 14, margin: "0 0 8px", fontWeight: 600 }}>No Chats Found</p>
-        <p style={{ fontSize: 13, margin: 0, color: "#8696a0" }}>
-          Connect WhatsApp to start syncing your live chats and messages.
-        </p>
-      </div>
-    );
-  }
-
-  if (filtered.length === 0) {
-    return (
-      <div style={{ padding: "32px 20px", textAlign: "center", color: "#64748b" }}>
-        <p style={{ fontSize: 14, margin: 0 }}>No chats match "{searchQuery}"</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="wa-contact-list">
-      {filtered.map((item) => {
-        const isSelected = selectedContact === item.jid || selectedContact === item.phone;
-        const initial = (item.name || item.phone).slice(0, 2).toUpperCase();
-
-        return (
-          <div
-            key={item.jid || item.phone}
-            className={`wa-contact-item ${isSelected ? "selected" : ""}`}
-            onClick={() => onSelectContact(item.jid || item.phone, item.name)}
-          >
-            {/* Avatar */}
+    <div className="wa-contact-list" style={{ flex: 1, overflowY: "auto", backgroundColor: "var(--wa-panel-bg)" }}>
+      {/* 1. Archived Banner Row at Top (like WhatsApp Web) */}
+      {archivedCount > 0 && !searchQuery && (
+        <div
+          onClick={onOpenArchived}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 18px",
+            borderBottom: "1px solid var(--wa-border-light)",
+            backgroundColor: "var(--wa-panel-bg)",
+            cursor: "pointer",
+            transition: "background-color 0.15s ease",
+          }}
+          className="wa-archived-banner"
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <div
-              className="wa-avatar"
-              style={{ background: getAvatarColor(item.name || item.phone) }}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                backgroundColor: "var(--wa-search-input)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--wa-icon-color)",
+              }}
             >
-              {initial}
+              <ArchiveBoxIcon size={18} color="var(--wa-icon-color)" />
             </div>
+            <span style={{ fontSize: 15, fontWeight: 600, color: "var(--wa-text-primary)" }}>
+              Archived
+            </span>
+          </div>
 
-            {/* Info */}
-            <div className="wa-contact-info">
-              <div className="wa-contact-top">
-                <span className="wa-contact-name" title={item.name}>
-                  {item.name}
-                </span>
-                {item.lastMessageTime && (
-                  <span className="wa-contact-time">{formatTime(item.lastMessageTime)}</span>
-                )}
-              </div>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: "var(--wa-teal)",
+              padding: "2px 8px",
+              borderRadius: 10,
+              backgroundColor: "rgba(0, 168, 132, 0.12)",
+            }}
+          >
+            {archivedCount}
+          </span>
+        </div>
+      )}
 
-              <div className="wa-contact-bottom">
-                <span className="wa-contact-preview">
-                  {item.lastIsFromMe && "You: "}
-                  {stripWhatsAppFormatting(item.lastMessage) || (item.isAllowed ? "AI Whitelisted" : "")}
-                </span>
+      {/* 2. Empty states */}
+      {allItems.length === 0 ? (
+        <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--wa-text-secondary)" }}>
+          <p style={{ fontSize: 14, margin: "0 0 8px", fontWeight: 600 }}>No Chats Found</p>
+          <p style={{ fontSize: 13, margin: 0, color: "var(--wa-text-muted)" }}>
+            Connect WhatsApp to start syncing your live chats and messages.
+          </p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--wa-text-secondary)" }}>
+          <p style={{ fontSize: 14, margin: 0 }}>
+            {searchQuery ? `No chats match "${searchQuery}"` : "No chats in this category"}
+          </p>
+        </div>
+      ) : (
+        /* 3. Render Non-Archived Chats */
+        filtered.map((item) => {
+          const isSelected = selectedContact === item.jid || selectedContact === item.phone;
+          const initial = (item.name || item.phone).slice(0, 2).toUpperCase();
+          const isHovered = hoveredChat === (item.jid || item.phone);
 
-                {/* Badges */}
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  {item.isAllowed && (
-                    <span
-                      style={{
-                        background: "#dcf8c6",
-                        color: "#075e54",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: "1px 5px",
-                        borderRadius: 4,
-                      }}
-                      title="Whitelisted for AI take-over"
-                    >
-                      AI
-                    </span>
-                  )}
+          return (
+            <div
+              key={item.jid || item.phone}
+              className={`wa-contact-item ${isSelected ? "selected" : ""}`}
+              onMouseEnter={() => setHoveredChat(item.jid || item.phone)}
+              onMouseLeave={() => setHoveredChat(null)}
+              onClick={() => onSelectContact(item.jid || item.phone, item.name)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "12px 16px",
+                gap: 12,
+                cursor: "pointer",
+                borderBottom: "1px solid var(--wa-border-light)",
+                backgroundColor: isSelected ? "var(--wa-selected-bg)" : "transparent",
+                transition: "background-color 0.15s ease",
+                position: "relative",
+              }}
+            >
+              {/* Avatar Photo / Initials */}
+              <Avatar
+                src={hash ? `/api/connections/${hash}/avatar?jid=${encodeURIComponent(item.jid || item.phone)}` : ""}
+                name={item.name}
+                initial={initial}
+                isGroup={item.isGroup}
+                size={44}
+              />
 
-                  {item.pendingCount > 0 && (
-                    <span className="wa-badge-pending" title={`${item.pendingCount} pending Take-Over requests`}>
-                      {item.pendingCount}
+              {/* Info */}
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span
+                    style={{
+                      fontSize: 15,
+                      fontWeight: 600,
+                      color: "var(--wa-text-primary)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                    title={item.name}
+                  >
+                    {item.name}
+                  </span>
+                  {item.lastMessageTime && (
+                    <span style={{ fontSize: 11, color: "var(--wa-text-muted)" }}>
+                      {formatTime(item.lastMessageTime)}
                     </span>
                   )}
                 </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      color: "var(--wa-text-secondary)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      flex: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    {item.lastIsFromMe && <DoubleCheckIcon size={14} isRead={true} />}
+                    <span>{stripWhatsAppFormatting(item.lastMessage) || (item.isAllowed ? "AI Whitelisted" : "")}</span>
+                  </span>
+
+                  {/* Badges & Archive Hover Action */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {isHovered ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onArchiveChat(item.jid || item.phone);
+                        }}
+                        title="Archive Chat"
+                        style={{
+                          background: "var(--wa-search-input)",
+                          border: "1px solid var(--wa-border)",
+                          borderRadius: 6,
+                          padding: "3px 6px",
+                          color: "var(--wa-icon-color)",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 3,
+                          fontSize: 11,
+                          fontWeight: 600,
+                        }}
+                      >
+                        <ArchiveBoxIcon size={12} color="currentColor" />
+                        <span>Archive</span>
+                      </button>
+                    ) : (
+                      <>
+                        {item.isAllowed && (
+                          <span
+                            style={{
+                              background: "rgba(0, 168, 132, 0.15)",
+                              color: "var(--wa-teal)",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              padding: "1px 5px",
+                              borderRadius: 4,
+                            }}
+                            title="Whitelisted for AI take-over"
+                          >
+                            AI
+                          </span>
+                        )}
+
+                        {item.pendingCount > 0 && (
+                          <span
+                            style={{
+                              backgroundColor: "#ef4444",
+                              color: "#ffffff",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              height: 18,
+                              minWidth: 18,
+                              padding: "0 5px",
+                              borderRadius: 9,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                            title={`${item.pendingCount} pending Take-Over requests`}
+                          >
+                            {item.pendingCount}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })
+      )}
     </div>
   );
 }

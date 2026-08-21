@@ -1,6 +1,7 @@
 "use client";
 
 import { SearchIcon, MoreVertIcon } from "../Icons/WhatsAppIcons";
+import { Avatar } from "../Avatar/Avatar";
 
 function formatPhoneDisplay(num = "") {
   const clean = num.replace(/\D/g, "");
@@ -22,9 +23,11 @@ export function ChatHeader({
   pendingCount = 0,
   isWhitelisted = false,
   onOpenSettings,
+  hash = "",
 }) {
   const displayName = contactName || formatPhoneDisplay(contact);
   const initial = displayName ? displayName.slice(0, 2).toUpperCase() : "";
+  const isGroup = contact.endsWith("@g.us");
 
   return (
     <div className="wa-chat-header">
@@ -35,9 +38,13 @@ export function ChatHeader({
         style={{ cursor: onOpenSettings ? "pointer" : "default" }}
         title={onOpenSettings ? "Open contact settings" : undefined}
       >
-        <div className="wa-avatar" style={{ background: "linear-gradient(135deg, #008069, #00a884)" }}>
-          {initial}
-        </div>
+        <Avatar
+          src={hash ? `/api/connections/${hash}/avatar?jid=${encodeURIComponent(contact)}` : ""}
+          name={displayName}
+          initial={initial}
+          isGroup={isGroup}
+          size={40}
+        />
         <div>
           <div className="wa-chat-contact-title" style={{
             color: onOpenSettings ? "var(--wa-text-primary)" : undefined,
