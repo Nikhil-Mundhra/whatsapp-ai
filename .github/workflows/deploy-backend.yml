@@ -107,8 +107,9 @@ jobs:
             git fetch --all
             git reset --hard origin/main
 
-            # Ensure Go path is available
-            export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
+            # Ensure Go path is available (prefer /usr/local/go/bin and $HOME/go/bin)
+            export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH
+            echo "🐹 Using Go binary: $(which go) ($(go version 2>&1 || true))"
 
             # Test Go whatsapp-bridge on VM before rebuilding
             echo "🧪 Validating tests on VM..."
