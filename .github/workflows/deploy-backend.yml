@@ -51,6 +51,7 @@ jobs:
         run: |
           echo "🧪 Running Go WhatsApp Bridge tests..."
           cd whatsapp-bridge
+          go mod tidy
           go test -race -v -covermode=atomic -coverprofile=coverage.out ./...
 
       - name: Run Python MCP Server Tests
@@ -112,6 +113,7 @@ jobs:
             # Test Go whatsapp-bridge on VM before rebuilding
             echo "🧪 Validating tests on VM..."
             cd "$REPO_DIR/whatsapp-bridge"
+            go mod tidy
             go test -v ./...
 
             # Build Go whatsapp-bridge
