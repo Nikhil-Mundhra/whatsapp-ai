@@ -43,8 +43,9 @@ flowchart LR
 
 ## 3. Upcoming Upgrades & Phases
 
-### Phase 4: Multimodal Audio & Vision Engine (Target: Q3 - Q4 2026)
+### [Phase 4: Multimodal Audio & Vision Engine](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md) (Target: Q3 - Q4 2026)
 Expand the AI texting engine beyond plain text to understand and generate all native WhatsApp media types.
+*Detailed Architecture & Trade-Off Analysis: [PHASE_4_MULTIMODAL_AUDIO_VISION.md](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md)*
 
 * **4.1 Incoming Voice Note Transcription (Audio-to-Text)**
   * Seamless ingestion of incoming `.opus` voice notes.
@@ -61,8 +62,9 @@ Expand the AI texting engine beyond plain text to understand and generate all na
 
 ---
 
-### Phase 5: Agentic Tool Execution & Calendar Grounding (Target: Q4 2026 - Q1 2027)
+### [Phase 5: Agentic Tool Execution & Calendar Grounding](Documentation/PHASE_5_AGENTIC_TOOLS_CALENDAR.md) (Target: Q4 2026 - Q1 2027)
 Transform the persona engine from a reactive text generator into an autonomous personal assistant with tool capabilities.
+*Detailed Architecture & Trade-Off Analysis: [PHASE_5_AGENTIC_TOOLS_CALENDAR.md](Documentation/PHASE_5_AGENTIC_TOOLS_CALENDAR.md)*
 
 * **5.1 Calendar & Free-Busy Availability Integration**
   * Bi-directional Google Calendar and Apple Calendar (CalDAV) integration.
@@ -76,8 +78,9 @@ Transform the persona engine from a reactive text generator into an autonomous p
 
 ---
 
-### Phase 6: Group Chat Dynamics & Social Graph Engine (Target: Q1 - Q2 2027)
+### [Phase 6: Group Chat Dynamics & Social Graph Engine](Documentation/PHASE_6_GROUP_DYNAMICS_SOCIAL_GRAPH.md) (Target: Q1 - Q2 2027)
 Scale the AI's social intelligence to handle multi-party conversations and shared friend networks.
+*Detailed Architecture & Trade-Off Analysis: [PHASE_6_GROUP_DYNAMICS_SOCIAL_GRAPH.md](Documentation/PHASE_6_GROUP_DYNAMICS_SOCIAL_GRAPH.md)*
 
 * **6.1 Group Floor Control & Mention Heuristics**
   * Smart silence vs. chime-in logic based on message context, direct mentions (`@You`), and reply velocity.
@@ -90,8 +93,9 @@ Scale the AI's social intelligence to handle multi-party conversations and share
 
 ---
 
-### Phase 7: Mobile-First Push & Multi-Device Wearables (Target: Q2 - Q3 2027)
+### [Phase 7: Mobile-First Push & Multi-Device Wearables](Documentation/PHASE_7_MOBILE_PUSH_WEARABLES.md) (Target: Q2 - Q3 2027)
 Ensure rapid approval and takeover gating across all everyday devices.
+*Detailed Architecture & Trade-Off Analysis: [PHASE_7_MOBILE_PUSH_WEARABLES.md](Documentation/PHASE_7_MOBILE_PUSH_WEARABLES.md)*
 
 * **7.1 Web Push Notifications (PWA / VAPID)**
   * Browser push notifications on iOS and Android Safari/Chrome.
@@ -104,8 +108,9 @@ Ensure rapid approval and takeover gating across all everyday devices.
 
 ---
 
-### Phase 8: Automated Persona Fine-Tuning & LoRA Engine (Target: Q3 - Q4 2027)
+### [Phase 8: Automated Persona Fine-Tuning & LoRA Engine](Documentation/PHASE_8_PERSONA_LORA_ALIGNMENT.md) (Target: Q3 - Q4 2027)
 Eliminate prompt overhead and maximize authentic style matching through localized fine-tuning.
+*Detailed Architecture & Trade-Off Analysis: [PHASE_8_PERSONA_LORA_ALIGNMENT.md](Documentation/PHASE_8_PERSONA_LORA_ALIGNMENT.md)*
 
 * **8.1 Privacy-Preserving Dataset Builder**
   * Local extraction pipeline formatting historical chat pairs into instruction-tuning datasets.
@@ -118,8 +123,9 @@ Eliminate prompt overhead and maximize authentic style matching through localize
 
 ---
 
-### Phase 9: Cloud-Native Multi-Tenant Orchestration (Target: Q4 2027+)
+### [Phase 9: Cloud-Native Multi-Tenant Orchestration](Documentation/PHASE_9_CLOUD_MULTI_TENANT_ORCHESTRATION.md) (Target: Q4 2027+)
 Transition the local daemon architecture into an enterprise-grade multi-tenant cloud service.
+*Detailed Architecture & Trade-Off Analysis: [PHASE_9_CLOUD_MULTI_TENANT_ORCHESTRATION.md](Documentation/PHASE_9_CLOUD_MULTI_TENANT_ORCHESTRATION.md)*
 
 * **9.1 Dynamic Container Provisioning**
   * Orchestrated bridge worker containers (GCP Cloud Run, Fly.io, or Kubernetes) provisioned dynamically via the Superadmin control plane upon user onboarding.
@@ -132,14 +138,14 @@ Transition the local daemon architecture into an enterprise-grade multi-tenant c
 
 ## 4. Prioritization Matrix
 
-| Initiative | Impact | Complexity | Feasibility | Target Timeline |
-| :--- | :---: | :---: | :---: | :---: |
-| **Voice Note STT (`.opus` Ingestion)** | High | Low | High | **Q3 2026** |
-| **Image & Vision Understanding** | High | Low | High | **Q3 2026** |
-| **Web Push Notifications (PWA)** | High | Medium | High | **Q4 2026** |
-| **Google/Apple Calendar Integration** | High | Medium | High | **Q4 2026** |
-| **Voice Cloning & Audio Generation** | High | Medium | Medium | **Q1 2027** |
-| **Group Chat Mention & Floor Control** | Medium | Medium | High | **Q1 2027** |
-| **Apple Watch (watchOS) App** | High | High | Medium | **Q2 2027** |
-| **Local LoRA Persona Fine-Tuning** | High | High | Medium | **Q3 2027** |
-| **Dynamic Cloud Container Scaling** | High | High | High | **Q4 2027** |
+| Initiative | Impact | Complexity | Feasibility | Target Timeline | Technical Specification |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **Voice Note STT (`.opus` Ingestion)** | High | Low | High | **Q3 2026** | [Phase 4 Spec](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md) |
+| **Image & Vision Understanding** | High | Low | High | **Q3 2026** | [Phase 4 Spec](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md) |
+| **Web Push Notifications (PWA)** | High | Medium | High | **Q4 2026** | [Phase 7 Spec](Documentation/PHASE_7_MOBILE_PUSH_WEARABLES.md) |
+| **Google/Apple Calendar Integration** | High | Medium | High | **Q4 2026** | [Phase 5 Spec](Documentation/PHASE_5_AGENTIC_TOOLS_CALENDAR.md) |
+| **Voice Cloning & Audio Generation** | High | Medium | Medium | **Q1 2027** | [Phase 4 Spec](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md) |
+| **Group Chat Mention & Floor Control** | Medium | Medium | High | **Q1 2027** | [Phase 6 Spec](Documentation/PHASE_6_GROUP_DYNAMICS_SOCIAL_GRAPH.md) |
+| **Apple Watch (watchOS) App** | High | High | Medium | **Q2 2027** | [Phase 7 Spec](Documentation/PHASE_7_MOBILE_PUSH_WEARABLES.md) |
+| **Local LoRA Persona Fine-Tuning** | High | High | Medium | **Q3 2027** | [Phase 8 Spec](Documentation/PHASE_8_PERSONA_LORA_ALIGNMENT.md) |
+| **Dynamic Cloud Container Scaling** | High | High | High | **Q4 2027** | [Phase 9 Spec](Documentation/PHASE_9_CLOUD_MULTI_TENANT_ORCHESTRATION.md) |

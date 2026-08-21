@@ -472,7 +472,7 @@ func handleProfilePicture(w http.ResponseWriter, r *http.Request, tenant *Tenant
 		targetJID = types.JID{User: clean, Server: "s.whatsapp.net"}
 	}
 
-	picInfo, err := tenant.client.GetProfilePictureInfo(targetJID, &whatsmeow.GetProfilePictureParams{
+	picInfo, err := tenant.client.GetProfilePictureInfo(r.Context(), targetJID, &whatsmeow.GetProfilePictureParams{
 		Preview: true,
 	})
 	if err != nil {
