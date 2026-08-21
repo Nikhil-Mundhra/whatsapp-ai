@@ -7,6 +7,7 @@ import {
   updateConnection,
   deleteConnection,
   getBridgeHeaders,
+  maskApiKey,
 } from "../lib/connections.js";
 import { _setKv } from "../lib/polls.js";
 
@@ -269,5 +270,18 @@ test("connections.js unit tests", async (t) => {
     assert.deepEqual(headers3, {
       Authorization: "Bearer secret-bridge-token-xyz",
     });
+  });
+
+  await t.test("maskApiKey masks sensitive API keys safely", () => {
+    assert.equal(maskApiKey(""), "");
+    assert.equal(maskApiKey(null), "");
+    assert.equal(maskApiKey(undefined), "");
+    assert.equal(maskApiKey("123"), "12••••••");
+    assert.equal(maskApiKey("123456"), "12••••••");
+    assert.equal(maskApiKey("1234567890"), "123••••••90");
+    assert.equal(maskApiKey("sk-or-v1-abcdef1234567890abcdef"), "sk-or-••••••••cdef");
+    assert.equal(maskApiKey("sk-ant-api03-abcdef123456"), "sk-ant••••••••3456");
+    assert.equal(maskApiKey("AIzaSyDa-1234567890abcdef"), "AIzaSy••••••••cdef");
+    assert.equal(maskApiKey("gsk_1234567890abcdef"), "gsk_1••••••••cdef");
   });
 });

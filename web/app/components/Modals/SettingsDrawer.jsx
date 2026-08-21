@@ -209,49 +209,175 @@ export function SettingsDrawer({
                 <label style={{ fontSize: 12, color: "var(--wa-text-secondary)", display: "block", marginBottom: 4 }}>
                   API Key (OpenRouter, OpenAI, Claude, or Gemini)
                 </label>
-                <input
-                  type="password"
-                  value={configForm.aiApiKey}
-                  onChange={(e) => {
-                    const key = e.target.value;
-                    setConfigForm({ ...configForm, aiApiKey: key });
-                    onApiKeyChange?.(key);
-                  }}
-                  placeholder="Enter API Key"
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    border: `1px solid ${
-                      keyStatus?.state === "valid"
-                        ? "#10b981"
-                        : keyStatus?.state === "invalid"
-                        ? "#ef4444"
-                        : "var(--wa-border-strong)"
-                    }`,
-                    fontSize: 13,
-                    outline: "none",
-                    backgroundColor: "var(--wa-input-bg)",
-                    color: "var(--wa-text-primary)",
-                  }}
-                />
-                {keyStatus?.state === "checking" && (
-                  <span style={{ fontSize: 11, color: "var(--wa-text-secondary)", marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
-                    <RefreshIcon size={12} color="var(--wa-text-secondary)" />
-                    <span>{keyStatus.message || "Validating key..."}</span>
-                  </span>
-                )}
-                {keyStatus?.state === "valid" && (
-                  <span style={{ fontSize: 11, color: "#10b981", marginTop: 3, display: "flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
-                    <CheckIcon size={12} color="#10b981" />
-                    <span>{keyStatus.message || `Valid ${keyStatus.provider} Key`}</span>
-                  </span>
-                )}
-                {keyStatus?.state === "invalid" && (
-                  <span style={{ fontSize: 11, color: "#ef4444", marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
-                    <WarningIcon size={12} color="#ef4444" />
-                    <span>{keyStatus.message || "Invalid API key"}</span>
-                  </span>
+
+                {aiApiKeySet && !isEditingKey ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "8px 12px",
+                      borderRadius: 6,
+                      border: "1px solid var(--wa-border-strong)",
+                      backgroundColor: "var(--wa-input-bg)",
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, overflow: "hidden" }}>
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 26,
+                          height: 26,
+                          borderRadius: 6,
+                          background: "rgba(16, 185, 129, 0.15)",
+                          color: "#10b981",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <KeyIcon size={14} color="#10b981" />
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                        <span
+                          style={{
+                            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: "var(--wa-text-primary)",
+                            letterSpacing: "0.5px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {aiApiKeyMasked || "••••••••••••••••"}
+                        </span>
+                        <span style={{ fontSize: 10, color: "#10b981", display: "flex", alignItems: "center", gap: 3, fontWeight: 600 }}>
+                          <CheckIcon size={10} color="#10b981" strokeWidth={3} />
+                          <span>Active Key</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingKey(true);
+                      }}
+                      style={{
+                        padding: "6px 12px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "var(--wa-text-primary)",
+                        background: "var(--wa-card-bg)",
+                        border: "1px solid var(--wa-border-strong)",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                        transition: "all 0.15s ease",
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.borderColor = "#00a884";
+                        e.currentTarget.style.color = "#00a884";
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.borderColor = "var(--wa-border-strong)";
+                        e.currentTarget.style.color = "var(--wa-text-primary)";
+                      }}
+                    >
+                      <EditIcon size={12} color="currentColor" />
+                      <span>Change</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input
+                        type="password"
+                        value={configForm.aiApiKey}
+                        onChange={(e) => {
+                          const key = e.target.value;
+                          setConfigForm({ ...configForm, aiApiKey: key });
+                          onApiKeyChange?.(key);
+                        }}
+                        placeholder={aiApiKeySet ? "Enter new API Key" : "Enter API Key"}
+                        autoFocus={aiApiKeySet && isEditingKey}
+                        style={{
+                          flex: 1,
+                          width: "100%",
+                          padding: "8px 12px",
+                          borderRadius: 6,
+                          border: `1px solid ${
+                            keyStatus?.state === "valid"
+                              ? "#10b981"
+                              : keyStatus?.state === "invalid"
+                              ? "#ef4444"
+                              : "var(--wa-border-strong)"
+                          }`,
+                          fontSize: 13,
+                          outline: "none",
+                          backgroundColor: "var(--wa-input-bg)",
+                          color: "var(--wa-text-primary)",
+                        }}
+                      />
+                      {aiApiKeySet && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConfigForm((prev) => ({ ...prev, aiApiKey: "" }));
+                            onApiKeyChange?.("");
+                            setIsEditingKey(false);
+                          }}
+                          style={{
+                            padding: "8px 12px",
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: "var(--wa-text-secondary)",
+                            background: "transparent",
+                            border: "1px solid var(--wa-border-strong)",
+                            borderRadius: 6,
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.color = "var(--wa-text-primary)";
+                            e.currentTarget.style.borderColor = "#00a884";
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.color = "var(--wa-text-secondary)";
+                            e.currentTarget.style.borderColor = "var(--wa-border-strong)";
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                    {keyStatus?.state === "checking" && (
+                      <span style={{ fontSize: 11, color: "var(--wa-text-secondary)", marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                        <RefreshIcon size={12} color="var(--wa-text-secondary)" />
+                        <span>{keyStatus.message || "Validating key..."}</span>
+                      </span>
+                    )}
+                    {keyStatus?.state === "valid" && (
+                      <span style={{ fontSize: 11, color: "#10b981", marginTop: 3, display: "flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
+                        <CheckIcon size={12} color="#10b981" />
+                        <span>{keyStatus.message || `Valid ${keyStatus.provider} Key`}</span>
+                      </span>
+                    )}
+                    {keyStatus?.state === "invalid" && (
+                      <span style={{ fontSize: 11, color: "#ef4444", marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                        <WarningIcon size={12} color="#ef4444" />
+                        <span>{keyStatus.message || "Invalid API key"}</span>
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
 

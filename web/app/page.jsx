@@ -1057,6 +1057,8 @@ export default function Home() {
         onThemeChange={handleThemeChange}
         chats={chats}
         hash={hash}
+        aiApiKeySet={Boolean(connInfo?.connection?.aiApiKeySet)}
+        aiApiKeyMasked={connInfo?.connection?.aiApiKeyMasked || (connInfo?.connection?.aiApiKeySet ? "••••••••••••" : "")}
       />
 
       {/* Create / Edit Take-Over Poll Modal */}
