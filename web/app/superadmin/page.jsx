@@ -102,10 +102,26 @@ export default function SuperadminPage() {
     checkSession();
   }, []);
 
+  // Helper to attach session token and include credentials across serverless cold starts
+  const authFetch = (url, options = {}) => {
+    const headers = { ...(options.headers || {}) };
+    if (typeof window !== "undefined") {
+      const token = sessionStorage.getItem("wa_superadmin_jwt");
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+    return fetch(url, {
+      ...options,
+      credentials: "include",
+      headers,
+    });
+  };
+
   const checkSession = async () => {
     setCheckingAuth(true);
     try {
-      const res = await fetch("/api/superadmin/auth/verify", { cache: "no-store" });
+      const res = await authFetch("/api/superadmin/auth/verify", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
         if (json.authenticated) {
@@ -142,7 +158,7 @@ export default function SuperadminPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/superadmin/users", { cache: "no-store" });
+      const res = await authFetch("/api/superadmin/users", { cache: "no-store" });
       if (!res.ok) {
         if (res.status === 401) {
           setAuthenticated(false);
@@ -162,7 +178,7 @@ export default function SuperadminPage() {
 
   const fetchUsersSilent = async () => {
     try {
-      const res = await fetch("/api/superadmin/users", { cache: "no-store" });
+      const res = await authFetch("/api/superadmin/users", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
         setData(json);
@@ -172,7 +188,7 @@ export default function SuperadminPage() {
 
   const fetchCoupon = async () => {
     try {
-      const res = await fetch("/api/superadmin/coupon", { cache: "no-store" });
+      const res = await authFetch("/api/superadmin/coupon", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
         if (json.coupon) setActiveCoupon(json.coupon);
@@ -183,7 +199,7 @@ export default function SuperadminPage() {
   const fetchAiStats = async () => {
     setAiLoading(true);
     try {
-      const res = await fetch("/api/superadmin/ai-providers", { cache: "no-store" });
+      const res = await authFetch("/api/superadmin/ai-providers", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
         setAiData(json);
@@ -199,7 +215,7 @@ export default function SuperadminPage() {
 
   const fetchAiStatsSilent = async () => {
     try {
-      const res = await fetch("/api/superadmin/ai-providers", { cache: "no-store" });
+      const res = await authFetch("/api/superadmin/ai-providers", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
         setAiData(json);
@@ -210,7 +226,7 @@ export default function SuperadminPage() {
   const handleSaveAiConfig = async (updates) => {
     setAiUpdating(true);
     try {
-      const res = await fetch("/api/superadmin/ai-providers", {
+      const res = await authFetch("/api/superadmin/ai-providers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
@@ -242,7 +258,7 @@ export default function SuperadminPage() {
     }));
 
     try {
-      const res = await fetch("/api/superadmin/ai-providers/test", {
+      const res = await authFetch("/api/superadmin/ai-providers/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -270,7 +286,7 @@ export default function SuperadminPage() {
   const handleRefreshCoupon = async (customVal = null) => {
     setCouponLoading(true);
     try {
-      const res = await fetch("/api/superadmin/coupon", {
+      const res = await authFetch("/api/superadmin/coupon", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(customVal ? { coupon: customVal } : {}),
@@ -302,7 +318,7 @@ export default function SuperadminPage() {
   const fetchPasskeys = async () => {
     setPasskeysLoading(true);
     try {
-      const res = await fetch("/api/superadmin/auth/passkey");
+      const res = await authFetch("/api/superadmin/auth/passkey");
       if (res.ok) {
         const json = await res.json();
         setPasskeys(json.passkeys || []);
@@ -324,7 +340,7 @@ export default function SuperadminPage() {
     setLoginError("");
 
     try {
-      const optRes = await fetch("/api/superadmin/auth/passkey/login");
+      const optRes = await fetch("/api/superadmin/auth/passkey/login", { credentials: "include" });
       const options = await optRes.json();
       if (!optRes.ok) throw new Error(options.error || "Failed to initialize Passkey login");
 
@@ -367,12 +383,17 @@ export default function SuperadminPage() {
       const verifyRes = await fetch("/api/superadmin/auth/passkey/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 
       const verifyJson = await verifyRes.json();
       if (!verifyRes.ok) {
         throw new Error(verifyJson.error || "Passkey verification failed");
+      }
+
+      if (verifyJson.token && typeof window !== "undefined") {
+        sessionStorage.setItem("wa_superadmin_jwt", verifyJson.token);
       }
 
       setAuthenticated(true);
@@ -400,7 +421,7 @@ export default function SuperadminPage() {
     setRegisterPasskeySuccess("");
 
     try {
-      const optRes = await fetch("/api/superadmin/auth/passkey/register");
+      const optRes = await authFetch("/api/superadmin/auth/passkey/register");
       const options = await optRes.json();
       if (!optRes.ok) throw new Error(options.error || "Failed to initialize Passkey registration");
 
@@ -449,7 +470,7 @@ export default function SuperadminPage() {
         transports: credential.response.getTransports ? credential.response.getTransports() : ["internal"],
       };
 
-      const regRes = await fetch("/api/superadmin/auth/passkey/register", {
+      const regRes = await authFetch("/api/superadmin/auth/passkey/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -475,7 +496,7 @@ export default function SuperadminPage() {
   const handleDeletePasskey = async (id) => {
     if (!confirm("Are you sure you want to remove this passkey device?")) return;
     try {
-      const res = await fetch("/api/superadmin/auth/passkey", {
+      const res = await authFetch("/api/superadmin/auth/passkey", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
@@ -495,10 +516,14 @@ export default function SuperadminPage() {
       const res = await fetch("/api/superadmin/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ devBypass: true }),
       });
       const json = await res.json();
       if (res.ok && json.success) {
+        if (json.token && typeof window !== "undefined") {
+          sessionStorage.setItem("wa_superadmin_jwt", json.token);
+        }
         setAuthenticated(true);
         fetchUsers();
         fetchAiStats();
@@ -524,6 +549,7 @@ export default function SuperadminPage() {
       const res = await fetch("/api/superadmin/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ password: password.trim() }),
       });
 
@@ -539,6 +565,9 @@ export default function SuperadminPage() {
         setBridgeError(json.bridgeError || "");
         if (json.devOtp) setDevOtp(json.devOtp);
       } else {
+        if (json.token && typeof window !== "undefined") {
+          sessionStorage.setItem("wa_superadmin_jwt", json.token);
+        }
         setAuthenticated(true);
         fetchUsers();
         fetchAiStats();
@@ -561,12 +590,17 @@ export default function SuperadminPage() {
       const res = await fetch("/api/superadmin/auth/otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ otp: otp.trim() }),
       });
 
       const json = await res.json();
       if (!res.ok) {
         throw new Error(json.error || "OTP verification failed");
+      }
+
+      if (json.token && typeof window !== "undefined") {
+        sessionStorage.setItem("wa_superadmin_jwt", json.token);
       }
 
       setAuthenticated(true);
@@ -584,8 +618,11 @@ export default function SuperadminPage() {
 
   const handleLogout = async () => {
     try {
-      await fetch("/api/superadmin/auth/logout", { method: "POST" });
+      await authFetch("/api/superadmin/auth/logout", { method: "POST" });
     } catch {}
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem("wa_superadmin_jwt");
+    }
     setAuthenticated(false);
     setData(null);
     setAiData(null);
@@ -595,7 +632,7 @@ export default function SuperadminPage() {
   const handleUserAction = async (hash, action) => {
     setActionLoading((prev) => ({ ...prev, [`${hash}_${action}`]: true }));
     try {
-      const res = await fetch(`/api/superadmin/users/${hash}`, {
+      const res = await authFetch(`/api/superadmin/users/${hash}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
@@ -619,7 +656,7 @@ export default function SuperadminPage() {
     }
     setActionLoading((prev) => ({ ...prev, [`${hash}_delete`]: true }));
     try {
-      const res = await fetch(`/api/superadmin/users/${hash}`, { method: "DELETE" });
+      const res = await authFetch(`/api/superadmin/users/${hash}`, { method: "DELETE" });
       if (res.ok) {
         if (selectedUser?.hash === hash) setSelectedUser(null);
         await fetchUsers();

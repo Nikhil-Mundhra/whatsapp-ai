@@ -413,7 +413,7 @@ export function setSuperadminCookies(response, token) {
   response.cookies.set(SUPERADMIN_COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: "lax",
     path: "/",
     maxAge: SUPERADMIN_SESSION_TTL_SECONDS,
   });
@@ -428,7 +428,7 @@ export function clearSuperadminCookies(response) {
   response.cookies.set(SUPERADMIN_COOKIE_NAME, "", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: "lax",
     path: "/",
     maxAge: 0,
   });

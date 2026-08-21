@@ -124,7 +124,7 @@ test("Superadmin Security and Telemetry Unit Tests", async (t) => {
     assert.equal(await verifySuperadminSession(null), false);
   });
 
-  await t.test("setSuperadminCookies and clearSuperadminCookies manage HttpOnly SameSite=Strict cookies", () => {
+  await t.test("setSuperadminCookies and clearSuperadminCookies manage HttpOnly SameSite=Lax cookies", () => {
     const res = NextResponse.json({ ok: true });
     setSuperadminCookies(res, "mock-superadmin-jwt");
 
@@ -132,7 +132,7 @@ test("Superadmin Security and Telemetry Unit Tests", async (t) => {
     assert.ok(cookie);
     assert.equal(cookie.value, "mock-superadmin-jwt");
     assert.equal(cookie.httpOnly, true);
-    assert.equal(cookie.sameSite, "strict");
+    assert.equal(cookie.sameSite, "lax");
 
     clearSuperadminCookies(res);
     const cleared = res.cookies.get(SUPERADMIN_COOKIE_NAME);

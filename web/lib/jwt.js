@@ -21,14 +21,19 @@ export function base64UrlDecode(str) {
   return Buffer.from(base64, "base64").toString("utf8");
 }
 
-// Persistent secret fallback across requests in memory
-globalThis.__jwtSecretFallback =
-  globalThis.__jwtSecretFallback ||
-  process.env.JWT_SECRET ||
-  randomBytes(32).toString("hex");
+// Deterministic secret fallback across serverless requests and cold starts
+function getDeterministicFallbackSecret() {
+  const seed =
+    process.env.SUPERADMIN_SECRET ||
+    process.env.SUPERADMIN_KEY ||
+    process.env.SUPERADMIN_PASSWORD ||
+    process.env.BRIDGE_AUTH_TOKEN ||
+    "wa-ai-superadmin-jwt-fallback-salt-2026";
+  return createHmac("sha256", "wa-jwt-secret-salt-2026").update(seed).digest("hex");
+}
 
 export function getJwtSecret() {
-  return process.env.JWT_SECRET || globalThis.__jwtSecretFallback;
+  return process.env.JWT_SECRET || globalThis.__jwtSecretFallback || getDeterministicFallbackSecret();
 }
 
 export function _setJwtSecretFallback(secret) {
