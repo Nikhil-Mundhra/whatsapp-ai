@@ -104,11 +104,9 @@ For full technical specifications, database schemas, and protocol details, see [
 │   ├── send.py               # Persona generator, floor control & Ollama/OpenRouter client
 │   └── controller_state.json # Runtime state machine file
 ├── whatsapp-bridge/          # Go Bridge (WhatsApp Multi-Device API)
-│   ├── main.go               # whatsmeow client, SQLite storage & HTTP server
-│   ├── multitenant.go        # Multi-tenant manager, watchdog & tenant provisioning
-│   ├── tenant_server.go      # REST endpoints for tenant lifecycle, chat settings & QR
-│   ├── tenant_ai.go          # Direct AI auto-reply engine (Gemini / OpenRouter)
-│   ├── semantic.go           # Vector embeddings, memory chunking & anti-garbage filters
+│   ├── main.go               # Executable entrypoint
+│   ├── internal/bridge/      # Core business logic (whatsmeow client, multi-tenant manager, AI, vector embeddings)
+│   ├── test/e2e/             # Dedicated E2E & HTTP API integration tests
 │   └── store/                # Local SQLite databases (messages.db, whatsapp.db)
 ├── whatsapp-mcp-server/      # FastMCP Python Server
 │   ├── main.py               # MCP Tool definitions (Claude / Cursor interface)

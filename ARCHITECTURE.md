@@ -79,10 +79,10 @@ graph TB
 ## 2. Core Subsystems
 
 ### 2.1 WhatsApp Go Bridge (`whatsapp-bridge/`)
-Built with Go and [whatsmeow](https://github.com/tulir/whatsmeow), this daemon acts as a full WhatsApp Web multi-device client.
+Built with Go and [whatsmeow](https://github.com/tulir/whatsmeow), this daemon acts as a full WhatsApp Web multi-device client organized following the standard Go project layout (`main.go` entrypoint, `internal/bridge/` core domain, and `test/e2e/` integration suite).
 
 * **Authentication**: Multi-device QR pairing with session tokens persisted in `store/whatsapp.db` or per-tenant directories in `store/tenants/<hash>/`.
-* **Process Concurrency Lock**: [`flock.go`](file:///Users/nikhilmundhra/Documents/Github/external/whatsapp-mcp/whatsapp-bridge/flock.go) uses `syscall.Flock(LOCK_EX|LOCK_NB)` to ensure only one bridge instance accesses session files at a time.
+* **Process Concurrency Lock**: [`internal/bridge/flock.go`](file:///Users/nikhilmundhra/Documents/Github/external/whatsapp-mcp/whatsapp-bridge/internal/bridge/flock.go) uses `syscall.Flock(LOCK_EX|LOCK_NB)` to ensure only one bridge instance accesses session files at a time.
 * **Message Ingestion & Classification**:
   * Decrypts incoming messages and stores them in SQLite (`store/messages.db`).
   * Classifies message `origin`:
