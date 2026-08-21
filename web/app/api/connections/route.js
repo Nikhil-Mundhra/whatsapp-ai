@@ -19,7 +19,13 @@ export async function POST(req) {
 
   const ownerPhone = String(body.ownerPhone || "").trim();
   const allowedRecipients = Array.isArray(body.allowedRecipients)
-    ? body.allowedRecipients.map((s) => String(s).trim()).filter(Boolean)
+    ? body.allowedRecipients
+        .map((s) =>
+          typeof s === "object" && s !== null
+            ? (s.isGroup ? (s.name || s.jid) : (s.phone || s.jid || s.lid || s.name))
+            : String(s).trim()
+        )
+        .filter(Boolean)
     : String(body.allowedRecipients || "").split(",").map((s) => s.trim()).filter(Boolean);
   const aiApiKey = String(body.aiApiKey || "").trim();
   const aiModel = String(body.aiModel || "").trim();

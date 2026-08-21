@@ -20,7 +20,7 @@ func (t *Tenant) resolveGroupName(chatJID types.JID) string {
 }
 
 func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
-	// If an active takeover grant was explicitly armed for this contact/chat, allow it!
+	// 1. If an active takeover grant was explicitly armed for this contact/chat, allow it!
 	t.mu.Lock()
 	activeGrant := false
 	if t.grantKind == "duration" && time.Now().Before(t.grantExpiresAt) {
@@ -32,12 +32,12 @@ func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
 	t.mu.Unlock()
 
 	if activeGrant && !grantTarget.IsEmpty() {
-		if chatJID.User == grantTarget.User || senderJID.User == grantTarget.User || chatJID.String() == grantTarget.String() {
+		if t.matchesTarget(chatJID, grantTarget) || t.matchesTarget(senderJID, grantTarget) {
 			return true
 		}
 	}
 
-	// If it's a group chat, check group JID and group name
+	// 2. If it's a group chat, check group JID and group name against configured recipients
 	if chatJID.Server == "g.us" {
 		groupName := strings.ToLower(t.resolveGroupName(chatJID))
 		for _, r := range t.recipients {
@@ -54,54 +54,91 @@ func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
 				return true
 			}
 		}
+		// Group chat not matched in recipients -> reject immediately (do not fall through to 1-on-1 logic)
+		return false
 	}
 
+	// 3. For individual chats, gather all identity candidates of the incoming sender and chat
 	candidates := []string{
 		senderJID.User,
 		chatJID.User,
+		senderJID.String(),
+		chatJID.String(),
 	}
 
-	if t.client != nil && t.client.Store != nil {
+	if t.client != nil && t.client.Store != nil && t.client.Store.LIDs != nil {
+		ctx := context.Background()
 		if senderJID.Server == "lid" {
-			if pn, err := t.client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
-				candidates = append(candidates, pn.User)
+			if pn, err := t.client.Store.LIDs.GetPNForLID(ctx, senderJID); err == nil && !pn.IsEmpty() {
+				candidates = append(candidates, pn.User, pn.String())
 			}
-		}
-		if chatJID.Server == "lid" {
-			if pn, err := t.client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
-				candidates = append(candidates, pn.User)
+		} else if senderJID.Server == "s.whatsapp.net" {
+			if lid, err := t.client.Store.LIDs.GetLIDForPN(ctx, senderJID); err == nil && !lid.IsEmpty() {
+				candidates = append(candidates, lid.User, lid.String())
 			}
 		}
 
-		for _, r := range t.recipients {
-			normR := normalizePhone(r)
-			if normR == "" {
-				continue
+		if chatJID.Server == "lid" {
+			if pn, err := t.client.Store.LIDs.GetPNForLID(ctx, chatJID); err == nil && !pn.IsEmpty() {
+				candidates = append(candidates, pn.User, pn.String())
 			}
-			pnJID := types.NewJID(normR, types.DefaultUserServer)
-			if lid, err := t.client.Store.LIDs.GetLIDForPN(context.Background(), pnJID); err == nil && !lid.IsEmpty() {
-				if lid.User == senderJID.User || lid.User == chatJID.User {
-					return true
-				}
-				candidates = append(candidates, lid.User)
+		} else if chatJID.Server == "s.whatsapp.net" {
+			if lid, err := t.client.Store.LIDs.GetLIDForPN(ctx, chatJID); err == nil && !lid.IsEmpty() {
+				candidates = append(candidates, lid.User, lid.String())
 			}
 		}
 	}
 
 	t.logger.Infof("Evaluating allowed recipient for sender %s (chat %s): candidates=%v allowed_recipients=%v", senderJID, chatJID, candidates, t.recipients)
 
-	for _, cand := range candidates {
-		normCand := normalizePhone(cand)
-		if normCand == "" {
+	for _, r := range t.recipients {
+		trimmedR := strings.TrimSpace(r)
+		if trimmedR == "" {
 			continue
 		}
-		for _, r := range t.recipients {
-			normR := normalizePhone(r)
-			if normR == "" {
+
+		// Direct exact match against any candidate (e.g. exact JID or raw user string)
+		for _, cand := range candidates {
+			if cand != "" && strings.EqualFold(cand, trimmedR) {
+				return true
+			}
+		}
+
+		// If recipient is configured as a phone number, check if its LID matches incoming sender/chat
+		if t.client != nil && t.client.Store != nil && t.client.Store.LIDs != nil {
+			normR := normalizePhone(trimmedR)
+			if normR != "" {
+				pnJID := types.NewJID(normR, types.DefaultUserServer)
+				if lid, err := t.client.Store.LIDs.GetLIDForPN(context.Background(), pnJID); err == nil && !lid.IsEmpty() {
+					if lid.User == senderJID.User || lid.User == chatJID.User || lid.String() == senderJID.String() || lid.String() == chatJID.String() {
+						return true
+					}
+				}
+			}
+		}
+
+		// Normalized phone digit matching
+		normR := normalizePhone(trimmedR)
+		if normR == "" {
+			continue
+		}
+
+		for _, cand := range candidates {
+			normCand := normalizePhone(cand)
+			if normCand == "" {
 				continue
 			}
-			if normR == normCand || strings.HasSuffix(normCand, normR) || strings.HasSuffix(normR, normCand) {
+
+			// Exact normalized digit match
+			if normR == normCand {
 				return true
+			}
+
+			// Suffix match for country code differences (only for valid phone numbers with >= 7 digits)
+			if len(normR) >= 7 && len(normCand) >= 7 {
+				if strings.HasSuffix(normCand, normR) || strings.HasSuffix(normR, normCand) {
+					return true
+				}
 			}
 		}
 	}
@@ -119,8 +156,13 @@ func (t *Tenant) matchesTarget(incoming, target types.JID) bool {
 
 	normInc := normalizePhone(incoming.User)
 	normTgt := normalizePhone(target.User)
-	if normInc != "" && normTgt != "" && (normInc == normTgt || strings.HasSuffix(normInc, normTgt) || strings.HasSuffix(normTgt, normInc)) {
-		return true
+	if normInc != "" && normTgt != "" {
+		if normInc == normTgt {
+			return true
+		}
+		if len(normInc) >= 7 && len(normTgt) >= 7 && (strings.HasSuffix(normInc, normTgt) || strings.HasSuffix(normTgt, normInc)) {
+			return true
+		}
 	}
 
 	if t.client != nil && t.client.Store != nil && t.client.Store.LIDs != nil {
@@ -134,14 +176,14 @@ func (t *Tenant) matchesTarget(incoming, target types.JID) bool {
 		}
 		if incoming.Server == "lid" {
 			if pn, err := t.client.Store.LIDs.GetPNForLID(ctx, incoming); err == nil && !pn.IsEmpty() {
-				if pn.User == target.User || pn.String() == target.String() || normalizePhone(pn.User) == normTgt {
+				if pn.User == target.User || pn.String() == target.String() || (len(normTgt) >= 7 && normalizePhone(pn.User) == normTgt) {
 					return true
 				}
 			}
 		}
 		if target.Server == "lid" {
 			if pn, err := t.client.Store.LIDs.GetPNForLID(ctx, target); err == nil && !pn.IsEmpty() {
-				if pn.User == incoming.User || pn.String() == incoming.String() || normalizePhone(pn.User) == normInc {
+				if pn.User == incoming.User || pn.String() == incoming.String() || (len(normInc) >= 7 && normalizePhone(pn.User) == normInc) {
 					return true
 				}
 			}
@@ -154,6 +196,7 @@ func (t *Tenant) resolveContactName(msg *events.Message) string {
 	ctx := context.Background()
 	senderJID := msg.Info.Sender
 	chatJID := msg.Info.Chat
+	isGroup := chatJID.Server == "g.us"
 
 	// 1. Check PushName directly on the message
 	if msg.Info.PushName != "" && !isAllDigits(msg.Info.PushName) {
@@ -200,8 +243,8 @@ func (t *Tenant) resolveContactName(msg *events.Message) string {
 			}
 		}
 
-		// Also check chatJID directly in Contacts (for 1-on-1 chats)
-		if t.client.Store.Contacts != nil {
+		// Also check chatJID directly in Contacts (for 1-on-1 chats only)
+		if !isGroup && t.client.Store.Contacts != nil {
 			if contact, err := t.client.Store.Contacts.GetContact(ctx, chatJID); err == nil {
 				if contact.FullName != "" {
 					return contact.FullName
@@ -216,12 +259,20 @@ func (t *Tenant) resolveContactName(msg *events.Message) string {
 		}
 	}
 
-	// 3. Check SQLite database chats table (only if not purely digits)
+	// 3. Check SQLite database chats table (for 1-on-1 chats or sender JID directly)
 	if t.messageStore != nil && t.messageStore.db != nil {
 		var name string
-		if err := t.messageStore.db.QueryRow("SELECT name FROM chats WHERE jid = ? OR jid = ?", chatJID.String(), senderJID.String()).Scan(&name); err == nil {
-			if name != "" && !isAllDigits(name) {
-				return name
+		if !isGroup {
+			if err := t.messageStore.db.QueryRow("SELECT name FROM chats WHERE jid = ? OR jid = ?", chatJID.String(), senderJID.String()).Scan(&name); err == nil {
+				if name != "" && !isAllDigits(name) {
+					return name
+				}
+			}
+		} else {
+			if err := t.messageStore.db.QueryRow("SELECT name FROM chats WHERE jid = ?", senderJID.String()).Scan(&name); err == nil {
+				if name != "" && !isAllDigits(name) {
+					return name
+				}
 			}
 		}
 	}
@@ -299,8 +350,6 @@ func (t *Tenant) isGroupMessageDirectedToOwner(msg *events.Message) (bool, strin
 			if len(parts) > 0 && len(parts[0]) >= 3 {
 				ownerNames = append(ownerNames, strings.ToLower(parts[0]))
 			}
-		}
-
 		for _, name := range ownerNames {
 			if strings.Contains(text, name) {
 				return true, fmt.Sprintf("mentioned %s", name)
@@ -311,7 +360,71 @@ func (t *Tenant) isGroupMessageDirectedToOwner(msg *events.Message) (bool, strin
 	return false, ""
 }
 
-// handleEvent dispatches incoming WhatsApp events for this tenant.
+func (t *Tenant) isAllowedRecipient(senderJID, chatJID types.JID) bool {
+	// 1. If an active takeover grant was explicitly armed for this contact/chat, allow it!
+	t.mu.Lock()
+	activeGrant := false
+	now := time.Now()
+	timeout := 5 * time.Minute
+	if t.grantKind == "duration" && now.Before(t.grantExpiresAt) {
+		if t.grantArmedAt.IsZero() || now.Sub(t.grantArmedAt) < timeout {
+			activeGrant = true
+		}
+	} else if t.grantKind == "count" && t.grantRemaining > 0 {
+		if t.grantArmedAt.IsZero() || now.Sub(t.grantArmedAt) < timeout {
+			activeGrant = true
+		}
+	}
+	grantTarget := t.grantTargetJID
+	t.mu.Unlock()
+
+	if activeGrant && !grantTarget.IsEmpty() {
+		if t.matchesTarget(chatJID, grantTarget) || t.matchesTarget(senderJID, grantTarget) {
+			return true
+		}
+	}
+
+	// 2. If it's a group chat, check group JID and group name against configured recipients
+	if chatJID.Server == "g.us" {
+		groupName := strings.ToLower(t.resolveGroupName(chatJID))
+		for _, r := range t.recipients {
+			trimmed := strings.TrimSpace(r)
+			if trimmed == "" {
+				continue
+			}
+			if trimmed == chatJID.String() || trimmed == chatJID.User {
+				return true
+			}
+			if strings.EqualFold(trimmed, groupName) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// 3. For 1-on-1 chats, verify against ownerPhone and allowed recipients
+	senderPhone := normalizePhone(senderJID.User)
+	chatPhone := normalizePhone(chatJID.User)
+	ownerPhone := normalizePhone(t.ownerPhone)
+
+	if ownerPhone != "" && (senderPhone == ownerPhone || chatPhone == ownerPhone) {
+		return true
+	}
+
+	for _, r := range t.recipients {
+		clean := normalizePhone(r)
+		if clean != "" && (senderPhone == clean || chatPhone == clean) {
+			return true
+		}
+		if r == senderJID.String() || r == chatJID.String() {
+			return true
+		}
+	}
+
+	return false
+}
+
+// handleEvent processes incoming whatsmeow events for a specific tenant.
 func (t *Tenant) handleEvent(evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
@@ -337,47 +450,54 @@ func (t *Tenant) handleEvent(evt interface{}) {
 					t.logger.Infof("Ignoring self-echo of API-sent message %s", v.Info.ID)
 					return
 				}
-				// Only reset takeover if owner manually texted an allowed contact (not self-chat)
+				// When owner manually texts an allowed contact (not self-chat):
+				// Keep active poll alive (no ping-pong delete/recreate), update conversation activity.
 				if recipientKey != normalizePhone(t.ownerPhone) {
 					t.mu.Lock()
-					if t.grantKind != "none" {
-						t.grantKind = "none"
-						t.grantRemaining = 0
-						t.grantTargetJID = types.EmptyJID
-						t.logger.Infof("Owner sent manual message -> reset takeover grant for %s", t.Hash)
+					t.initMapsLocked()
+					now := time.Now()
+					t.lastActivityTimeByRecipient[recipientKey] = now
+					t.lastManualTextTimeByRecipient[recipientKey] = now
+					if t.sessionStartedAtByRecipient[recipientKey].IsZero() {
+						t.sessionStartedAtByRecipient[recipientKey] = now
 					}
-					var oldPollID string
-					if t.activePollsByRecipient != nil {
-						oldPollID = t.activePollsByRecipient[recipientKey]
-						delete(t.activePollsByRecipient, recipientKey)
-					}
-					if t.lastPollTimeByRecipient != nil {
-						delete(t.lastPollTimeByRecipient, recipientKey)
-					}
+					t.logger.Infof("Owner sent manual message to %s -> active conversation session updated (poll preserved)", recipientKey)
 					t.mu.Unlock()
-
-					if oldPollID != "" {
-						_ = deleteWhatsAppMessage(t.client, t.ownerPhone, oldPollID)
-						go func(pID string) {
-							expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
-							req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
-							if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
-								_ = resp.Body.Close()
-							}
-						}(oldPollID)
-					}
 				}
 				return
 			}
 
 			if !v.Info.IsFromMe && isAllowed {
 				t.mu.Lock()
+				t.initMapsLocked()
 				t.lastTargetJID = v.Info.Chat
+
+				now := time.Now()
+				timeout := 5 * time.Minute
+
+				// Check if grant is active
 				activeGrant := false
-				if t.grantKind == "duration" && time.Now().Before(t.grantExpiresAt) {
-					activeGrant = true
+				if t.grantKind == "duration" && now.Before(t.grantExpiresAt) {
+					if !t.grantArmedAt.IsZero() && now.Sub(t.grantArmedAt) >= timeout {
+						t.logger.Infof("Takeover duration grant timed out (> %v silence) for %s -> revoked", timeout, t.Hash)
+						t.grantKind = "none"
+						t.grantRemaining = 0
+						t.grantTargetJID = types.EmptyJID
+						t.grantExpiresAt = time.Time{}
+						t.grantArmedAt = time.Time{}
+					} else {
+						activeGrant = true
+					}
 				} else if t.grantKind == "count" && t.grantRemaining > 0 {
-					activeGrant = true
+					if !t.grantArmedAt.IsZero() && now.Sub(t.grantArmedAt) >= timeout {
+						t.logger.Infof("Takeover count grant timed out (> %v silence) for %s -> revoked", timeout, t.Hash)
+						t.grantKind = "none"
+						t.grantRemaining = 0
+						t.grantTargetJID = types.EmptyJID
+						t.grantArmedAt = time.Time{}
+					} else {
+						activeGrant = true
+					}
 				}
 				grantTarget := t.grantTargetJID
 				t.mu.Unlock()
@@ -390,6 +510,9 @@ func (t *Tenant) handleEvent(evt interface{}) {
 				}
 
 				if activeGrant {
+					t.mu.Lock()
+					t.lastActivityTimeByRecipient[recipientKey] = now
+					t.mu.Unlock()
 					t.logger.Infof("Active takeover grant for %s -> drafting AI reply immediately", t.Hash)
 					go t.replyToChat(v.Info.Chat)
 				} else if t.ownerPhone != "" {
@@ -404,6 +527,63 @@ func (t *Tenant) handleEvent(evt interface{}) {
 						triggerReason = reason
 					}
 
+					t.mu.Lock()
+					t.initMapsLocked()
+
+					oldPollID := t.activePollsByRecipient[recipientKey]
+					sessionStart := t.sessionStartedAtByRecipient[recipientKey]
+					lastManual := t.lastManualTextTimeByRecipient[recipientKey]
+					lastActivity := t.lastActivityTimeByRecipient[recipientKey]
+
+					hasOwnerParticipated := !lastManual.IsZero() && (lastManual.After(sessionStart) || lastManual.Equal(sessionStart))
+
+					shouldKeepExistingPoll := false
+					var pollToDelete string
+
+					if oldPollID != "" {
+						if !hasOwnerParticipated {
+							// Case 1: Owner has NOT replied manually yet.
+							// The poll stays alive indefinitely (even after 5 minutes) waiting for owner!
+							shouldKeepExistingPoll = true
+							t.logger.Infof("Owner has not replied yet. Keeping existing poll %s alive indefinitely for %s.", oldPollID, recipientKey)
+						} else {
+							// Case 2: Owner has replied manually (active conversation session).
+							if !lastActivity.IsZero() && now.Sub(lastActivity) < timeout {
+								// Within 5 minutes: active conversation session! Keep existing poll alive.
+								shouldKeepExistingPoll = true
+								t.logger.Infof("Active conversation in progress with %s. Keeping existing poll %s alive without duplicate dispatch.", recipientKey, oldPollID)
+							} else {
+								// Silent for >= 5 minutes: session timed out! Delete old poll, will create fresh poll.
+								pollToDelete = oldPollID
+								delete(t.activePollsByRecipient, recipientKey)
+								delete(t.lastPollTimeByRecipient, recipientKey)
+								delete(t.sessionStartedAtByRecipient, recipientKey)
+								delete(t.lastManualTextTimeByRecipient, recipientKey)
+								delete(t.lastActivityTimeByRecipient, recipientKey)
+								t.logger.Infof("Active conversation session timed out (> %v silence) for %s. Revoking old poll %s and starting new session.", timeout, recipientKey, oldPollID)
+							}
+						}
+					}
+
+					t.lastActivityTimeByRecipient[recipientKey] = now
+					t.mu.Unlock()
+
+					if pollToDelete != "" {
+						_ = deleteWhatsAppMessage(t.client, t.ownerPhone, pollToDelete)
+						go func(pID string) {
+							expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
+							req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
+							if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
+								_ = resp.Body.Close()
+							}
+						}(pollToDelete)
+					}
+
+					if shouldKeepExistingPoll {
+						return
+					}
+
+					// Build and dispatch fresh poll
 					chatName := t.resolveContactName(v)
 					var question string
 					if isGroup {
@@ -422,48 +602,15 @@ func (t *Tenant) handleEvent(evt interface{}) {
 					}
 					options := []string{"Send 1 text", "5 minutes", "2 hours", "Deny"}
 
-					t.mu.Lock()
-					if t.activePollsByRecipient == nil {
-						t.activePollsByRecipient = make(map[string]string)
-					}
-					if t.lastPollTimeByRecipient == nil {
-						t.lastPollTimeByRecipient = make(map[string]time.Time)
-					}
-					oldPollID := t.activePollsByRecipient[recipientKey]
-					lastPollTime := t.lastPollTimeByRecipient[recipientKey]
-					t.mu.Unlock()
-
-					// Cooldown check (60 seconds) for 1-on-1 and group chats:
-					// If a poll is already active and was sent less than 60s ago, keep it alive without revoking/recreating.
-					if oldPollID != "" && time.Since(lastPollTime) < 60*time.Second {
-						t.logger.Infof("Active poll %s was sent %v ago (< 60s cooldown) for recipient %s. Keeping existing poll alive.", oldPollID, time.Since(lastPollTime).Round(time.Second), recipientKey)
-						return
-					}
-
-					// In group chats, if any poll is already active, keep it ALIVE (do not spam or revoke rapidly)
-					if isGroup && oldPollID != "" {
-						t.logger.Infof("Active poll %s is already pending for group %s. Keeping existing poll alive.", oldPollID, recipientKey)
-						return
-					}
-
-					if oldPollID != "" {
-						t.logger.Infof("Revoking previous active poll %s for recipient %s (tenant %s)", oldPollID, recipientKey, t.Hash)
-						_ = deleteWhatsAppMessage(t.client, t.ownerPhone, oldPollID)
-						go func(pID string) {
-							expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
-							req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
-							if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
-								_ = resp.Body.Close()
-							}
-						}(oldPollID)
-					}
-
 					ok, status, pollID := sendWhatsAppPoll(t.client, t.ownerPhone, question, options, 1)
 					if ok && pollID != "" {
 						t.recordApiSent(pollID) // CRITICAL: record poll ID so self-echo doesn't trigger manual message reset!
 						t.mu.Lock()
+						t.initMapsLocked()
 						t.activePollsByRecipient[recipientKey] = pollID
 						t.lastPollTimeByRecipient[recipientKey] = time.Now()
+						t.sessionStartedAtByRecipient[recipientKey] = time.Now()
+						t.lastActivityTimeByRecipient[recipientKey] = time.Now()
 						t.mu.Unlock()
 					}
 					fmt.Printf("\n[takeover %s] Sent approval poll to owner %s for incoming message from %s (recipient %s): ok=%v status=%s pollID=%s\n", t.Hash, t.ownerPhone, chatName, recipientKey, ok, status, pollID)
@@ -706,24 +853,28 @@ func (t *Tenant) handleTenantPollVote(msg *events.Message) {
 		is2Hours := strings.Contains(normChoice, "2 hour") || strings.Contains(normChoice, "2 hr") || strings.Contains(normChoice, "2 hours")
 		isDeny := strings.Contains(normChoice, "deny")
 
+		now := time.Now()
 		if isOneText {
 			t.grantKind = "count"
 			t.grantRemaining = 1
 			t.grantTargetJID = targetJID
+			t.grantArmedAt = now
 			t.logger.Infof("Takeover granted for %s: 1 text (target %s)", t.Hash, targetJID)
 			t.mu.Unlock()
 			go t.replyToChat(targetJID)
 		} else if is5Min {
 			t.grantKind = "duration"
-			t.grantExpiresAt = time.Now().Add(5 * time.Minute)
+			t.grantExpiresAt = now.Add(5 * time.Minute)
 			t.grantTargetJID = targetJID
+			t.grantArmedAt = now
 			t.logger.Infof("Takeover granted for %s: 5 minutes (until %s, target %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"), targetJID)
 			t.mu.Unlock()
 			go t.replyToChat(targetJID)
 		} else if is2Hours {
 			t.grantKind = "duration"
-			t.grantExpiresAt = time.Now().Add(2 * time.Hour)
+			t.grantExpiresAt = now.Add(2 * time.Hour)
 			t.grantTargetJID = targetJID
+			t.grantArmedAt = now
 			t.logger.Infof("Takeover granted for %s: 2 hours (until %s, target %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"), targetJID)
 			t.mu.Unlock()
 			go t.replyToChat(targetJID)
@@ -731,6 +882,8 @@ func (t *Tenant) handleTenantPollVote(msg *events.Message) {
 			t.grantKind = "none"
 			t.grantRemaining = 0
 			t.grantTargetJID = types.EmptyJID
+			t.grantArmedAt = time.Time{}
+			t.grantExpiresAt = time.Time{}
 			t.logger.Infof("Takeover denied for %s", t.Hash)
 			t.mu.Unlock()
 		} else {

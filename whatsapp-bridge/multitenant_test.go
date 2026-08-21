@@ -269,6 +269,18 @@ func TestTenant_IsAllowedRecipient_AllBranches(t *testing.T) {
 	if tenant.isAllowedRecipient(randomContact, randomContact) {
 		t.Error("expected false for random unlisted contact")
 	}
+
+	// 13. Whitelist with BOTH phone number AND @lid of same contact: ensure random contacts are strictly REJECTED
+	tenant.recipients = []string{"+15553334444", "lid_user_2@lid"}
+	if tenant.isAllowedRecipient(randomContact, randomContact) {
+		t.Error("expected false for random contact when whitelist has both PN and LID of allowed contact")
+	}
+
+	// 14. Group chat when group is unlisted: ensure group messages are rejected even if individual in group matches suffix
+	unlistedGroup := types.NewJID("12036302839281", "g.us")
+	if tenant.isAllowedRecipient(randomContact, unlistedGroup) {
+		t.Error("expected false for message in unlisted group")
+	}
 }
 
 func TestTenant_ResolveContactName_AllBranches(t *testing.T) {
@@ -350,7 +362,7 @@ func TestTenant_ResolveContactName_AllBranches(t *testing.T) {
 		t.Errorf("expected 'Charlie Contact', got %q", got)
 	}
 
-	// 5. MessageStore chats table name
+	// 5. MessageStore chats table name (1-on-1 chat)
 	dbChatJID := types.NewJID("15550003333", "s.whatsapp.net")
 	_ = store.StoreChat(dbChatJID.String(), "DB Saved Name", time.Now())
 	msg5 := &events.Message{
@@ -406,6 +418,21 @@ func TestTenant_ResolveContactName_AllBranches(t *testing.T) {
 	}
 	if got := tenant.resolveContactName(msg8); got != "Contact" {
 		t.Errorf("expected 'Contact', got %q", got)
+	}
+
+	// 9. Group chat message: ensure group name is NEVER returned as sender's contact name
+	groupJID := types.NewJID("1203630000000", "g.us")
+	_ = store.StoreChat(groupJID.String(), "TotalMathematics Group", time.Now())
+	groupMsg := &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Sender: types.NewJID("15557778888", "s.whatsapp.net"),
+				Chat:   groupJID,
+			},
+		},
+	}
+	if got := tenant.resolveContactName(groupMsg); got == "TotalMathematics Group" {
+		t.Errorf("expected sender JID or contact name, but got group title: %q", got)
 	}
 }
 

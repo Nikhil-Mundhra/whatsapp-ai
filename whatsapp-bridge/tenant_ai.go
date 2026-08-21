@@ -53,11 +53,13 @@ func (t *Tenant) applyWebGrant(choice, contact string) {
 	is2Hours := strings.Contains(normChoice, "2 hour") || strings.Contains(normChoice, "2 hr") || strings.Contains(normChoice, "2 hours")
 	isDeny := strings.Contains(normChoice, "deny")
 
+	now := time.Now()
 	if isOneText {
 		t.grantKind = "count"
 		t.grantRemaining = 1
 		t.grantTargetJID = targetJID
 		t.lastTargetJID = targetJID
+		t.grantArmedAt = now
 		t.logger.Infof("Web Takeover granted for %s: 1 text (target %s)", t.Hash, targetJID)
 		t.mu.Unlock()
 		if !targetJID.IsEmpty() {
@@ -65,9 +67,10 @@ func (t *Tenant) applyWebGrant(choice, contact string) {
 		}
 	} else if is5Min {
 		t.grantKind = "duration"
-		t.grantExpiresAt = time.Now().Add(5 * time.Minute)
+		t.grantExpiresAt = now.Add(5 * time.Minute)
 		t.grantTargetJID = targetJID
 		t.lastTargetJID = targetJID
+		t.grantArmedAt = now
 		t.logger.Infof("Web Takeover granted for %s: 5 minutes (until %s, target %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"), targetJID)
 		t.mu.Unlock()
 		if !targetJID.IsEmpty() {
@@ -75,9 +78,10 @@ func (t *Tenant) applyWebGrant(choice, contact string) {
 		}
 	} else if is2Hours {
 		t.grantKind = "duration"
-		t.grantExpiresAt = time.Now().Add(2 * time.Hour)
+		t.grantExpiresAt = now.Add(2 * time.Hour)
 		t.grantTargetJID = targetJID
 		t.lastTargetJID = targetJID
+		t.grantArmedAt = now
 		t.logger.Infof("Web Takeover granted for %s: 2 hours (until %s, target %s)", t.Hash, t.grantExpiresAt.Format("15:04:05"), targetJID)
 		t.mu.Unlock()
 		if !targetJID.IsEmpty() {
@@ -87,6 +91,8 @@ func (t *Tenant) applyWebGrant(choice, contact string) {
 		t.grantKind = "none"
 		t.grantRemaining = 0
 		t.grantTargetJID = types.EmptyJID
+		t.grantArmedAt = time.Time{}
+		t.grantExpiresAt = time.Time{}
 		t.logger.Infof("Web Takeover denied for %s", t.Hash)
 		t.mu.Unlock()
 	} else {

@@ -1609,21 +1609,27 @@ export default function SuperadminPage() {
                 </h3>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {selectedUser.allowedRecipients && selectedUser.allowedRecipients.length > 0 ? (
-                    selectedUser.allowedRecipients.map((r, i) => (
-                      <span
-                        key={i}
-                        style={{
-                          padding: "4px 8px",
-                          borderRadius: 6,
-                          backgroundColor: "var(--wa-search-input)",
-                          border: "1px solid var(--wa-border)",
-                          fontSize: "12px",
-                          fontFamily: "monospace",
-                        }}
-                      >
-                        +{String(r).replace(/\D/g, "")}
-                      </span>
-                    ))
+                    selectedUser.allowedRecipients.map((r, i) => {
+                      const clean = String(r).replace(/\D/g, "");
+                      const isNumber = clean.length >= 7;
+                      return (
+                        <span
+                          key={i}
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            backgroundColor: isNumber ? "var(--wa-search-input)" : "rgba(0, 168, 132, 0.12)",
+                            border: isNumber ? "1px solid var(--wa-border)" : "1px solid rgba(0, 168, 132, 0.3)",
+                            fontSize: "12px",
+                            fontFamily: isNumber ? "monospace" : "inherit",
+                            color: isNumber ? "var(--wa-text-primary)" : "var(--wa-teal)",
+                            fontWeight: isNumber ? 500 : 600,
+                          }}
+                        >
+                          {isNumber ? `+${clean}` : String(r)}
+                        </span>
+                      );
+                    })
                   ) : (
                     <span style={{ fontSize: "12px", color: "var(--wa-text-muted)" }}>No contacts whitelisted yet.</span>
                   )}

@@ -152,10 +152,16 @@ def get_sender_name(sender_jid: str, chat_jid: Optional[str] = None) -> str:
                 pcur.execute("SELECT pn FROM whatsmeow_lid_map WHERE lid = ?", (digits,))
                 lid_row = pcur.fetchone()
                 search = lid_row[0] if lid_row else digits
-                pcur.execute(
-                    "SELECT full_name, first_name, push_name FROM whatsmeow_contacts WHERE their_jid LIKE ? LIMIT 1",
-                    (f"%{search}%",),
-                )
+                if len(search) >= 7:
+                    pcur.execute(
+                        "SELECT full_name, first_name, push_name FROM whatsmeow_contacts WHERE their_jid = ? OR their_jid LIKE ? LIMIT 1",
+                        (f"{search}@s.whatsapp.net", f"%{search}%"),
+                    )
+                else:
+                    pcur.execute(
+                        "SELECT full_name, first_name, push_name FROM whatsmeow_contacts WHERE their_jid = ? OR their_jid = ? LIMIT 1",
+                        (f"{search}@s.whatsapp.net", f"{search}@lid"),
+                    )
                 name_row = pcur.fetchone()
                 if name_row:
                     for name in name_row:
@@ -629,14 +635,25 @@ def get_chat(chat_jid: str, include_last_message: bool = True) -> Optional[Chat]
 
 def get_direct_chat_by_contact(sender_phone_number: str) -> Optional[Chat]:
     """Get chat metadata by sender phone number."""
+    if not sender_phone_number or not sender_phone_number.strip():
+        return None
     try:
         conn = sqlite3.connect(MESSAGES_DB_PATH)
         cursor = conn.cursor()
 
-        lid_jid = get_lid_for_phone(sender_phone_number)
-        jid_patterns = [f"%{sender_phone_number}%"]
+        cleaned_number = ''.join(c for c in sender_phone_number.split('@')[0] if c.isdigit())
+        if not cleaned_number:
+            return None
+
+        lid_jid = get_lid_for_phone(cleaned_number)
+        jid_patterns = []
         if lid_jid:
-            jid_patterns.insert(0, lid_jid)
+            jid_patterns.append(lid_jid)
+        if len(cleaned_number) >= 7:
+            jid_patterns.append(f"%{cleaned_number}%")
+        else:
+            jid_patterns.append(f"{cleaned_number}@s.whatsapp.net")
+            jid_patterns.append(f"{cleaned_number}@lid")
         
         for pattern in jid_patterns:
             cursor.execute("""

@@ -63,50 +63,100 @@ export function ContactList({
   // 1. From live SQLite / Bridge chats
   const chatMap = new Map();
 
+  function findExistingChatKey(jid, cleanPhone, name, isGroup) {
+    if (chatMap.has(jid)) return jid;
+    if (isGroup) return null;
+    for (const [k, v] of chatMap.entries()) {
+      if (v.isGroup) continue;
+      if (cleanPhone && v.phone === cleanPhone) return k;
+      if (cleanPhone && v.aliases && v.aliases.includes(cleanPhone)) return k;
+      if (jid && v.aliases && v.aliases.includes(jid)) return k;
+      if (name && v.name === name && name !== cleanPhone && !name.match(/^\+?\d+$/)) return k;
+    }
+    return null;
+  }
+
   for (const c of chats) {
     const jid = c.jid || c.phone || "";
     const cleanPhone = (c.phone || jid.split("@")[0] || "").replace(/\D/g, "");
     const isAllowed = allowedSet.has(cleanPhone) || allowedRecipients.includes(jid);
+    const isGroup = Boolean(c.isGroup);
+    const name = c.name || formatPhoneDisplay(cleanPhone);
 
     // Find pending polls for this chat
     const contactPolls = polls.filter((p) => {
       const pContact = (p.contact || "").replace(/\D/g, "");
-      return pContact === cleanPhone || p.contact === jid || p.contact === cleanPhone;
+      return pContact === cleanPhone || p.contact === jid || (p.contact && p.contact.includes(cleanPhone));
     });
     const pendingPolls = contactPolls.filter((p) => p.status === "pending");
 
-    chatMap.set(jid, {
-      jid,
-      phone: cleanPhone || jid,
-      name: c.name || formatPhoneDisplay(cleanPhone),
-      isAllowed,
-      isGroup: Boolean(c.isGroup),
-      lastMessage: c.lastMessage || "",
-      lastMessageTime: c.lastMessageTime || null,
-      lastIsFromMe: Boolean(c.lastIsFromMe),
-      pendingCount: pendingPolls.length,
-    });
+    const existingKey = findExistingChatKey(jid, cleanPhone, name, isGroup);
+
+    if (!existingKey) {
+      chatMap.set(jid, {
+        jid,
+        phone: cleanPhone || jid,
+        name,
+        isAllowed,
+        isGroup,
+        lastMessage: c.lastMessage || "",
+        lastMessageTime: c.lastMessageTime || null,
+        lastIsFromMe: Boolean(c.lastIsFromMe),
+        pendingCount: pendingPolls.length,
+        aliases: [jid, cleanPhone, c.phone].filter(Boolean),
+      });
+    } else {
+      const existing = chatMap.get(existingKey);
+      const existingTime = existing.lastMessageTime ? new Date(existing.lastMessageTime).getTime() : 0;
+      const newTime = c.lastMessageTime ? new Date(c.lastMessageTime).getTime() : 0;
+      const isNewer = newTime > existingTime;
+
+      existing.aliases = Array.from(
+        new Set([...(existing.aliases || []), jid, cleanPhone, c.phone].filter(Boolean))
+      );
+      if (isAllowed) existing.isAllowed = true;
+      if (name && !name.match(/^\+?\d+$/)) existing.name = name;
+      if (isNewer) {
+        existing.lastMessage = c.lastMessage || "";
+        existing.lastMessageTime = c.lastMessageTime || null;
+        existing.lastIsFromMe = Boolean(c.lastIsFromMe);
+      }
+      if (jid.endsWith("@s.whatsapp.net")) {
+        existing.jid = jid;
+        existing.phone = cleanPhone || existing.phone;
+      }
+      existing.pendingCount = (existing.pendingCount || 0) + pendingPolls.length;
+    }
   }
 
   // 2. Ensure any allowed recipients without chat entries are included
   for (const r of allowedRecipients) {
     const cleanPhone = String(r).replace(/\D/g, "");
-    const jid = `${cleanPhone}@s.whatsapp.net`;
-    if (!chatMap.has(jid) && !chatMap.has(cleanPhone)) {
+    const jid = cleanPhone ? `${cleanPhone}@s.whatsapp.net` : String(r);
+    const existingKey = findExistingChatKey(jid, cleanPhone, "", false);
+
+    if (!existingKey) {
       const contactPolls = polls.filter((p) => (p.contact || "").replace(/\D/g, "") === cleanPhone);
       const pendingPolls = contactPolls.filter((p) => p.status === "pending");
 
       chatMap.set(jid, {
         jid,
-        phone: cleanPhone,
-        name: formatPhoneDisplay(cleanPhone),
+        phone: cleanPhone || jid,
+        name: formatPhoneDisplay(cleanPhone || jid),
         isAllowed: true,
         isGroup: false,
         lastMessage: "Whitelisted for AI Take-Over",
         lastMessageTime: null,
         lastIsFromMe: false,
         pendingCount: pendingPolls.length,
+        aliases: [jid, cleanPhone, String(r)].filter(Boolean),
       });
+    } else {
+      const existing = chatMap.get(existingKey);
+      existing.isAllowed = true;
+      existing.aliases = Array.from(
+        new Set([...(existing.aliases || []), jid, cleanPhone, String(r)].filter(Boolean))
+      );
     }
   }
 

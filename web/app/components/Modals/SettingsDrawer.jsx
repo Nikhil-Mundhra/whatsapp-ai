@@ -1,6 +1,7 @@
 "use client";
 
 import { CloseIcon, RobotIcon, SunIcon, MoonIcon, CheckIcon } from "../Icons/WhatsAppIcons";
+import { ContactPicker } from "../UI/ContactPicker";
 
 export function SettingsDrawer({
   isOpen,
@@ -16,6 +17,9 @@ export function SettingsDrawer({
   onApiKeyChange,
   theme = "light",
   onThemeChange,
+  chats = [],
+  contacts = [],
+  hash = "",
 }) {
   if (!isOpen) return null;
 
@@ -167,34 +171,20 @@ export function SettingsDrawer({
 
           {/* Allowed Recipients Card */}
           <div className="wa-card">
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontWeight: 600, fontSize: 13, color: "var(--wa-text-primary)" }}>
-                ALLOWED_RECIPIENTS
-              </span>
-              <input
-                type="text"
-                value={configForm.allowedRecipients}
-                onChange={(e) =>
-                  setConfigForm({
-                    ...configForm,
-                    allowedRecipients: e.target.value,
-                  })
-                }
-                placeholder="comma-separated phone numbers"
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 6,
-                  border: "1px solid var(--wa-border-strong)",
-                  fontSize: 14,
-                  outline: "none",
-                  backgroundColor: "var(--wa-input-bg)",
-                  color: "var(--wa-text-primary)",
-                }}
-              />
-              <span style={{ fontSize: 11, color: "var(--wa-text-secondary)" }}>
-                Phones authorized for AI autonomous take-over reply.
-              </span>
-            </label>
+            <ContactPicker
+              value={configForm.allowedRecipients}
+              onChange={(newRecipients) =>
+                setConfigForm((prev) => ({
+                  ...prev,
+                  allowedRecipients: newRecipients,
+                }))
+              }
+              chats={chats}
+              contacts={contacts}
+              hash={hash}
+              label="ALLOWED RECIPIENTS (WHITELIST)"
+              description="Only these mobile numbers & groups are authorized for AI autonomous take-over reply."
+            />
           </div>
 
           {/* AI Provider & API Key Card */}

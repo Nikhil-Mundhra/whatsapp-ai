@@ -20,13 +20,15 @@ import {
   ZapIcon,
   ArrowRightIcon,
 } from "../components/Icons/WhatsAppIcons";
+import { ContactPicker } from "../components/UI/ContactPicker";
+import { serializeContactsToRecipients } from "../../lib/contacts";
 
 export default function SetupPage() {
   const [step, setStep] = useState(1);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     ownerPhone: "",
-    allowedRecipients: "",
+    allowedRecipients: [],
     aiApiKey: "",
     aiModel: "",
     coupon: "",
@@ -144,7 +146,7 @@ export default function SetupPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ownerPhone: form.ownerPhone,
-          allowedRecipients: form.allowedRecipients,
+          allowedRecipients: serializeContactsToRecipients(form.allowedRecipients),
           aiApiKey: form.aiApiKey,
           aiModel: form.aiModel,
           coupon: form.coupon,
@@ -178,7 +180,7 @@ export default function SetupPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ownerPhone: form.ownerPhone,
-          allowedRecipients: form.allowedRecipients,
+          allowedRecipients: serializeContactsToRecipients(form.allowedRecipients),
           aiApiKey: form.aiApiKey,
           aiModel: form.aiModel,
         }),
@@ -515,34 +517,16 @@ export default function SetupPage() {
 
               {/* Field 2: Allowed Recipients */}
               <div className="wa-form-card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--wa-text-primary)", letterSpacing: 0.4, display: "flex", alignItems: "center", gap: 6 }}>
-                    <UsersIcon size={14} color="var(--wa-text-primary)" />
-                    <span>ALLOWED RECIPIENTS (WHITELIST)</span>
-                  </label>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      color: "var(--wa-teal)",
-                      background: "rgba(0, 168, 132, 0.12)",
-                      padding: "1px 6px",
-                      borderRadius: 6,
-                      fontWeight: 600,
-                    }}
-                  >
-                    Safety Gate
-                  </span>
-                </div>
-                <input
+                <ContactPicker
                   value={form.allowedRecipients}
-                  onChange={update("allowedRecipients")}
-                  placeholder="e.g. 14155550199, 447123456789"
-                  className="wa-input-stylish"
+                  onChange={(newRecipients) =>
+                    setForm((prev) => ({ ...prev, allowedRecipients: newRecipients }))
+                  }
                   disabled={submitting}
+                  placeholder="Enter mobile number with country code or group name..."
+                  label="ALLOWED RECIPIENTS (WHITELIST)"
+                  description="Only these mobile numbers & groups are authorized for AI autonomous take-over reply."
                 />
-                <small style={{ color: "var(--wa-text-muted)", fontSize: 11.5 }}>
-                  Comma-separated phone numbers. The AI texting companion will only interact with these contacts.
-                </small>
               </div>
 
               {/* Field 3: AI Engine & API Key */}

@@ -15,6 +15,11 @@ import { UnlistedContactConfirmModal } from "./components/Modals/UnlistedContact
 import { ChatSettingsModal } from "./components/Chat/ChatSettingsModal";
 import { LoginCard } from "./components/Auth/LoginCard";
 import { LockIcon, RobotIcon } from "./components/Icons/WhatsAppIcons";
+import {
+  parseRecipientsToContacts,
+  serializeContactsToRecipients,
+  createContactObject,
+} from "../lib/contacts";
 
 export default function Home() {
   const [hash, setHash] = useState("");
@@ -214,17 +219,57 @@ export default function Home() {
         for (const m of loadedMessages) {
           const jid = m.chatJid || m.chat_jid || m.sender || "";
           if (!jid || jid === "status@broadcast") continue;
-          if (!chatMap.has(jid)) {
-            const num = jid.split("@")[0];
-            chatMap.set(jid, {
-              jid,
-              name: m.senderName || num,
-              phone: num,
+          const num = jid.split("@")[0];
+          const clean = num.replace(/\D/g, "");
+          const name = m.senderName || m.chatName || num;
+          const isGroup = jid.endsWith("@g.us");
+
+          let key = jid;
+          if (!isGroup) {
+            for (const [k, v] of chatMap.entries()) {
+              if (!v.isGroup) {
+                if (clean && v.phone === clean) {
+                  key = k;
+                  break;
+                }
+                if (name && v.name === name && !name.match(/^\+?\d+$/)) {
+                  key = k;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (!chatMap.has(key)) {
+            chatMap.set(key, {
+              jid: key.endsWith("@lid") && !jid.endsWith("@lid") ? jid : key,
+              name,
+              phone: clean || num,
               lastMessage: m.content || m.body || "",
               lastMessageTime: m.timestamp || null,
               lastIsFromMe: Boolean(m.isFromMe || m.is_from_me),
-              isGroup: jid.endsWith("@g.us"),
+              isGroup,
+              aliases: [jid, clean, num].filter(Boolean),
             });
+          } else {
+            const existing = chatMap.get(key);
+            const existingTime = existing.lastMessageTime ? new Date(existing.lastMessageTime).getTime() : 0;
+            const msgTime = m.timestamp ? new Date(m.timestamp).getTime() : 0;
+            if (msgTime > existingTime) {
+              existing.lastMessage = m.content || m.body || "";
+              existing.lastMessageTime = m.timestamp;
+              existing.lastIsFromMe = Boolean(m.isFromMe || m.is_from_me);
+            }
+            if (name && !name.match(/^\+?\d+$/)) {
+              existing.name = name;
+            }
+            if (jid.endsWith("@s.whatsapp.net")) {
+              existing.jid = jid;
+              existing.phone = clean || existing.phone;
+            }
+            existing.aliases = Array.from(
+              new Set([...(existing.aliases || []), jid, clean, num].filter(Boolean))
+            );
           }
         }
         loadedChats = Array.from(chatMap.values());
@@ -642,9 +687,11 @@ export default function Home() {
   function openSettings() {
     setConfigForm({
       ownerPhone: connInfo?.connection?.ownerPhone || "",
-      allowedRecipients: Array.isArray(connInfo?.connection?.allowedRecipients)
-        ? connInfo.connection.allowedRecipients.join(", ")
-        : connInfo?.connection?.allowedRecipients || "",
+      allowedRecipients: parseRecipientsToContacts(
+        connInfo?.connection?.allowedRecipients || [],
+        [],
+        chats
+      ),
       aiApiKey: "",
       aiModel: connInfo?.connection?.aiModel || "qwen/qwen3.8-27b",
     });
@@ -704,12 +751,13 @@ export default function Home() {
     setConfigSuccess("");
 
     try {
+      const serializedRecipients = serializeContactsToRecipients(configForm.allowedRecipients);
       const res = await fetch(`/api/connections/${hash || "default"}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ownerPhone: configForm.ownerPhone,
-          allowedRecipients: configForm.allowedRecipients,
+          allowedRecipients: serializedRecipients,
           aiApiKey: configForm.aiApiKey || undefined,
           aiModel: configForm.aiModel,
         }),
@@ -741,28 +789,84 @@ export default function Home() {
     }
   }
 
-  // Filter messages for selected contact / chatJid
+  // Filter messages for selected contact / chatJid (concatenating @lid and phone number)
   const cleanSelected = selectedContact.replace(/\D/g, "");
+  const selectedContactItem = chats.find(
+    (c) =>
+      c.jid === selectedContact ||
+      c.phone === selectedContact ||
+      (c.aliases && (c.aliases.includes(selectedContact) || (cleanSelected && c.aliases.includes(cleanSelected))))
+  );
+
+  const selectedAliases = new Set(
+    [
+      selectedContact,
+      cleanSelected,
+      selectedContactItem?.jid,
+      selectedContactItem?.phone,
+      selectedContactItem?.lid,
+      ...(selectedContactItem?.aliases || []),
+    ]
+      .filter(Boolean)
+      .map((s) => String(s).toLowerCase())
+  );
+
+  const selectedName = selectedContactName || selectedContactItem?.name;
+  const isRealName = selectedName && !selectedName.match(/^\+?\d+$/);
+
   const currentChatMessages = messages.filter((m) => {
-    const chatJid = (m.chatJid || m.chat_jid || "");
-    const sender = (m.sender || "");
-    const recipient = (m.recipient || "");
-    return (
-      chatJid === selectedContact ||
-      (cleanSelected && chatJid.includes(cleanSelected)) ||
-      (cleanSelected && sender.includes(cleanSelected)) ||
-      (cleanSelected && recipient.includes(cleanSelected))
-    );
+    const chatJid = (m.chatJid || m.chat_jid || "").toLowerCase();
+    const sender = (m.sender || "").toLowerCase();
+    const recipient = (m.recipient || "").toLowerCase();
+    const cleanChat = chatJid.replace(/\D/g, "");
+    const cleanSender = sender.replace(/\D/g, "");
+    const cleanRecipient = recipient.replace(/\D/g, "");
+
+    // 1. Direct match with any alias
+    if (
+      selectedAliases.has(chatJid) ||
+      selectedAliases.has(sender) ||
+      selectedAliases.has(recipient) ||
+      (cleanChat && selectedAliases.has(cleanChat)) ||
+      (cleanSender && selectedAliases.has(cleanSender)) ||
+      (cleanRecipient && selectedAliases.has(cleanRecipient))
+    ) {
+      return true;
+    }
+
+    // 2. Real name match across threads
+    if (isRealName && (m.senderName === selectedName || m.chatName === selectedName)) {
+      return true;
+    }
+
+    // 3. Substring match for valid phone numbers (>= 7 digits)
+    if (cleanSelected && cleanSelected.length >= 7) {
+      if (
+        chatJid.includes(cleanSelected) ||
+        sender.includes(cleanSelected) ||
+        recipient.includes(cleanSelected)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   });
 
   // Filter polls for selected contact
   const currentChatPolls = polls.filter((p) => {
-    const c = (p.contact || "").replace(/\D/g, "");
-    return (
-      p.contact === selectedContact ||
-      (cleanSelected && c === cleanSelected) ||
-      (cleanSelected && (p.contact || "").includes(cleanSelected))
-    );
+    const contact = (p.contact || "").toLowerCase();
+    const cleanContact = contact.replace(/\D/g, "");
+    if (selectedAliases.has(contact) || (cleanContact && selectedAliases.has(cleanContact))) {
+      return true;
+    }
+    if (isRealName && p.contactDisplay === selectedName) {
+      return true;
+    }
+    if (cleanSelected && cleanSelected.length >= 7 && contact.includes(cleanSelected)) {
+      return true;
+    }
+    return false;
   });
 
   const pendingPollsCount = polls.filter((p) => p.status === "pending").length;
@@ -950,6 +1054,8 @@ export default function Home() {
         onApiKeyChange={handleApiKeyChange}
         theme={theme}
         onThemeChange={handleThemeChange}
+        chats={chats}
+        hash={hash}
       />
 
       {/* Create / Edit Take-Over Poll Modal */}

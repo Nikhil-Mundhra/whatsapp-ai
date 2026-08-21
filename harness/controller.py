@@ -60,7 +60,7 @@ OWNER_PHONE = re.sub(r"\D", "", os.environ.get("OWNER_PHONE", ""))
 ALLOWED_RECIPIENTS = {
     re.sub(r"\D", "", r)
     for r in _parse_recipients(os.environ.get("ALLOWED_RECIPIENTS", ""))
-    if r.strip()
+    if re.sub(r"\D", "", r).strip()
 }
 
 STATE_PATH = os.path.join(REPO_ROOT, "harness", "controller_state.json")

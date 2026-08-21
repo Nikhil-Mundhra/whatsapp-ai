@@ -89,6 +89,31 @@ function _populateFromMessagesDb(dbPath, contactNames) {
   }
 }
 
+export function getLidMap() {
+  const lidToPn = new Map();
+  const pnToLid = new Map();
+  if (!DatabaseSync) return { lidToPn, pnToLid };
+  const whatsappDbPath = findDbPath("whatsapp.db");
+  if (!whatsappDbPath) return { lidToPn, pnToLid };
+
+  try {
+    const waDb = new DatabaseSync(whatsappDbPath, { readOnly: true });
+    const rows = waDb.prepare("SELECT lid, pn FROM whatsmeow_lid_map").all();
+    for (const r of rows) {
+      if (r.lid && r.pn) {
+        lidToPn.set(r.lid, r.pn);
+        lidToPn.set(`${r.lid}@lid`, `${r.pn}@s.whatsapp.net`);
+        pnToLid.set(r.pn, r.lid);
+        pnToLid.set(`${r.pn}@s.whatsapp.net`, `${r.lid}@lid`);
+      }
+    }
+    waDb.close();
+  } catch (err) {
+    console.warn("LID map resolution from whatsapp.db failed", err);
+  }
+  return { lidToPn, pnToLid };
+}
+
 export function getContactNameMap() {
   const contactNames = new Map();
   const whatsappDbPath = findDbPath("whatsapp.db");
@@ -145,6 +170,7 @@ export function getLocalChats(limit = 50) {
 
   try {
     const contactNames = getContactNameMap();
+    const { lidToPn } = getLidMap();
     const msgDb = new DatabaseSync(messagesDbPath, { readOnly: true });
 
     // Query chats joined with latest message
@@ -169,13 +195,59 @@ export function getLocalChats(limit = 50) {
       ) m ON c.jid = m.chat_jid
       WHERE c.jid != 'status@broadcast'
       ORDER BY coalesce(m.timestamp, c.last_message_time) DESC
-      LIMIT ?
     `;
 
-    const rows = msgDb.prepare(chatsQuery).all(limit);
+    const rows = msgDb.prepare(chatsQuery).all();
     msgDb.close();
 
-    return rows.map((r) => _mapChatRow(r, contactNames));
+    // Deduplicate and merge @lid and phone number chats into unified conversations
+    const mergedChats = new Map();
+
+    for (const r of rows) {
+      const mapped = _mapChatRow(r, contactNames);
+      const jid = mapped.jid;
+      const num = mapped.phone;
+
+      // Determine canonical key: if it's a group, use group JID; if it's a LID that maps to a PN, use the PN
+      let canonicalKey = jid;
+      let canonicalJid = jid;
+      let canonicalPhone = num;
+
+      if (!mapped.isGroup) {
+        if (jid.endsWith("@lid") || lidToPn.has(num) || lidToPn.has(jid)) {
+          const mappedPn = lidToPn.get(num) || lidToPn.get(jid);
+          if (mappedPn) {
+            const cleanPn = mappedPn.replace(/\D/g, "");
+            canonicalKey = cleanPn ? `${cleanPn}@s.whatsapp.net` : mappedPn;
+            canonicalJid = canonicalKey;
+            canonicalPhone = cleanPn || mappedPn;
+          }
+        }
+      }
+
+      if (!mergedChats.has(canonicalKey)) {
+        mergedChats.set(canonicalKey, {
+          ...mapped,
+          jid: canonicalJid,
+          phone: canonicalPhone,
+        });
+      } else {
+        const existing = mergedChats.get(canonicalKey);
+        const existingTime = existing.lastMessageTime ? new Date(existing.lastMessageTime).getTime() : 0;
+        const newTime = mapped.lastMessageTime ? new Date(mapped.lastMessageTime).getTime() : 0;
+
+        const isNewer = newTime > existingTime;
+        mergedChats.set(canonicalKey, {
+          ...existing,
+          name: (existing.name && !existing.name.match(/^\+?\d+$/)) ? existing.name : mapped.name,
+          lastMessage: isNewer ? mapped.lastMessage : existing.lastMessage,
+          lastMessageTime: isNewer ? mapped.lastMessageTime : existing.lastMessageTime,
+          lastIsFromMe: isNewer ? mapped.lastIsFromMe : existing.lastIsFromMe,
+        });
+      }
+    }
+
+    return Array.from(mergedChats.values()).slice(0, limit);
   } catch (err) {
     console.error("Local SQLite getLocalChats error:", err);
     return [];
@@ -189,19 +261,49 @@ export function getLocalMessages(chatJid = "", limit = 100) {
 
   try {
     const contactNames = getContactNameMap();
+    const { lidToPn, pnToLid } = getLidMap();
     const msgDb = new DatabaseSync(messagesDbPath, { readOnly: true });
 
     let rows = [];
     if (chatJid) {
       const clean = chatJid.replace(/\D/g, "");
+      const associatedJids = new Set([chatJid]);
+      if (clean) {
+        associatedJids.add(clean);
+        associatedJids.add(`${clean}@s.whatsapp.net`);
+        associatedJids.add(`${clean}@lid`);
+      }
+      const mappedPn = lidToPn.get(clean) || lidToPn.get(chatJid);
+      if (mappedPn) {
+        associatedJids.add(mappedPn);
+        const cleanPn = mappedPn.replace(/\D/g, "");
+        if (cleanPn) {
+          associatedJids.add(cleanPn);
+          associatedJids.add(`${cleanPn}@s.whatsapp.net`);
+          associatedJids.add(`${cleanPn}@lid`);
+        }
+      }
+      const mappedLid = pnToLid.get(clean) || pnToLid.get(chatJid);
+      if (mappedLid) {
+        associatedJids.add(mappedLid);
+        const cleanLid = mappedLid.replace(/\D/g, "");
+        if (cleanLid) {
+          associatedJids.add(cleanLid);
+          associatedJids.add(`${cleanLid}@s.whatsapp.net`);
+          associatedJids.add(`${cleanLid}@lid`);
+        }
+      }
+
+      const jidList = Array.from(associatedJids);
+      const placeholders = jidList.map(() => "?").join(",");
       const query = `
         SELECT id, chat_jid, sender, content, timestamp, is_from_me, media_type, origin
         FROM messages
-        WHERE chat_jid = ? OR chat_jid LIKE ? OR sender LIKE ?
+        WHERE chat_jid IN (${placeholders}) OR sender IN (${placeholders}) OR chat_jid LIKE ?
         ORDER BY timestamp ASC
         LIMIT ?
       `;
-      rows = msgDb.prepare(query).all(chatJid, `%${clean}%`, `%${clean}%`, limit);
+      rows = msgDb.prepare(query).all(...jidList, ...jidList, `%${clean}%`, limit);
     } else {
       const query = `
         SELECT id, chat_jid, sender, content, timestamp, is_from_me, media_type, origin

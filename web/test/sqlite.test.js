@@ -5,6 +5,7 @@ import path from "path";
 import { createRequire } from "module";
 import {
   getContactNameMap,
+  getLidMap,
   getLocalChats,
   getLocalMessages,
   getLocalContacts,
@@ -298,5 +299,50 @@ test("sqlite.js unit tests", async (t) => {
     const sevenChat = chats.find((c) => c.jid === "7777777777@s.whatsapp.net");
     assert.ok(sevenChat);
     assert.equal(sevenChat.lastMessageTime, null);
+  });
+
+  await t.test("getLidMap and @lid concatenation with phone numbers in chats and messages", () => {
+    const customWaPath = path.join(storeDir, "whatsapp.db");
+    const waDb = new DatabaseSync(customWaPath);
+    const insertLid = waDb.prepare("INSERT OR REPLACE INTO whatsmeow_lid_map (lid, pn) VALUES (?, ?)");
+    insertLid.run("888888888888888", "8888888888");
+    waDb.close();
+
+    const customMsgPath = path.join(storeDir, "messages.db");
+    const msgDb = new DatabaseSync(customMsgPath);
+    const insertChat = msgDb.prepare("INSERT OR REPLACE INTO chats (jid, name, last_message_time) VALUES (?, ?, ?)");
+    insertChat.run("8888888888@s.whatsapp.net", "Henry Phone", 6000);
+    insertChat.run("888888888888888@lid", "Henry LID", 7000);
+
+    const insertMsg = msgDb.prepare(`
+      INSERT OR REPLACE INTO messages (id, chat_jid, sender, content, timestamp, is_from_me, media_type, origin)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMsg.run("msg_hn1", "8888888888@s.whatsapp.net", "8888888888@s.whatsapp.net", "Hello from phone", 6000, 0, "", "user");
+    insertMsg.run("msg_hn2", "888888888888888@lid", "888888888888888@lid", "Hello from LID", 7000, 0, "", "user");
+    msgDb.close();
+
+    // 1. getLidMap
+    const { lidToPn, pnToLid } = getLidMap();
+    assert.equal(lidToPn.get("888888888888888"), "8888888888");
+    assert.equal(pnToLid.get("8888888888"), "888888888888888");
+    assert.equal(lidToPn.get("888888888888888@lid"), "8888888888@s.whatsapp.net");
+
+    // 2. getLocalChats should merge Henry Phone and Henry LID into single chat with newer message
+    const chats = getLocalChats(50);
+    const henryChats = chats.filter((c) => c.phone === "8888888888" || c.jid === "8888888888@s.whatsapp.net");
+    assert.equal(henryChats.length, 1);
+    assert.equal(henryChats[0].lastMessage, "Hello from LID");
+    assert.equal(henryChats[0].lastMessageTime, 7000);
+
+    // 3. getLocalMessages for phone JID should return both phone and LID messages
+    const msgsByPhone = getLocalMessages("8888888888@s.whatsapp.net", 50);
+    assert.ok(msgsByPhone.some((m) => m.content === "Hello from phone"));
+    assert.ok(msgsByPhone.some((m) => m.content === "Hello from LID"));
+
+    // 4. getLocalMessages for LID JID should also return both messages
+    const msgsByLid = getLocalMessages("888888888888888@lid", 50);
+    assert.ok(msgsByLid.some((m) => m.content === "Hello from phone"));
+    assert.ok(msgsByLid.some((m) => m.content === "Hello from LID"));
   });
 });

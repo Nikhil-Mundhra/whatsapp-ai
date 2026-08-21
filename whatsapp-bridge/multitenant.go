@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,12 +43,15 @@ type Tenant struct {
 	aiApiKey     string
 	aiModel      string
 
-	qrCode                  string
-	qrUpdated               time.Time
-	paired                  bool
-	pairing                 bool
-	activePollsByRecipient  map[string]string    // map[recipientNormalizedPhone]pollMsgID
-	lastPollTimeByRecipient map[string]time.Time // map[recipientNormalizedPhone]lastPollSentTime
+	qrCode                        string
+	qrUpdated                     time.Time
+	paired                        bool
+	pairing                       bool
+	activePollsByRecipient        map[string]string    // map[recipientNormalizedPhone]pollMsgID
+	lastPollTimeByRecipient       map[string]time.Time // map[recipientNormalizedPhone]lastPollSentTime
+	lastActivityTimeByRecipient   map[string]time.Time // map[recipientKey]lastMessageTimestamp (incoming or manual)
+	lastManualTextTimeByRecipient map[string]time.Time // map[recipientKey]lastOwnerManualTextTime
+	sessionStartedAtByRecipient   map[string]time.Time // map[recipientKey]sessionStartTime
 
 	// Health & Connectivity Metrics
 	connectedAt       time.Time
@@ -60,6 +64,7 @@ type Tenant struct {
 	grantKind      string    // "none" | "count" | "duration"
 	grantRemaining int       // count remaining
 	grantExpiresAt time.Time // expiry for duration grant
+	grantArmedAt   time.Time // timestamp when grant was armed
 	lastTargetJID  types.JID // target contact to reply to
 	grantTargetJID types.JID // explicitly granted target chat for take-over
 
@@ -189,6 +194,79 @@ func (m *TenantManager) StartSupervisor(ctx context.Context) {
 	m.logger.Infof("Multi-tenant background watchdog supervisor started (poll interval: 15s)")
 }
 
+func (t *Tenant) initMapsLocked() {
+	if t.activePollsByRecipient == nil {
+		t.activePollsByRecipient = make(map[string]string)
+	}
+	if t.lastPollTimeByRecipient == nil {
+		t.lastPollTimeByRecipient = make(map[string]time.Time)
+	}
+	if t.lastActivityTimeByRecipient == nil {
+		t.lastActivityTimeByRecipient = make(map[string]time.Time)
+	}
+	if t.lastManualTextTimeByRecipient == nil {
+		t.lastManualTextTimeByRecipient = make(map[string]time.Time)
+	}
+	if t.sessionStartedAtByRecipient == nil {
+		t.sessionStartedAtByRecipient = make(map[string]time.Time)
+	}
+}
+
+// expireInactiveSessions sweeps active conversation sessions where the owner has participated manually.
+// If an active session goes silent for >= timeout (default 5m), it revokes any pending poll and resets AI grants.
+// Unreplied polls (where the owner never messaged back) are intentionally preserved and not expired.
+func (t *Tenant) expireInactiveSessions(timeout time.Duration) {
+	t.mu.Lock()
+	t.initMapsLocked()
+
+	now := time.Now()
+	var pollsToExpire []string
+
+	for rk, pollID := range t.activePollsByRecipient {
+		sessionStart := t.sessionStartedAtByRecipient[rk]
+		lastManual := t.lastManualTextTimeByRecipient[rk]
+		lastActivity := t.lastActivityTimeByRecipient[rk]
+
+		// An active manual conversation occurs when the owner has sent a manual message during or after the session began
+		hasOwnerParticipated := !lastManual.IsZero() && (lastManual.After(sessionStart) || lastManual.Equal(sessionStart))
+
+		if hasOwnerParticipated && !lastActivity.IsZero() && now.Sub(lastActivity) >= timeout {
+			pollsToExpire = append(pollsToExpire, pollID)
+			delete(t.activePollsByRecipient, rk)
+			delete(t.lastPollTimeByRecipient, rk)
+			delete(t.sessionStartedAtByRecipient, rk)
+			delete(t.lastManualTextTimeByRecipient, rk)
+			delete(t.lastActivityTimeByRecipient, rk)
+			t.logger.Infof("Conversation session with %s timed out (> %v of silence after manual text) -> deleted poll %s", rk, timeout, pollID)
+		}
+	}
+
+	// Check if an armed takeover grant timed out due to inactivity
+	if t.grantKind != "none" && !t.grantArmedAt.IsZero() {
+		if now.Sub(t.grantArmedAt) >= timeout {
+			t.logger.Infof("Takeover grant (%s) for %s timed out (> %v inactivity after being armed) -> revoked", t.grantKind, t.Hash, timeout)
+			t.grantKind = "none"
+			t.grantRemaining = 0
+			t.grantTargetJID = types.EmptyJID
+			t.grantExpiresAt = time.Time{}
+			t.grantArmedAt = time.Time{}
+		}
+	}
+
+	t.mu.Unlock()
+
+	for _, pid := range pollsToExpire {
+		_ = deleteWhatsAppMessage(t.client, t.ownerPhone, pid)
+		go func(pID string) {
+			expireURL := fmt.Sprintf("%s/api/polls/%s/expire?hash=%s", getWebhookBaseURL(), pID, t.Hash)
+			req, _ := http.NewRequest(http.MethodPost, expireURL, nil)
+			if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
+				_ = resp.Body.Close()
+			}
+		}(pid)
+	}
+}
+
 func (m *TenantManager) checkAndReconnectTenants() {
 	m.mu.Lock()
 	tenants := make([]*Tenant, 0, len(m.tenants))
@@ -198,6 +276,8 @@ func (m *TenantManager) checkAndReconnectTenants() {
 	m.mu.Unlock()
 
 	for _, t := range tenants {
+		t.expireInactiveSessions(5 * time.Minute)
+
 		t.mu.Lock()
 		paired := t.paired
 		hasCreds := t.client != nil && t.client.Store != nil && t.client.Store.ID != nil

@@ -56,7 +56,7 @@ def _parse_recipients(raw: str):
 ALLOWED_RECIPIENTS = {
     re.sub(r"\D", "", r)
     for r in _parse_recipients(os.environ.get("ALLOWED_RECIPIENTS", ""))
-    if r.strip()
+    if re.sub(r"\D", "", r).strip()
 }
 
 

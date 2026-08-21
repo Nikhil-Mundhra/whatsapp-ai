@@ -28,25 +28,58 @@ export async function GET(req) {
         const data = await res.json();
         const msgs = data.messages || [];
 
-        // Group messages into distinct chat threads
+        // Group messages into distinct chat threads (merging LID and phone threads)
         const chatMap = new Map();
         for (const m of msgs) {
           const jid = m.chatJid || m.chat_jid || m.sender || "";
           if (!jid || jid === "status@broadcast") continue;
 
-          if (!chatMap.has(jid)) {
-            const num = jid.split("@")[0];
-            const name = m.senderName || m.chatName || num;
+          const num = jid.split("@")[0];
+          const clean = num.replace(/\D/g, "");
+          const name = m.senderName || m.chatName || num;
+          const isGroup = jid.endsWith("@g.us");
 
-            chatMap.set(jid, {
-              jid,
+          let key = jid;
+          if (!isGroup) {
+            for (const [k, v] of chatMap.entries()) {
+              if (!v.isGroup) {
+                if (clean && v.phone === clean) {
+                  key = k;
+                  break;
+                }
+                if (name && v.name === name && !name.match(/^\+?\d+$/)) {
+                  key = k;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (!chatMap.has(key)) {
+            chatMap.set(key, {
+              jid: key.endsWith("@lid") && !jid.endsWith("@lid") ? jid : key,
               name,
-              phone: num,
+              phone: clean || num,
               lastMessage: m.content || m.body || "",
               lastMessageTime: m.timestamp || null,
               lastIsFromMe: Boolean(m.isFromMe || m.is_from_me),
-              isGroup: jid.endsWith("@g.us"),
+              isGroup,
             });
+          } else {
+            const existing = chatMap.get(key);
+            const existingTime = existing.lastMessageTime ? new Date(existing.lastMessageTime).getTime() : 0;
+            const msgTime = m.timestamp ? new Date(m.timestamp).getTime() : 0;
+            if (msgTime > existingTime) {
+              existing.lastMessage = m.content || m.body || "";
+              existing.lastMessageTime = m.timestamp;
+              existing.lastIsFromMe = Boolean(m.isFromMe || m.is_from_me);
+            }
+            if (name && !name.match(/^\+?\d+$/)) {
+              existing.name = name;
+            }
+            if (jid.endsWith("@s.whatsapp.net")) {
+              existing.jid = jid;
+            }
           }
         }
 
