@@ -1048,8 +1048,8 @@ export default function SuperadminPage() {
                 boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
               }}
             >
-              <span style={{ display: "inline-block", transform: couponLoading ? "rotate(360deg)" : "none", transition: "transform 0.5s" }}>
-                🔄
+              <span style={{ display: "inline-flex", alignItems: "center", transform: couponLoading ? "rotate(360deg)" : "none", transition: "transform 0.5s" }}>
+                <RefreshIcon size={13} color="#ffffff" />
               </span>
               <span>{couponLoading ? "Generating..." : "Generate New Coupon"}</span>
             </button>
@@ -1188,7 +1188,9 @@ export default function SuperadminPage() {
         >
           {filteredUsers.length === 0 ? (
             <div style={{ padding: "60px 20px", textAlign: "center" }}>
-              <div style={{ fontSize: "36px", marginBottom: 12 }}>🔍</div>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+                <SearchIcon size={36} color="var(--wa-text-muted)" />
+              </div>
               <h3 style={{ fontSize: "16px", fontWeight: "600", color: "var(--wa-text-primary)", marginBottom: 4 }}>
                 No users found
               </h3>

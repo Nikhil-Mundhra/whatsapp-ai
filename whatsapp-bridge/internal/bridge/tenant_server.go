@@ -1,4 +1,4 @@
-package main
+package bridge
 
 import (
 	"context"
@@ -38,6 +38,11 @@ func checkBridgeAuth(r *http.Request) bool {
 	return false
 }
 
+// HealthHandler exposes the health check endpoint for internal and E2E testing.
+func HealthHandler(manager *TenantManager) http.HandlerFunc {
+	return healthHandler(manager)
+}
+
 func healthHandler(manager *TenantManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -61,6 +66,11 @@ func healthHandler(manager *TenantManager) http.HandlerFunc {
 			"tenants":          list,
 		})
 	}
+}
+
+// ConnectionsHandler exposes the connections management endpoint for internal and E2E testing.
+func ConnectionsHandler(manager *TenantManager) http.HandlerFunc {
+	return connectionsHandler(manager)
 }
 
 func connectionsHandler(manager *TenantManager) http.HandlerFunc {

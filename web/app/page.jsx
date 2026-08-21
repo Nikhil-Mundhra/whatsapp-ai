@@ -702,7 +702,7 @@ export default function Home() {
   }
 
   function handleApiKeyChange(e) {
-    const val = e.target.value;
+    const val = typeof e === "string" ? e : (e?.target?.value ?? "");
     setConfigForm((prev) => ({ ...prev, aiApiKey: val }));
 
     if (!val.trim()) {

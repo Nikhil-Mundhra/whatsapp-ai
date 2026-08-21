@@ -1,6 +1,6 @@
 "use client";
 
-import { DoubleCheckIcon, RobotIcon } from "../Icons/WhatsAppIcons";
+import { DoubleCheckIcon, RobotIcon, ImageIcon } from "../Icons/WhatsAppIcons";
 
 function formatTime(timestamp) {
   if (!timestamp) return "";
@@ -51,7 +51,7 @@ export function MessageBubble({ message }) {
               </a>
             ))}
             <div className="wa-bubble-image-note">
-              <span>📷</span>
+              <ImageIcon size={12} color="currentColor" />
               <span>Not visible to AI</span>
             </div>
           </div>

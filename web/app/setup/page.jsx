@@ -1062,7 +1062,7 @@ export default function SetupPage() {
 
             {/* Launch Dashboard Action */}
             <a
-              href="/"
+              href={hash ? `/?hash=${encodeURIComponent(hash)}` : "/"}
               className="wa-btn-primary-gradient"
               style={{
                 width: "100%",

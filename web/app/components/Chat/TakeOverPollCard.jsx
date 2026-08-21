@@ -14,7 +14,7 @@ export function TakeOverPollCard({
   isVoting = false,
 }) {
   const isPending = poll.status === "pending";
-  const chosen = poll.chosenOption;
+  const chosen = poll.selectedOption || poll.chosenOption;
 
   return (
     <div className="wa-poll-card">

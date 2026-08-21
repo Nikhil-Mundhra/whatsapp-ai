@@ -179,7 +179,7 @@ export async function sendSuperadminOtp() {
   }
 
   const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
-  const otpMessage = `🛡️ *WhatsApp AI Superadmin 2FA Code*\n\nYour Master Admin access verification code is: *${otp}*\n\n⏱ Valid for 10 minutes. NEVER share this code.`;
+  const otpMessage = `*WhatsApp AI Superadmin 2FA Code*\n\nYour Master Admin access verification code is: *${otp}*\n\nValid for 10 minutes. NEVER share this code.`;
 
   let bridgeSent = false;
   let bridgeError = null;

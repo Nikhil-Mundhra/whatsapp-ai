@@ -173,7 +173,7 @@ export async function sendConnectionOtp(hash, options = {}) {
   const bridgeUrl = (process.env.BRIDGE_URL || "http://35.255.130.255:8080").replace(/\/$/, "");
   const otpMessage =
     options.messageOverride ||
-    `🔐 *WhatsApp AI Take-Over Verification Code*\n\nYour login verification code is: *${otp}*\n\n⏱ This code is valid for 10 minutes.\nDo not share this code with anyone.`;
+    `*WhatsApp AI Take-Over Verification Code*\n\nYour login verification code is: *${otp}*\n\nThis code is valid for 10 minutes.\nDo not share this code with anyone.`;
 
   let bridgeSent = false;
   let bridgeError = null;

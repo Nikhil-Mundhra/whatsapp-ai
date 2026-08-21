@@ -13,9 +13,15 @@ export async function POST(request) {
   const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
 
   // Stream directly to Vercel Blob — no temp file on disk
-  const blob = await put(`chat-images/${safeName}`, request.body, {
-    access: "public",
-  });
-
-  return NextResponse.json(blob);
+  try {
+    const blob = await put(`chat-images/${safeName}`, request.body, {
+      access: "public",
+    });
+    return NextResponse.json(blob);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err.message || "Failed to upload image to blob storage" },
+      { status: 500 }
+    );
+  }
 }

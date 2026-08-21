@@ -29,6 +29,11 @@ import {
 } from "../app/api/polls/[id]/route.js";
 import { POST as pollExpirePOST } from "../app/api/polls/[id]/expire/route.js";
 import { GET as pollPendingGET } from "../app/api/polls/pending/route.js";
+import { POST as imagesUploadPOST } from "../app/api/images/upload/route.js";
+import {
+  GET as chatSettingsGET,
+  POST as chatSettingsPOST,
+} from "../app/api/connections/[hash]/chats/[jid]/settings/route.js";
 
 // Helper imports
 import { _setKv } from "../lib/polls.js";
@@ -1362,6 +1367,113 @@ test("API Routes Unit Tests", async (t) => {
       const res = await pollPendingGET(new NextRequest("http://localhost/api/polls/pending?hash=T_PEND"));
       const data = await res.json();
       assert.deepEqual(data.poll, poll);
+    });
+  });
+
+  // ==========================================
+  // 14. /api/images/upload
+  // ==========================================
+  await t.test("POST /api/images/upload tests", async (st) => {
+    await st.test("returns 400 when filename param is missing", async () => {
+      const req = new NextRequest("http://localhost/api/images/upload", {
+        method: "POST",
+      });
+      const res = await imagesUploadPOST(req);
+      assert.equal(res.status, 400);
+      const data = await res.json();
+      assert.match(data.error, /filename query param required/);
+    });
+
+    await st.test("handles upload error gracefully", async () => {
+      const req = new NextRequest("http://localhost/api/images/upload?filename=test.jpg", {
+        method: "POST",
+        body: Buffer.from("image_data"),
+      });
+      const res = await imagesUploadPOST(req);
+      assert.equal(res.status, 500);
+      const data = await res.json();
+      assert.ok(data.error);
+    });
+  });
+
+  // ==========================================
+  // 15. /api/connections/[hash]/chats/[jid]/settings
+  // ==========================================
+  await t.test("GET and POST /api/connections/[hash]/chats/[jid]/settings tests", async (st) => {
+    await st.test("returns 400 when hash or jid is missing", async () => {
+      const res1 = await chatSettingsGET(new NextRequest("http://localhost"), {
+        params: Promise.resolve({ hash: "", jid: "123@s.whatsapp.net" }),
+      });
+      assert.equal(res1.status, 400);
+
+      const res2 = await chatSettingsPOST(new NextRequest("http://localhost"), {
+        params: Promise.resolve({ hash: "H1", jid: "" }),
+      });
+      assert.equal(res2.status, 400);
+    });
+
+    await st.test("GET and POST fetch from and update bridge chat settings", async () => {
+      process.env.BRIDGE_URL = "http://mockbridge:8080";
+      let receivedBody = null;
+
+      const restore = mockFetch(async (url, opts) => {
+        if (url.includes("/settings")) {
+          if (opts?.method === "POST") {
+            receivedBody = JSON.parse(opts.body);
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ success: true, settings: receivedBody }),
+            };
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              settings: { relationship: "Best friend", friendCircle: ["f1"] },
+            }),
+          };
+        }
+        return { ok: false, status: 500 };
+      });
+
+      const getReq = new NextRequest("http://localhost");
+      const getRes = await chatSettingsGET(getReq, {
+        params: Promise.resolve({ hash: "H1", jid: "12345@s.whatsapp.net" }),
+      });
+      assert.equal(getRes.status, 200);
+      const getData = await getRes.json();
+      assert.equal(getData.settings.relationship, "Best friend");
+
+      const postReq = new NextRequest("http://localhost", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ relationship: "Colleague", friendCircle: ["c1", "c2"] }),
+      });
+      const postRes = await chatSettingsPOST(postReq, {
+        params: Promise.resolve({ hash: "H1", jid: "12345@s.whatsapp.net" }),
+      });
+      assert.equal(postRes.status, 200);
+      const postData = await postRes.json();
+      assert.equal(postData.settings.relationship, "Colleague");
+      assert.deepEqual(receivedBody.friendCircle, ["c1", "c2"]);
+
+      restore();
+    });
+
+    await st.test("handles bridge network errors gracefully", async () => {
+      process.env.BRIDGE_URL = "http://mockbridge:8080";
+      const restore = mockFetch(async () => {
+        throw new Error("Bridge connection failed");
+      });
+
+      const res = await chatSettingsGET(new NextRequest("http://localhost"), {
+        params: Promise.resolve({ hash: "H1", jid: "12345@s.whatsapp.net" }),
+      });
+      restore();
+      assert.equal(res.status, 500);
+      const data = await res.json();
+      assert.equal(data.error, "Bridge connection failed");
     });
   });
 });

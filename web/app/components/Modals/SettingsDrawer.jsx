@@ -1,6 +1,6 @@
 "use client";
 
-import { CloseIcon, RobotIcon, SunIcon, MoonIcon, CheckIcon } from "../Icons/WhatsAppIcons";
+import { CloseIcon, RobotIcon, SunIcon, MoonIcon, CheckIcon, WarningIcon, RefreshIcon } from "../Icons/WhatsAppIcons";
 import { ContactPicker } from "../UI/ContactPicker";
 
 export function SettingsDrawer({
@@ -213,9 +213,9 @@ export function SettingsDrawer({
                     padding: "8px 12px",
                     borderRadius: 6,
                     border: `1px solid ${
-                      keyStatus?.valid
+                      keyStatus?.state === "valid"
                         ? "#10b981"
-                        : keyStatus?.error
+                        : keyStatus?.state === "invalid"
                         ? "#ef4444"
                         : "var(--wa-border-strong)"
                     }`,
@@ -225,20 +225,22 @@ export function SettingsDrawer({
                     color: "var(--wa-text-primary)",
                   }}
                 />
-                {keyStatus?.validating && (
-                  <span style={{ fontSize: 11, color: "var(--wa-text-secondary)", marginTop: 3, display: "block" }}>
-                    Validating key...
+                {keyStatus?.state === "checking" && (
+                  <span style={{ fontSize: 11, color: "var(--wa-text-secondary)", marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                    <RefreshIcon size={12} color="var(--wa-text-secondary)" />
+                    <span>{keyStatus.message || "Validating key..."}</span>
                   </span>
                 )}
-                {keyStatus?.valid && (
+                {keyStatus?.state === "valid" && (
                   <span style={{ fontSize: 11, color: "#10b981", marginTop: 3, display: "flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
                     <CheckIcon size={12} color="#10b981" />
-                    <span>Valid {keyStatus.provider} Key</span>
+                    <span>{keyStatus.message || `Valid ${keyStatus.provider} Key`}</span>
                   </span>
                 )}
-                {keyStatus?.error && (
-                  <span style={{ fontSize: 11, color: "#ef4444", marginTop: 3, display: "block" }}>
-                    {keyStatus.error}
+                {keyStatus?.state === "invalid" && (
+                  <span style={{ fontSize: 11, color: "#ef4444", marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                    <WarningIcon size={12} color="#ef4444" />
+                    <span>{keyStatus.message || "Invalid API key"}</span>
                   </span>
                 )}
               </div>

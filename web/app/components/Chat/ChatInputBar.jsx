@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { AttachIcon, SmileIcon, SendIcon, PollIcon, CloseIcon, ClockIcon, StopIcon, ImageIcon } from "../Icons/WhatsAppIcons";
+import { AttachIcon, SmileIcon, SendIcon, PollIcon, CloseIcon, ClockIcon, StopIcon, ImageIcon, ArrowRightIcon, WarningIcon, RobotIcon } from "../Icons/WhatsAppIcons";
 
 function formatDuration(sec) {
   if (sec <= 0) return "00:00";
@@ -325,7 +325,9 @@ export function ChatInputBar({
                   {isSelected ? (
                     <span style={{ fontSize: 11 }}>Applying...</span>
                   ) : (
-                    <span style={{ fontSize: 11, color: isDeny ? "#ef4444" : "var(--wa-teal)" }}>➜</span>
+                    <span style={{ fontSize: 11, color: isDeny ? "#ef4444" : "var(--wa-teal)", display: "inline-flex", alignItems: "center" }}>
+                      <ArrowRightIcon size={11} color="currentColor" />
+                    </span>
                   )}
                 </button>
               );
@@ -341,9 +343,14 @@ export function ChatInputBar({
               fontSize: 11,
               color: "var(--wa-text-muted)",
               textAlign: "center",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
             }}
           >
-            💡 Right-click Poll button to edit questions & options
+            <RobotIcon size={12} color="var(--wa-text-muted)" />
+            <span>Right-click Poll button to edit questions &amp; options</span>
           </div>
         </div>
       )}
@@ -372,7 +379,9 @@ export function ChatInputBar({
 
                 {/* Error overlay */}
                 {img.error && (
-                  <div className="wa-image-preview-error" title="Upload failed">⚠</div>
+                  <div className="wa-image-preview-error" title="Upload failed">
+                    <WarningIcon size={12} color="#ffffff" />
+                  </div>
                 )}
 
                 <button
@@ -387,7 +396,7 @@ export function ChatInputBar({
             ))}
           </div>
           <div className="wa-image-not-visible-note">
-            <span>📷</span>
+            <ImageIcon size={12} color="currentColor" />
             <span>Not visible to AI</span>
           </div>
         </div>
