@@ -24,7 +24,10 @@ graph TD
         A_API --> A_Slots["Free/Busy Slot Matrix"]
         A_Slots --> A_Prompt["Injected to Persona Generator"]
     end
+```
 
+```mermaid
+graph TD
     subgraph OptionB["Option B: Unified Tool Abstraction (MCP / Composio / Function Calling)"]
         B_Incoming["Incoming WhatsApp Message"] --> B_LLM["LLM Function Calling Loop"]
         B_LLM --> B_ToolCall["Tool Call: check_availability(start, end)"]
@@ -34,7 +37,10 @@ graph TD
         B_MCP --> B_LLM
         B_LLM --> B_FinalReply["Final Persona Text Draft"]
     end
+```
 
+```mermaid
+graph TD
     subgraph OptionC["Option C: Local ICS Sync & SQLite Calendar Store (Engine Recommendation)"]
         C_Feed["Read-Only iCal Feed URL (Google / Apple / Outlook)"] --> C_Cron["Background Sync Daemon (Every 10m)"]
         C_Cron --> C_Parse["ICS/VEVENT Parser & RRULE Normalizer"]

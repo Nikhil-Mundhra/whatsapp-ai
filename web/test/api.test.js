@@ -693,7 +693,7 @@ test("API Routes Unit Tests", async (t) => {
         return { ok: false };
       });
 
-      // PUT test
+      // PUT test with groq and vision configuration
       const putReq = new NextRequest("http://localhost", {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -702,6 +702,11 @@ test("API Routes Unit Tests", async (t) => {
           allowedRecipients: ["+1888888888"],
           aiApiKey: "updated-key",
           aiModel: "updated-model",
+          voiceNoteTranscriptionEnabled: false,
+          groqApiKey: "gsk_test_123456",
+          visionEnabled: true,
+          visionApiKey: "AIza_test_vision_key",
+          visionModel: "gemini-2.0-flash",
         }),
       });
 
@@ -710,7 +715,20 @@ test("API Routes Unit Tests", async (t) => {
       assert.equal(putData.success, true);
       assert.equal(putData.connection.ownerPhone, "+1777777777");
       assert.equal(putData.connection.aiApiKeySet, true);
+      assert.equal(putData.connection.voiceNoteTranscriptionEnabled, false);
+      assert.equal(putData.connection.groqApiKeySet, true);
+      assert.equal(putData.connection.visionEnabled, true);
+      assert.equal(putData.connection.visionApiKeySet, true);
+      assert.equal(putData.connection.visionModel, "gemini-2.0-flash");
       assert.equal(bridgeNotified, true);
+
+      // Verify GET returns all configured fields and fallback indicators
+      const getRes = await connectionHashGET(new NextRequest("http://localhost"), { params: { hash: "CONN_UPD" } });
+      const getData = await getRes.json();
+      assert.equal(getData.connection.voiceNoteTranscriptionEnabled, false);
+      assert.equal(getData.connection.groqApiKeySet, true);
+      assert.equal(getData.connection.visionApiKeySet, true);
+      assert.equal(getData.connection.visionModel, "gemini-2.0-flash");
 
       // POST test with comma-separated recipients
       const postReq = new NextRequest("http://localhost", {

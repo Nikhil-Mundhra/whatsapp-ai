@@ -3,6 +3,7 @@ import { NextResponse } from "next/server.js";
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const apiKey = String(body.apiKey || "").trim();
+  const validationType = String(body.type || "llm").toLowerCase();
 
   if (!apiKey) {
     return NextResponse.json({ valid: false, error: "API key is required" }, { status: 400 });
@@ -77,7 +78,7 @@ export async function POST(req) {
   if (apiKey.startsWith("sk-proj-") || apiKey.startsWith("sk-")) {
     // Check if OpenRouter key first (some openrouter keys start with sk-or-)
     if (apiKey.startsWith("sk-or-")) {
-      return validateOpenRouter(apiKey);
+      return validateOpenRouter(apiKey, validationType);
     }
 
     try {
@@ -100,11 +101,11 @@ export async function POST(req) {
             { id: "gpt-4o", name: "GPT-4o (Most Capable)" },
             { id: "o3-mini", name: "o3-mini (Reasoning)" },
           ],
-          defaultModel: "gpt-4o-mini",
+          defaultModel: validationType === "vision" ? "gpt-4o-mini" : "gpt-4o-mini",
         });
       }
       // If OpenAI fails, try OpenRouter as fallback
-      const orResult = await checkOpenRouter(apiKey);
+      const orResult = await checkOpenRouter(apiKey, validationType);
       if (orResult) return NextResponse.json(orResult);
 
       return NextResponse.json({ valid: false, error: "Invalid OpenAI API Key" });
@@ -126,6 +127,19 @@ export async function POST(req) {
           .filter((m) => m.active !== false)
           .map((m) => ({ id: m.id, name: m.id }))
           .sort((a, b) => a.id.localeCompare(b.id));
+
+        if (validationType === "stt" || validationType === "groq") {
+          return NextResponse.json({
+            valid: true,
+            provider: "Groq Cloud (Whisper STT)",
+            models: [
+              { id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo (Fast & Recommended)" },
+              { id: "whisper-large-v3", name: "Whisper Large v3 (High Precision)" },
+            ],
+            defaultModel: "whisper-large-v3-turbo",
+          });
+        }
+
         return NextResponse.json({
           valid: true,
           provider: "Groq",
@@ -144,7 +158,7 @@ export async function POST(req) {
   }
 
   // 5. OpenRouter Check
-  const orResult = await checkOpenRouter(apiKey);
+  const orResult = await checkOpenRouter(apiKey, validationType);
   if (orResult) return NextResponse.json(orResult);
 
   // Fallback: If unknown format but non-empty, accept with custom models
@@ -152,23 +166,28 @@ export async function POST(req) {
     valid: true,
     provider: "Custom Provider",
     warning: "Key format recognized (Custom provider)",
-    models: [
+    models: validationType === "vision" ? [
+      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
+      { id: "gpt-4o-mini", name: "GPT-4o Mini" },
+      { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet" },
+      { id: "custom", name: "Custom Model" },
+    ] : [
       { id: "qwen-2.5-72b", name: "Qwen 2.5 72B" },
       { id: "qwen-2.5-32b", name: "Qwen 2.5 32B" },
       { id: "gpt-4o-mini", name: "GPT-4o Mini" },
       { id: "custom", name: "Custom / Default" },
     ],
-    defaultModel: "qwen-2.5-72b",
+    defaultModel: validationType === "vision" ? "gemini-2.0-flash" : "qwen-2.5-72b",
   });
 }
 
-async function validateOpenRouter(apiKey) {
-  const result = await checkOpenRouter(apiKey);
+async function validateOpenRouter(apiKey, validationType = "llm") {
+  const result = await checkOpenRouter(apiKey, validationType);
   if (result) return NextResponse.json(result);
   return NextResponse.json({ valid: false, error: "Invalid OpenRouter API Key" });
 }
 
-async function checkOpenRouter(apiKey) {
+async function checkOpenRouter(apiKey, validationType = "llm") {
   try {
     const res = await fetch("https://openrouter.ai/api/v1/models", {
       headers: { Authorization: `Bearer ${apiKey}` },
@@ -179,7 +198,14 @@ async function checkOpenRouter(apiKey) {
       const rawModels = data.data || [];
 
       // Sort highlighted/popular models to the top
-      const popularPrefixes = [
+      const popularPrefixes = validationType === "vision" ? [
+        "google/gemini-2.0",
+        "google/gemini-1.5",
+        "openai/gpt-4o",
+        "anthropic/claude-3.5",
+        "qwen/qwen-2.5-vl",
+        "meta-llama/llama-3.2",
+      ] : [
         "qwen/qwen3",
         "qwen/qwen-3",
         "qwen/qwen2.5",
@@ -209,13 +235,17 @@ async function checkOpenRouter(apiKey) {
         return a.name.localeCompare(b.name);
       });
 
-      const topQwen = models.find((m) => m.id.toLowerCase().includes("qwen"));
+      const topModel = models.find((m) =>
+        validationType === "vision"
+          ? (m.id.includes("gemini") || m.id.includes("gpt-4o") || m.id.includes("claude") || m.id.includes("vl"))
+          : m.id.toLowerCase().includes("qwen")
+      );
 
       return {
         valid: true,
         provider: "OpenRouter",
-        models: models.slice(0, 150), // Top 150 models from live OpenRouter catalog
-        defaultModel: topQwen ? topQwen.id : (models[0]?.id || "qwen/qwen-2.5-72b-instruct"),
+        models: models.slice(0, 150),
+        defaultModel: topModel ? topModel.id : (models[0]?.id || (validationType === "vision" ? "google/gemini-2.0-flash-001" : "qwen/qwen-2.5-72b-instruct")),
       };
     }
   } catch {}

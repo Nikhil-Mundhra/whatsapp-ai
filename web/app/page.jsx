@@ -109,12 +109,21 @@ export default function Home() {
     allowedRecipients: "",
     aiApiKey: "",
     aiModel: "",
+    voiceNoteTranscriptionEnabled: true,
+    groqApiKey: "",
+    visionEnabled: true,
+    visionApiKey: "",
+    visionModel: "gemini-2.0-flash",
   });
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSuccess, setConfigSuccess] = useState("");
   const [configError, setConfigError] = useState("");
   const [keyStatus, setKeyStatus] = useState({ state: "idle", message: "", provider: "", models: [] });
+  const [groqKeyStatus, setGroqKeyStatus] = useState({ state: "idle", message: "", provider: "", models: [] });
+  const [visionKeyStatus, setVisionKeyStatus] = useState({ state: "idle", message: "", provider: "", models: [] });
   const validateTimerRef = useRef(null);
+  const groqValidateTimerRef = useRef(null);
+  const visionValidateTimerRef = useRef(null);
 
   // Resizable Sidebar State (15% to 50%)
   const [sidebarWidth, setSidebarWidth] = useState(30);
@@ -904,8 +913,19 @@ export default function Home() {
       ),
       aiApiKey: "",
       aiModel: connInfo?.connection?.aiModel || "qwen/qwen3.8-27b",
+      voiceNoteTranscriptionEnabled: connInfo?.connection?.voiceNoteTranscriptionEnabled !== undefined
+        ? Boolean(connInfo.connection.voiceNoteTranscriptionEnabled)
+        : true,
+      groqApiKey: "",
+      visionEnabled: connInfo?.connection?.visionEnabled !== undefined
+        ? Boolean(connInfo.connection.visionEnabled)
+        : true,
+      visionApiKey: "",
+      visionModel: connInfo?.connection?.visionModel || "gemini-2.0-flash",
     });
     setKeyStatus({ state: "idle", message: "", provider: "", models: [] });
+    setGroqKeyStatus({ state: "idle", message: "", provider: "", models: [] });
+    setVisionKeyStatus({ state: "idle", message: "", provider: "", models: [] });
     setConfigError("");
     setConfigSuccess("");
     setIsSettingsOpen(true);
@@ -962,6 +982,89 @@ export default function Home() {
     }, 800);
   }
 
+  function handleGroqKeyChange(e) {
+    const val = typeof e === "string" ? e : (e?.target?.value ?? "");
+    setConfigForm((prev) => ({ ...prev, groqApiKey: val }));
+
+    if (!val.trim()) {
+      setGroqKeyStatus({ state: "idle", message: "", provider: "", models: [] });
+      return;
+    }
+
+    setGroqKeyStatus({ state: "checking", message: "Checking Groq key...", provider: "", models: [] });
+    if (groqValidateTimerRef.current) clearTimeout(groqValidateTimerRef.current);
+    groqValidateTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/validate-key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey: val.trim(), type: "stt" }),
+        });
+        const data = await res.json();
+        if (data.valid) {
+          setGroqKeyStatus({
+            state: "valid",
+            message: data.warning || `Valid ${data.provider} Key`,
+            provider: data.provider,
+            models: data.models || [],
+          });
+        } else {
+          setGroqKeyStatus({
+            state: "invalid",
+            message: data.error || "Invalid Groq key",
+            provider: "",
+            models: [],
+          });
+        }
+      } catch {
+        setGroqKeyStatus({ state: "idle", message: "", provider: "", models: [] });
+      }
+    }, 800);
+  }
+
+  function handleVisionKeyChange(e) {
+    const val = typeof e === "string" ? e : (e?.target?.value ?? "");
+    setConfigForm((prev) => ({ ...prev, visionApiKey: val }));
+
+    if (!val.trim()) {
+      setVisionKeyStatus({ state: "idle", message: "", provider: "", models: [] });
+      return;
+    }
+
+    setVisionKeyStatus({ state: "checking", message: "Checking Vision key...", provider: "", models: [] });
+    if (visionValidateTimerRef.current) clearTimeout(visionValidateTimerRef.current);
+    visionValidateTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/validate-key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey: val.trim(), type: "vision" }),
+        });
+        const data = await res.json();
+        if (data.valid) {
+          setVisionKeyStatus({
+            state: "valid",
+            message: data.warning || `Valid ${data.provider} Key`,
+            provider: data.provider,
+            models: data.models || [],
+          });
+          if (data.defaultModel) {
+            setConfigForm((prev) => ({ ...prev, visionModel: data.defaultModel }));
+          }
+        } else {
+          setVisionKeyStatus({
+            state: "invalid",
+            message: data.error || "Invalid vision key",
+            provider: "",
+            models: [],
+          });
+        }
+      } catch {
+        setVisionKeyStatus({ state: "idle", message: "", provider: "", models: [] });
+      }
+    }, 800);
+  }
+
   async function handleSaveConfig(e) {
     e.preventDefault();
     setSavingConfig(true);
@@ -978,6 +1081,11 @@ export default function Home() {
           allowedRecipients: serializedRecipients,
           aiApiKey: configForm.aiApiKey || undefined,
           aiModel: configForm.aiModel,
+          voiceNoteTranscriptionEnabled: configForm.voiceNoteTranscriptionEnabled,
+          groqApiKey: configForm.groqApiKey || undefined,
+          visionEnabled: configForm.visionEnabled,
+          visionApiKey: configForm.visionApiKey || undefined,
+          visionModel: configForm.visionModel,
         }),
       });
       let data = {};
@@ -1372,6 +1480,10 @@ export default function Home() {
           success={configSuccess}
           keyStatus={keyStatus}
           onApiKeyChange={handleApiKeyChange}
+          groqKeyStatus={groqKeyStatus}
+          onGroqKeyChange={handleGroqKeyChange}
+          visionKeyStatus={visionKeyStatus}
+          onVisionKeyChange={handleVisionKeyChange}
           theme={theme}
           onThemeChange={handleThemeChange}
           chats={chats}
@@ -1379,6 +1491,11 @@ export default function Home() {
           hash={hash}
           aiApiKeySet={Boolean(connInfo?.connection?.aiApiKeySet)}
           aiApiKeyMasked={connInfo?.connection?.aiApiKeyMasked || (connInfo?.connection?.aiApiKeySet ? "••••••••••••" : "")}
+          groqApiKeySet={Boolean(connInfo?.connection?.groqApiKeySet)}
+          groqApiKeyMasked={connInfo?.connection?.groqApiKeyMasked || (connInfo?.connection?.groqApiKeySet ? "••••••••••••" : "")}
+          hasSuperadminGroqFallback={Boolean(connInfo?.connection?.hasSuperadminGroqFallback)}
+          visionApiKeySet={Boolean(connInfo?.connection?.visionApiKeySet)}
+          visionApiKeyMasked={connInfo?.connection?.visionApiKeyMasked || (connInfo?.connection?.visionApiKeySet ? "••••••••••••" : "")}
         />
       </div>
 

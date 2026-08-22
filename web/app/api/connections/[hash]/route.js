@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server.js";
 import { getConnection, updateConnection, getBridgeHeaders, maskApiKey, getBridgeUrl } from "../../../../lib/connections.js";
+import { hasSuperadminGroqKey } from "../../../../lib/superadmin.js";
 
 export async function GET(_req, props) {
   const BRIDGE_URL = getBridgeUrl();
@@ -33,6 +34,15 @@ export async function GET(_req, props) {
         if (!conn.aiModel && bridgeStatus.aiModel) {
           patch.aiModel = bridgeStatus.aiModel;
         }
+        if (conn.voiceNoteTranscriptionEnabled === undefined && bridgeStatus.voiceNoteTranscriptionEnabled !== undefined) {
+          patch.voiceNoteTranscriptionEnabled = bridgeStatus.voiceNoteTranscriptionEnabled;
+        }
+        if (conn.visionEnabled === undefined && bridgeStatus.visionEnabled !== undefined) {
+          patch.visionEnabled = bridgeStatus.visionEnabled;
+        }
+        if (!conn.visionModel && bridgeStatus.visionModel) {
+          patch.visionModel = bridgeStatus.visionModel;
+        }
         if (Object.keys(patch).length > 0) {
           conn = await updateConnection(hash, patch);
         }
@@ -42,7 +52,8 @@ export async function GET(_req, props) {
     }
   }
 
-  const { aiApiKey, ...rest } = conn || {};
+  const superadminHasGroq = await hasSuperadminGroqKey();
+  const { aiApiKey, groqApiKey, visionApiKey, ...rest } = conn || {};
   return NextResponse.json({
     connection: {
       ...rest,
@@ -51,6 +62,22 @@ export async function GET(_req, props) {
       aiModel: conn?.aiModel || bridgeStatus?.aiModel || "qwen/qwen3.8-27b",
       aiApiKeySet: Boolean(aiApiKey || bridgeStatus?.aiApiKeySet),
       aiApiKeyMasked: aiApiKey ? maskApiKey(aiApiKey) : (bridgeStatus?.aiApiKeySet ? "••••••••••••" : ""),
+
+      // Voice Note Transcription (Phase 4.1)
+      voiceNoteTranscriptionEnabled: conn?.voiceNoteTranscriptionEnabled !== undefined
+        ? Boolean(conn.voiceNoteTranscriptionEnabled)
+        : (bridgeStatus?.voiceNoteTranscriptionEnabled !== undefined ? Boolean(bridgeStatus.voiceNoteTranscriptionEnabled) : true),
+      groqApiKeySet: Boolean(groqApiKey || bridgeStatus?.groqApiKeySet),
+      groqApiKeyMasked: groqApiKey ? maskApiKey(groqApiKey) : (bridgeStatus?.groqApiKeySet ? "••••••••••••" : ""),
+      hasSuperadminGroqFallback: superadminHasGroq,
+
+      // Multimodal Vision (Phase 4.2)
+      visionEnabled: conn?.visionEnabled !== undefined
+        ? Boolean(conn.visionEnabled)
+        : (bridgeStatus?.visionEnabled !== undefined ? Boolean(bridgeStatus.visionEnabled) : true),
+      visionApiKeySet: Boolean(visionApiKey || bridgeStatus?.visionApiKeySet),
+      visionApiKeyMasked: visionApiKey ? maskApiKey(visionApiKey) : (bridgeStatus?.visionApiKeySet ? "••••••••••••" : ""),
+      visionModel: conn?.visionModel || bridgeStatus?.visionModel || "gemini-2.0-flash",
     },
     whatsapp,
     bridgeStatus,
@@ -85,8 +112,33 @@ async function handleUpdate(req, props) {
           .filter(Boolean)
       : String(body.allowedRecipients).split(",").map((s) => s.trim()).filter(Boolean);
   }
-  if (body.aiApiKey) updates.aiApiKey = String(body.aiApiKey).trim();
+  if (body.aiApiKey !== undefined) {
+    const k = String(body.aiApiKey).trim();
+    if (k) updates.aiApiKey = k;
+  }
   if (body.aiModel) updates.aiModel = String(body.aiModel).trim();
+
+  // Voice Note Transcription (Phase 4.1)
+  if (body.voiceNoteTranscriptionEnabled !== undefined) {
+    updates.voiceNoteTranscriptionEnabled = Boolean(body.voiceNoteTranscriptionEnabled);
+  }
+  if (body.groqApiKey !== undefined) {
+    const k = String(body.groqApiKey).trim();
+    if (k) updates.groqApiKey = k;
+  }
+
+  // Multimodal Vision (Phase 4.2)
+  if (body.visionEnabled !== undefined) {
+    updates.visionEnabled = Boolean(body.visionEnabled);
+  }
+  if (body.visionApiKey !== undefined) {
+    const k = String(body.visionApiKey).trim();
+    if (k) updates.visionApiKey = k;
+  }
+  if (body.visionModel !== undefined) {
+    const m = String(body.visionModel).trim();
+    if (m) updates.visionModel = m;
+  }
 
   const conn = (await updateConnection(hash, updates)) || { hash, ...updates };
   const BRIDGE_URL = getBridgeUrl();
@@ -102,6 +154,11 @@ async function handleUpdate(req, props) {
           allowedRecipients: conn.allowedRecipients,
           aiApiKey: conn.aiApiKey,
           aiModel: conn.aiModel,
+          voiceNoteTranscriptionEnabled: conn.voiceNoteTranscriptionEnabled,
+          groqApiKey: conn.groqApiKey,
+          visionEnabled: conn.visionEnabled,
+          visionApiKey: conn.visionApiKey,
+          visionModel: conn.visionModel,
         }),
         signal: AbortSignal.timeout(6000),
       });
@@ -110,13 +167,22 @@ async function handleUpdate(req, props) {
     }
   }
 
-  const { aiApiKey, ...rest } = conn;
+  const superadminHasGroq = await hasSuperadminGroqKey();
+  const { aiApiKey, groqApiKey, visionApiKey, ...rest } = conn;
   return NextResponse.json({
     success: true,
     connection: {
       ...rest,
       aiApiKeySet: Boolean(aiApiKey),
       aiApiKeyMasked: aiApiKey ? maskApiKey(aiApiKey) : "",
+      voiceNoteTranscriptionEnabled: conn.voiceNoteTranscriptionEnabled !== undefined ? Boolean(conn.voiceNoteTranscriptionEnabled) : true,
+      groqApiKeySet: Boolean(groqApiKey),
+      groqApiKeyMasked: groqApiKey ? maskApiKey(groqApiKey) : "",
+      hasSuperadminGroqFallback: superadminHasGroq,
+      visionEnabled: conn.visionEnabled !== undefined ? Boolean(conn.visionEnabled) : true,
+      visionApiKeySet: Boolean(visionApiKey),
+      visionApiKeyMasked: visionApiKey ? maskApiKey(visionApiKey) : "",
+      visionModel: conn.visionModel || "gemini-2.0-flash",
     },
   });
 }

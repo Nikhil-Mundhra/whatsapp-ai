@@ -94,11 +94,16 @@ func TestTenantConfigAndDirectory(t *testing.T) {
 
 	// Create store/tenants inside current workspace or mock dir
 	tenant := &Tenant{
-		Hash:       "testhash123",
-		ownerPhone: "+15551234567",
-		recipients: []string{"+15559876543", "Family Group"},
-		aiApiKey:   "sk-test-key",
-		aiModel:    "gpt-4o",
+		Hash:                          "testhash123",
+		ownerPhone:                    "+15551234567",
+		recipients:                    []string{"+15559876543", "Family Group"},
+		aiApiKey:                      "sk-test-key",
+		aiModel:                       "gpt-4o",
+		voiceNoteTranscriptionEnabled: false,
+		groqApiKey:                    "gsk_my_groq_key",
+		visionEnabled:                 true,
+		visionApiKey:                  "AIza_my_gemini_key",
+		visionModel:                   "gemini-2.0-flash",
 	}
 
 	// Ensure directory exists for configFile
@@ -128,6 +133,21 @@ func TestTenantConfigAndDirectory(t *testing.T) {
 	}
 	if loaded.aiModel != tenant.aiModel {
 		t.Errorf("aiModel mismatch: %s vs %s", loaded.aiModel, tenant.aiModel)
+	}
+	if loaded.voiceNoteTranscriptionEnabled != tenant.voiceNoteTranscriptionEnabled {
+		t.Errorf("voiceNoteTranscriptionEnabled mismatch: %v vs %v", loaded.voiceNoteTranscriptionEnabled, tenant.voiceNoteTranscriptionEnabled)
+	}
+	if loaded.groqApiKey != tenant.groqApiKey {
+		t.Errorf("groqApiKey mismatch: %s vs %s", loaded.groqApiKey, tenant.groqApiKey)
+	}
+	if loaded.visionEnabled != tenant.visionEnabled {
+		t.Errorf("visionEnabled mismatch: %v vs %v", loaded.visionEnabled, tenant.visionEnabled)
+	}
+	if loaded.visionApiKey != tenant.visionApiKey {
+		t.Errorf("visionApiKey mismatch: %s vs %s", loaded.visionApiKey, tenant.visionApiKey)
+	}
+	if loaded.visionModel != tenant.visionModel {
+		t.Errorf("visionModel mismatch: %s vs %s", loaded.visionModel, tenant.visionModel)
 	}
 }
 

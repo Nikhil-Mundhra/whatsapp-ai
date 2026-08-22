@@ -47,18 +47,21 @@ flowchart LR
 Expand the AI texting engine beyond plain text to understand and generate all native WhatsApp media types.
 *Detailed Architecture & Trade-Off Analysis: [PHASE_4_MULTIMODAL_AUDIO_VISION.md](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md)*
 
-* **4.1 Incoming Voice Note Transcription (Audio-to-Text)**
-  * Seamless ingestion of incoming `.opus` voice notes.
-  * Direct transcription via local Whisper / Gemini Flash Audio API.
-  * Integration into conversation history labeled as `From: Contact (Voice Note): "[transcription]"`.
-* **4.2 Multimodal Vision & Image Reasoning**
+* **4.1 Incoming Voice Note Transcription (Audio-to-Text)** *(Active / In-Progress)*
+  * Seamless ingestion of incoming `.opus` voice notes via Groq Whisper (`whisper-large-v3-turbo`).
+  * Direct transcription integrated into conversation history labeled as `From: Contact (Voice Note): "[transcription]"`.
+  * Multi-tier key resolution (custom Groq key with superadmin system key fallback).
+* **4.2 Multimodal Vision & Image Reasoning** *(Active / In-Progress)*
   * Ingest incoming photos, screenshots, infographics, and memes.
-  * Multi-modal LLM comprehension (Gemini 2.5 / GPT-4o / Claude 3.5 Sonnet) to contextualize images with past memories.
-  * Generate authentic in-persona reactions (e.g. commenting on a shared screenshot without breaking character).
-* **4.3 Owner Voice Cloning & Voice Note Generation (Text-to-Speech)**
+  * Multimodal LLM comprehension (Gemini 2.0 Flash / GPT-4o / Claude 3.5 Sonnet) with optional dedicated vision key or primary AI key fallback.
+  * Generate authentic in-persona reactions without breaking character.
+* **4.3 Owner Voice Cloning & Voice Note Generation (Text-to-Speech)** *(Blocked / On Hold)*
   * Zero-shot voice cloning trained on owner reference audio.
-  * Generating native PTT (Push-To-Talk) WhatsApp voice notes (`audio/ogg; codecs=opus`) with authentic cadence, pauses, and tone.
-  * TakeOver poll option: `Reply via Voice Note`.
+  * Generating native PTT WhatsApp voice notes (`audio/ogg; codecs=opus`) with 64-byte RMS waveforms.
+  * Status: Blocked for now pending compute cost, provider pricing stability, and mobile synthesis latency optimizations.
+* **4.4 TakeOver Voice Reply Gating & Enhanced Media Poll Actions** *(Blocked / On Hold)*
+  * TakeOver approval poll option: `Reply via Voice Note`.
+  * Status: Blocked for now pending Voice Note Generation (4.3) unblock.
 
 ---
 
@@ -140,11 +143,11 @@ Transition the local daemon architecture into an enterprise-grade multi-tenant c
 
 | Initiative | Impact | Complexity | Feasibility | Target Timeline | Technical Specification |
 | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Voice Note STT (`.opus` Ingestion)** | High | Low | High | **Q3 2026** | [Phase 4 Spec](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md) |
-| **Image & Vision Understanding** | High | Low | High | **Q3 2026** | [Phase 4 Spec](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md) |
+| **Voice Note STT (`.opus` Ingestion)** | High | Low | High | **Q3 2026 (Active)** | [Phase 4 Spec](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md) |
+| **Image & Vision Understanding** | High | Low | High | **Q3 2026 (Active)** | [Phase 4 Spec](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md) |
 | **Web Push Notifications (PWA)** | High | Medium | High | **Q4 2026** | [Phase 7 Spec](Documentation/PHASE_7_MOBILE_PUSH_WEARABLES.md) |
 | **Google/Apple Calendar Integration** | High | Medium | High | **Q4 2026** | [Phase 5 Spec](Documentation/PHASE_5_AGENTIC_TOOLS_CALENDAR.md) |
-| **Voice Cloning & Audio Generation** | High | Medium | Medium | **Q1 2027** | [Phase 4 Spec](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md) |
+| **Voice Cloning & Audio Generation** | High | Medium | Medium | **Blocked (Paused)** | [Phase 4 Spec](Documentation/PHASE_4_MULTIMODAL_AUDIO_VISION.md) |
 | **Group Chat Mention & Floor Control** | Medium | Medium | High | **Q1 2027** | [Phase 6 Spec](Documentation/PHASE_6_GROUP_DYNAMICS_SOCIAL_GRAPH.md) |
 | **Apple Watch (watchOS) App** | High | High | Medium | **Q2 2027** | [Phase 7 Spec](Documentation/PHASE_7_MOBILE_PUSH_WEARABLES.md) |
 | **Local LoRA Persona Fine-Tuning** | High | High | Medium | **Q3 2027** | [Phase 8 Spec](Documentation/PHASE_8_PERSONA_LORA_ALIGNMENT.md) |

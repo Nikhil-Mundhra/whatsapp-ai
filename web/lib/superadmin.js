@@ -735,6 +735,24 @@ export async function getGlobalAiConfig() {
 }
 
 /**
+ * Checks whether a global Groq API key is configured by Superadmin or environment.
+ */
+export async function hasSuperadminGroqKey() {
+  if (process.env.GROQ_API_KEY && String(process.env.GROQ_API_KEY).trim()) return true;
+  if (kv) {
+    try {
+      const raw = await kv.get("superadmin:ai_config");
+      if (raw) {
+        const config = typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (config.groqApiKey && String(config.groqApiKey).trim()) return true;
+      }
+    } catch {}
+  }
+  if (globalThis.__superadminAiConfigFallback?.groqApiKey) return true;
+  return false;
+}
+
+/**
  * Updates the global AI provider keys and default model.
  */
 export async function setGlobalAiConfig(updates = {}) {

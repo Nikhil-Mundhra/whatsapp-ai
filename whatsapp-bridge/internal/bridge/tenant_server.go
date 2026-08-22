@@ -137,10 +137,15 @@ func connectionsHandler(manager *TenantManager) http.HandlerFunc {
 
 func handleProvisionOrUpdate(w http.ResponseWriter, r *http.Request, manager *TenantManager, hash string) {
 	var body struct {
-		OwnerPhone        string      `json:"ownerPhone"`
-		AllowedRecipients interface{} `json:"allowedRecipients"`
-		AIApiKey          string      `json:"aiApiKey"`
-		AIModel           string      `json:"aiModel"`
+		OwnerPhone                    string      `json:"ownerPhone"`
+		AllowedRecipients             interface{} `json:"allowedRecipients"`
+		AIApiKey                      string      `json:"aiApiKey"`
+		AIModel                       string      `json:"aiModel"`
+		VoiceNoteTranscriptionEnabled *bool       `json:"voiceNoteTranscriptionEnabled"`
+		GroqApiKey                    *string     `json:"groqApiKey"`
+		VisionEnabled                 *bool       `json:"visionEnabled"`
+		VisionApiKey                  *string     `json:"visionApiKey"`
+		VisionModel                   string      `json:"visionModel"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
@@ -162,15 +167,41 @@ func handleProvisionOrUpdate(w http.ResponseWriter, r *http.Request, manager *Te
 		}
 	}
 
+	vnEnabled := true
+	if body.VoiceNoteTranscriptionEnabled != nil {
+		vnEnabled = *body.VoiceNoteTranscriptionEnabled
+	}
+	vEnabled := true
+	if body.VisionEnabled != nil {
+		vEnabled = *body.VisionEnabled
+	}
+	vModel := "gemini-2.0-flash"
+	if body.VisionModel != "" {
+		vModel = body.VisionModel
+	}
+	groqKey := ""
+	if body.GroqApiKey != nil {
+		groqKey = *body.GroqApiKey
+	}
+	visionKey := ""
+	if body.VisionApiKey != nil {
+		visionKey = *body.VisionApiKey
+	}
+
 	tenant := manager.Get(hash)
 	if tenant == nil {
 		tenant = &Tenant{
-			Hash:       hash,
-			logger:     waLog.Stdout(fmt.Sprintf("Tenant-%s", hash), "INFO", true),
-			ownerPhone: body.OwnerPhone,
-			recipients: recipients,
-			aiApiKey:   body.AIApiKey,
-			aiModel:    body.AIModel,
+			Hash:                          hash,
+			logger:                        waLog.Stdout(fmt.Sprintf("Tenant-%s", hash), "INFO", true),
+			ownerPhone:                    body.OwnerPhone,
+			recipients:                    recipients,
+			aiApiKey:                      body.AIApiKey,
+			aiModel:                       body.AIModel,
+			voiceNoteTranscriptionEnabled: vnEnabled,
+			groqApiKey:                    groqKey,
+			visionEnabled:                 vEnabled,
+			visionApiKey:                  visionKey,
+			visionModel:                   vModel,
 		}
 		tenant.saveConfig()
 		manager.Add(tenant)
@@ -186,6 +217,21 @@ func handleProvisionOrUpdate(w http.ResponseWriter, r *http.Request, manager *Te
 		}
 		if body.AIModel != "" {
 			tenant.aiModel = body.AIModel
+		}
+		if body.VoiceNoteTranscriptionEnabled != nil {
+			tenant.voiceNoteTranscriptionEnabled = *body.VoiceNoteTranscriptionEnabled
+		}
+		if body.GroqApiKey != nil {
+			tenant.groqApiKey = *body.GroqApiKey
+		}
+		if body.VisionEnabled != nil {
+			tenant.visionEnabled = *body.VisionEnabled
+		}
+		if body.VisionApiKey != nil {
+			tenant.visionApiKey = *body.VisionApiKey
+		}
+		if body.VisionModel != "" {
+			tenant.visionModel = body.VisionModel
 		}
 		tenant.saveConfig()
 	}

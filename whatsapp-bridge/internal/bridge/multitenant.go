@@ -24,24 +24,34 @@ import (
 
 // TenantConfig is persisted to store/tenants/<hash>/config.json.
 type TenantConfig struct {
-	OwnerPhone string   `json:"ownerPhone"`
-	Recipients []string `json:"recipients"`
-	AIApiKey   string   `json:"aiApiKey"`
-	AIModel    string   `json:"aiModel"`
+	OwnerPhone                    string   `json:"ownerPhone"`
+	Recipients                    []string `json:"recipients"`
+	AIApiKey                      string   `json:"aiApiKey"`
+	AIModel                       string   `json:"aiModel"`
+	VoiceNoteTranscriptionEnabled *bool    `json:"voiceNoteTranscriptionEnabled,omitempty"`
+	GroqApiKey                    string   `json:"groqApiKey,omitempty"`
+	VisionEnabled                 *bool    `json:"visionEnabled,omitempty"`
+	VisionApiKey                  string   `json:"visionApiKey,omitempty"`
+	VisionModel                   string   `json:"visionModel,omitempty"`
 }
 
 // Tenant is a single linked WhatsApp account (one per setup hash).
 type Tenant struct {
-	Hash         string
-	mu           sync.Mutex
-	client       *whatsmeow.Client
-	messageStore *MessageStore
-	container    *sqlstore.Container
-	logger       waLog.Logger
-	ownerPhone   string
-	recipients   []string
-	aiApiKey     string
-	aiModel      string
+	Hash                          string
+	mu                            sync.Mutex
+	client                        *whatsmeow.Client
+	messageStore                  *MessageStore
+	container                     *sqlstore.Container
+	logger                        waLog.Logger
+	ownerPhone                    string
+	recipients                    []string
+	aiApiKey                      string
+	aiModel                       string
+	voiceNoteTranscriptionEnabled bool
+	groqApiKey                    string
+	visionEnabled                 bool
+	visionApiKey                  string
+	visionModel                   string
 
 	qrCode                        string
 	qrUpdated                     time.Time
@@ -366,11 +376,18 @@ func (t *Tenant) configFile() string {
 }
 
 func (t *Tenant) saveConfig() {
+	vnEnabled := t.voiceNoteTranscriptionEnabled
+	vEnabled := t.visionEnabled
 	cfg := TenantConfig{
-		OwnerPhone: t.ownerPhone,
-		Recipients: t.recipients,
-		AIApiKey:   t.aiApiKey,
-		AIModel:    t.aiModel,
+		OwnerPhone:                    t.ownerPhone,
+		Recipients:                    t.recipients,
+		AIApiKey:                      t.aiApiKey,
+		AIModel:                       t.aiModel,
+		VoiceNoteTranscriptionEnabled: &vnEnabled,
+		GroqApiKey:                    t.groqApiKey,
+		VisionEnabled:                 &vEnabled,
+		VisionApiKey:                  t.visionApiKey,
+		VisionModel:                   t.visionModel,
 	}
 	if data, err := json.MarshalIndent(cfg, "", "  "); err == nil {
 		_ = os.WriteFile(t.configFile(), data, 0644)
@@ -378,6 +395,11 @@ func (t *Tenant) saveConfig() {
 }
 
 func (t *Tenant) loadConfig() {
+	// Defaults
+	t.voiceNoteTranscriptionEnabled = true
+	t.visionEnabled = true
+	t.visionModel = "gemini-2.0-flash"
+
 	data, err := os.ReadFile(t.configFile())
 	if err != nil {
 		return
@@ -388,6 +410,17 @@ func (t *Tenant) loadConfig() {
 		t.recipients = cfg.Recipients
 		t.aiApiKey = cfg.AIApiKey
 		t.aiModel = cfg.AIModel
+		if cfg.VoiceNoteTranscriptionEnabled != nil {
+			t.voiceNoteTranscriptionEnabled = *cfg.VoiceNoteTranscriptionEnabled
+		}
+		t.groqApiKey = cfg.GroqApiKey
+		if cfg.VisionEnabled != nil {
+			t.visionEnabled = *cfg.VisionEnabled
+		}
+		t.visionApiKey = cfg.VisionApiKey
+		if cfg.VisionModel != "" {
+			t.visionModel = cfg.VisionModel
+		}
 	}
 }
 
@@ -624,11 +657,16 @@ func (t *Tenant) status() map[string]interface{} {
 		"connected":         connected,
 		"hasQR":             t.qrCode != "",
 		"qrAge":             int(time.Since(t.qrUpdated).Seconds()),
-		"ownerPhone":        t.ownerPhone,
-		"allowedRecipients": t.recipients,
-		"aiModel":           t.aiModel,
-		"aiApiKeySet":       t.aiApiKey != "",
-		"reconnectAttempts": t.reconnectAttempts,
+		"ownerPhone":                    t.ownerPhone,
+		"allowedRecipients":             t.recipients,
+		"aiModel":                       t.aiModel,
+		"aiApiKeySet":                   t.aiApiKey != "",
+		"voiceNoteTranscriptionEnabled": t.voiceNoteTranscriptionEnabled,
+		"groqApiKeySet":                 t.groqApiKey != "",
+		"visionEnabled":                 t.visionEnabled,
+		"visionApiKeySet":               t.visionApiKey != "",
+		"visionModel":                   t.visionModel,
+		"reconnectAttempts":             t.reconnectAttempts,
 		"lastError":         t.lastError,
 		"connectedAt":       t.connectedAt.Format(time.RFC3339),
 		"disconnectedAt":    t.disconnectedAt.Format(time.RFC3339),

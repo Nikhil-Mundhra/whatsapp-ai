@@ -5,9 +5,10 @@
 ## Executive Summary
 
 Phase 4 expands the WhatsApp AI & TakeOver system from pure text mirroring to full native multimodal parity with human WhatsApp behavior:
-1. **Audio-to-Text (STT)**: Ingesting, decrypting, and transcribing incoming `.opus` voice notes into conversation history and semantic memory.
-2. **Multimodal Vision & Image Reasoning**: Ingesting photos, screenshots, memes, and receipts to draft authentic, in-persona reactions without breaking character.
-3. **Owner Voice Cloning & Voice Note Generation (TTS)**: Synthesizing WhatsApp-compliant Push-To-Talk (PTT) Ogg Opus voice notes with authentic owner timbre, cadence, and 64-byte waveform visualization.
+1. **Audio-to-Text (STT) [4.1 - Active]**: Ingesting, decrypting, and transcribing incoming `.opus` voice notes into conversation history and semantic memory via Groq Whisper (`whisper-large-v3-turbo`).
+2. **Multimodal Vision & Image Reasoning [4.2 - Active]**: Ingesting photos, screenshots, memes, and receipts to draft authentic, in-persona reactions without breaking character using Frontier Vision APIs (Gemini 2.0 Flash / OpenAI / Claude).
+3. **Owner Voice Cloning & Voice Note Generation (TTS) [4.3 - Blocked / On Hold]**: Synthesizing WhatsApp-compliant Push-To-Talk (PTT) Ogg Opus voice notes with authentic owner timbre and cadence. *(Status: Blocked for now pending evaluation of compute overhead, provider pricing, and synthesis latency).*
+4. **TakeOver Voice Reply Gating & Enhanced Media Actions [4.4 - Blocked / On Hold]**: Interactive poll options to trigger voice responses (`Reply via Voice Note`). *(Status: Blocked pending Part 4.3 unblock).*
 
 This document presents a comprehensive evaluation of the architectural trade-offs, compute requirements, container/granule specifications, and concrete integration blueprints across the Go Bridge (`whatsapp-bridge/`), Python Harness (`harness/`), and Next.js Web Control Plane (`web/`).
 
@@ -135,7 +136,12 @@ IMAGE UNDERSTANDING RULES:
 
 ---
 
-## 3. Subsystem 3: Owner Voice Cloning & Voice Note Generation (TTS)
+## 3. Subsystem 3: Owner Voice Cloning & Voice Note Generation (TTS) [BLOCKED / ON HOLD]
+
+> [!IMPORTANT]
+> **Status: Blocked / On Hold**
+> Implementation of Phase 4 Part 3 (Owner Voice Cloning & Outbound Voice Note Synthesis) is currently blocked and paused.
+> Rationale: Ongoing cost structure review, provider API pricing/rate-limit guarantees, and mobile edge latency optimizations are under evaluation before deploying outbound audio generation.
 
 ### 3.1 WhatsApp Voice Note Format Specification
 WhatsApp voice messages have strict encoding and metadata requirements to be recognized as native Push-To-Talk (PTT) voice notes rather than generic audio attachments:
@@ -254,7 +260,11 @@ func GenerateWhatsAppWaveform(pcmSamples []int16) []byte {
 
 ---
 
-## 4. TakeOver Poll UI & Workflow Integration
+## 4. TakeOver Poll UI & Workflow Integration [BLOCKED / ON HOLD]
+
+> [!IMPORTANT]
+> **Status: Blocked / On Hold**
+> Implementation of Phase 4 Part 4 (Voice Note Gated Poll Actions `Reply with Voice Note`) is blocked pending the unblocking and completion of Voice Cloning (Part 4.3).
 
 ### 4.1 Enhanced TakeOver Poll Actions (Voice & Media Gating)
 The Phase 1-3 TakeOver state machine (`harness/controller.py`, `whatsapp-bridge/internal/bridge/tenant_events.go`, `web/app/components/Chat/TakeOverPollCard.jsx`) supports 4 standard actions: `Send 1 text`, `5 minutes`, `2 hours`, `Deny`.
@@ -297,14 +307,15 @@ sequenceDiagram
 
 ### 5.1 Modifications by Repository Layer
 
-| File / Component | Architectural Changes Needed for Phase 4 |
-| :--- | :--- |
-| **`whatsapp-bridge/internal/bridge/tenant_events.go`** | 1. Intercept incoming `AudioMessage` and `ImageMessage` events.<br/>2. Invoke `downloadMedia()` automatically for allowed contacts.<br/>3. Dispatch STT transcription to Groq Whisper before evaluating TakeOver trigger.<br/>4. Populate poll question with voice transcript or image context snippet. |
-| **`whatsapp-bridge/internal/bridge/tenant_ai.go`** | 1. Extend `callGeminiAPI` and `callOpenAICompatibleAPI` to accept image attachments (base64 inline images).<br/>2. Add `callTTS()` integration (ElevenLabs / Kokoro) when voice note reply is requested.<br/>3. Send outbound `AudioMessage` with generated waveform when voice grant is activated. |
-| **`whatsapp-bridge/internal/bridge/audio.go`** | 1. Implement `GenerateWhatsAppWaveform()` using true 64-bucket RMS calculation.<br/>2. Validate Ogg Opus container structures before outbound PTT transmission. |
-| **`web/app/components/Chat/MessageBubble.jsx`** | 1. Remove `[Not visible to AI]` visual indicator once vision pipeline is active.<br/>2. Add interactive playable voice note audio bar with dynamic waveform visualizer. |
-| **`web/app/components/Chat/TakeOverPollCard.jsx`** | 1. Add `Reply with Voice Note` button variant with microphone SVG icon.<br/>2. Support displaying media thumbnails directly in poll cards. |
-| **`web/lib/superadmin.js`** | 1. Support managing `ELEVENLABS_API_KEY`, `CARTESIA_API_KEY`, and voice reference audio uploads per tenant.<br/>2. Telemetry tracking for TTS characters generated and image vision tokens consumed. |
+| File / Component | Architectural Changes Needed for Phase 4 | Status |
+| :--- | :--- | :--- |
+| **`whatsapp-bridge/internal/bridge/tenant_events.go`** | 1. Intercept incoming `AudioMessage` and `ImageMessage` events.<br/>2. Invoke `downloadMedia()` automatically for allowed contacts.<br/>3. Dispatch STT transcription to Groq Whisper before evaluating TakeOver trigger.<br/>4. Populate poll question with voice transcript or image context snippet. | **Active (4.1 & 4.2)** |
+| **`whatsapp-bridge/internal/bridge/tenant_ai.go`** | 1. Extend `callGeminiAPI` and `callOpenAICompatibleAPI` to accept image attachments (base64 inline images).<br/>2. Ingest transcribed audio into context. | **Active (4.1 & 4.2)** |
+| **`whatsapp-bridge/internal/bridge/multitenant.go`** | 1. Persist `VoiceNoteTranscriptionEnabled`, `GroqApiKey`, `VisionEnabled`, `VisionApiKey`, `VisionModel` on `TenantConfig` and `Tenant`. | **Completed** |
+| **`web/app/components/Modals/SettingsDrawer.jsx`** | 1. Emerald Glass settings cards for Groq STT and Vision Model with fallback badges, toggles, and live key validation. | **Completed** |
+| **`whatsapp-bridge/internal/bridge/tenant_ai.go`** | 1. Outbound TTS voice synthesis (`callTTS()`) via ElevenLabs/Kokoro. | **Blocked / On Hold** |
+| **`whatsapp-bridge/internal/bridge/audio.go`** | 1. Implement `GenerateWhatsAppWaveform()` using true 64-bucket RMS calculation for outbound PTT. | **Blocked / On Hold** |
+| **`web/app/components/Chat/TakeOverPollCard.jsx`** | 1. Add `Reply with Voice Note` button variant with microphone icon. | **Blocked / On Hold** |
 
 ---
 
@@ -314,19 +325,21 @@ sequenceDiagram
 gantt
     title Phase 4 Implementation Milestones
     dateFormat  YYYY-MM-DD
-    section 4.1 Voice STT Engine
-    Groq Whisper Ingestion Pipeline       :active, p1, 2026-09-01, 10d
-    SQLite & Semantic Memory Sync         :p2, after p1, 5d
-    section 4.2 Vision Reasoning
-    Multimodal Image Ingestion & Resizing :p3, 2026-09-15, 8d
-    Gemini 2.0 Flash Persona Integration :p4, after p3, 7d
-    section 4.3 Voice Note TTS Engine
-    Owner Voice Clone Reference Profiling :p5, 2026-10-01, 7d
-    WhatsApp PTT Ogg Opus & Waveform Gen  :p6, after p5, 8d
-    TakeOver Poll 'Voice Reply' Gating    :p7, after p6, 5d
+    section 4.1 Voice STT Engine (Active)
+    Groq Whisper Settings & Bridge Config :done, p1, 2026-08-20, 3d
+    Groq Whisper Ingestion Pipeline       :active, p2, 2026-08-23, 7d
+    SQLite & Semantic Memory Sync         :p3, after p2, 4d
+    section 4.2 Vision Reasoning (Active)
+    Vision Key & Model Web Settings       :done, p4, 2026-08-20, 3d
+    Multimodal Image Ingestion & Resizing :active, p5, 2026-08-23, 5d
+    Gemini 2.0 Flash Persona Integration :p6, after p5, 5d
+    section 4.3 & 4.4 Voice Note TTS (Blocked)
+    Owner Voice Clone Reference Profiling :crit, p7, 2026-10-01, 7d
+    WhatsApp PTT Ogg Opus & Waveform Gen  :crit, p8, after p7, 8d
+    TakeOver Poll 'Voice Reply' Gating    :crit, p9, after p8, 5d
 ```
 
 ### Recommendation Summary
-1. **Voice STT**: Deploy **Groq Whisper `whisper-large-v3-turbo`** directly inside the Go Bridge. It eliminates local dependencies, offers sub-300ms latency, and stays within the free tier (7,200s/day).
-2. **Vision Reasoning**: Implement **Gemini 2.0 Flash Multimodal** via direct API or OpenRouter. At $0.000025 per image and ~700ms response time, it provides deep meme, screenshot, and visual context comprehension without local GPU overhead.
-3. **Voice TTS**: Deploy **ElevenLabs Turbo v2.5 / Cartesia Sonic** for high-fidelity zero-shot voice cloning, paired with Go-based 64-bucket RMS waveform calculation and native Ogg Opus packaging.
+1. **Voice STT (Phase 4.1 - Active)**: Deploy **Groq Whisper `whisper-large-v3-turbo`** directly inside the Go Bridge. It eliminates local dependencies, offers sub-300ms latency, and utilizes the system superadmin fallback or custom tenant key.
+2. **Vision Reasoning (Phase 4.2 - Active)**: Implement **Gemini 2.0 Flash Multimodal** via direct API or OpenRouter. At $0.000025 per image and ~700ms response time, it provides deep meme, screenshot, and visual context comprehension without local GPU overhead.
+3. **Voice TTS & Voice Gating (Phase 4.3 & 4.4 - Blocked / On Hold)**: Temporarily paused. Outbound Push-To-Talk voice note synthesis and TakeOver poll `Reply via Voice Note` gating will remain in specification state pending infrastructure and compute review.
