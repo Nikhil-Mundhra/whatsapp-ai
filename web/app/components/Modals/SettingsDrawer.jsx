@@ -58,18 +58,22 @@ export function SettingsDrawer({
   hasSuperadminGroqFallback = false,
   visionApiKeySet = false,
   visionApiKeyMasked = "",
+  calendarFeedUrlSet = false,
+  calendarFeedUrlMasked = "",
 }) {
   const [isEditingKey, setIsEditingKey] = useState(!aiApiKeySet);
   const [isEditingGroqKey, setIsEditingGroqKey] = useState(false);
   const [isEditingVisionKey, setIsEditingVisionKey] = useState(false);
+  const [isEditingCalendar, setIsEditingCalendar] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setIsEditingKey(!aiApiKeySet);
       setIsEditingGroqKey(false);
       setIsEditingVisionKey(false);
+      setIsEditingCalendar(false);
     }
-  }, [isOpen, aiApiKeySet, groqApiKeySet, visionApiKeySet]);
+  }, [isOpen, aiApiKeySet, groqApiKeySet, visionApiKeySet, calendarFeedUrlSet]);
 
   if (!isOpen) return null;
 
@@ -1163,8 +1167,8 @@ export function SettingsDrawer({
                     width: 28,
                     height: 28,
                     borderRadius: 6,
-                    background: configForm.calendarFeedUrl ? "rgba(0, 168, 132, 0.15)" : "var(--wa-input-bg)",
-                    color: configForm.calendarFeedUrl ? "#00a884" : "var(--wa-text-secondary)",
+                    background: (calendarFeedUrlSet || configForm.calendarFeedUrl) ? "rgba(0, 168, 132, 0.15)" : "var(--wa-input-bg)",
+                    color: (calendarFeedUrlSet || configForm.calendarFeedUrl) ? "#00a884" : "var(--wa-text-secondary)",
                   }}
                 >
                   <CalendarIcon size={16} color="currentColor" />
@@ -1181,33 +1185,179 @@ export function SettingsDrawer({
 
               {/* Feed URL Input */}
               <div style={{ display: "grid", gap: 6, paddingTop: 4, borderTop: "1px solid var(--wa-border)" }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--wa-text-primary)" }}>
-                  Private iCal / ICS Subscription URL
+                <label style={{ fontSize: 12, color: "var(--wa-text-secondary)", display: "block" }}>
+                  Private iCal / ICS Feed (Google, Apple, or Outlook)
                 </label>
-                <input
-                  type="url"
-                  value={configForm.calendarFeedUrl || ""}
-                  onChange={(e) =>
-                    setConfigForm((prev) => ({ ...prev, calendarFeedUrl: e.target.value }))
-                  }
-                  placeholder="e.g. https://calendar.google.com/calendar/ical/.../basic.ics"
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    border: "1px solid var(--wa-border-strong)",
-                    fontSize: 13,
-                    outline: "none",
-                    backgroundColor: "var(--wa-input-bg)",
-                    color: "var(--wa-text-primary)",
-                  }}
-                />
-                <span style={{ fontSize: 11, color: "var(--wa-text-secondary)", lineHeight: 1.4 }}>
-                  Obtain from Google Calendar (Settings &gt; Secret address in iCal format), Apple Calendar (Share Calendar), or Outlook. Zero OAuth setup needed.
-                </span>
+
+                {(calendarFeedUrlSet || configForm.calendarFeedUrl) && !isEditingCalendar ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "8px 12px",
+                      borderRadius: 6,
+                      border: "1px solid var(--wa-border-strong)",
+                      backgroundColor: "var(--wa-input-bg)",
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, overflow: "hidden" }}>
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 26,
+                          height: 26,
+                          borderRadius: 6,
+                          background: "rgba(16, 185, 129, 0.15)",
+                          color: "#10b981",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <CalendarIcon size={14} color="#10b981" />
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                        <span
+                          style={{
+                            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: "var(--wa-text-primary)",
+                            letterSpacing: "0.5px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {calendarFeedUrlMasked || (configForm.calendarFeedUrl ? (configForm.calendarFeedUrl.length > 20 ? configForm.calendarFeedUrl.slice(0, 12) + "••••••••" + configForm.calendarFeedUrl.slice(-8) : "••••••••••••••••") : "••••••••••••••••")}
+                        </span>
+                        <span style={{ fontSize: 10, color: "#10b981", display: "flex", alignItems: "center", gap: 3, fontWeight: 600 }}>
+                          <CheckIcon size={10} color="#10b981" strokeWidth={3} />
+                          <span>Active Calendar Feed</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingCalendar(true)}
+                      style={{
+                        padding: "6px 12px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "var(--wa-text-primary)",
+                        background: "var(--wa-card-bg)",
+                        border: "1px solid var(--wa-border-strong)",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                        transition: "all 0.15s ease",
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.borderColor = "#00a884";
+                        e.currentTarget.style.color = "#00a884";
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.borderColor = "var(--wa-border-strong)";
+                        e.currentTarget.style.color = "var(--wa-text-primary)";
+                      }}
+                    >
+                      <EditIcon size={12} color="currentColor" />
+                      <span>Change</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input
+                        type="url"
+                        value={configForm.calendarFeedUrl || ""}
+                        onChange={(e) =>
+                          setConfigForm((prev) => ({ ...prev, calendarFeedUrl: e.target.value }))
+                        }
+                        placeholder={calendarFeedUrlSet ? "Enter new iCal Feed URL" : "Enter private iCal Feed URL (e.g. https://.../basic.ics)"}
+                        autoFocus={(calendarFeedUrlSet || configForm.calendarFeedUrl) && isEditingCalendar}
+                        style={{
+                          flex: 1,
+                          width: "100%",
+                          padding: "8px 12px",
+                          borderRadius: 6,
+                          border: "1px solid var(--wa-border-strong)",
+                          fontSize: 13,
+                          outline: "none",
+                          backgroundColor: "var(--wa-input-bg)",
+                          color: "var(--wa-text-primary)",
+                        }}
+                      />
+                      {(calendarFeedUrlSet || configForm.calendarFeedUrl) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsEditingCalendar(false);
+                          }}
+                          style={{
+                            padding: "8px 12px",
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: "var(--wa-text-secondary)",
+                            background: "transparent",
+                            border: "1px solid var(--wa-border-strong)",
+                            borderRadius: 6,
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.color = "var(--wa-text-primary)";
+                            e.currentTarget.style.borderColor = "#00a884";
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.color = "var(--wa-text-secondary)";
+                            e.currentTarget.style.borderColor = "var(--wa-border-strong)";
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                      {isEditingCalendar && (calendarFeedUrlSet || configForm.calendarFeedUrl) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConfigForm((prev) => ({ ...prev, calendarFeedUrl: "" }));
+                            setIsEditingCalendar(false);
+                          }}
+                          title="Clear and disconnect calendar feed"
+                          style={{
+                            padding: "8px 12px",
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: "#ef4444",
+                            background: "rgba(239, 68, 68, 0.1)",
+                            border: "1px solid rgba(239, 68, 68, 0.3)",
+                            borderRadius: 6,
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                          }}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <span style={{ fontSize: 11, color: "var(--wa-text-secondary)", marginTop: 4, display: "block", lineHeight: 1.4 }}>
+                      Obtain from Google Calendar (Settings &gt; Secret address in iCal format), Apple Calendar (Share Calendar), or Outlook. Zero OAuth setup needed.
+                    </span>
+                  </div>
+                )}
 
                 {/* Timezone Selector */}
-                <div style={{ marginTop: 6 }}>
+                <div style={{ marginTop: 8 }}>
                   <label style={{ fontSize: 12, color: "var(--wa-text-secondary)", display: "block", marginBottom: 4 }}>
                     Your Timezone
                   </label>

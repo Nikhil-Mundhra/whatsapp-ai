@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server.js";
 import { getConfig, saveConfig } from "../../../lib/config.js";
-import { maskApiKey } from "../../../lib/connections.js";
+import { maskApiKey, maskCalendarUrl } from "../../../lib/connections.js";
 import { hasSuperadminGroqKey } from "../../../lib/superadmin.js";
 
 export async function GET() {
@@ -8,6 +8,7 @@ export async function GET() {
   if (!config) return NextResponse.json({ config: null });
   const superadminHasGroq = await hasSuperadminGroqKey();
   const { aiApiKey, groqApiKey, visionApiKey, ...rest } = config;
+  const calUrl = config.calendarFeedUrl || "";
   return NextResponse.json({
     config: {
       ...rest,
@@ -21,7 +22,9 @@ export async function GET() {
       visionApiKeySet: Boolean(visionApiKey),
       visionApiKeyMasked: visionApiKey ? maskApiKey(visionApiKey) : "",
       visionModel: config.visionModel || "gemini-2.0-flash",
-      calendarFeedUrl: config.calendarFeedUrl || "",
+      calendarFeedUrl: calUrl,
+      calendarFeedUrlSet: Boolean(calUrl),
+      calendarFeedUrlMasked: calUrl ? maskCalendarUrl(calUrl) : "",
       timezone: config.timezone || "UTC",
       searchEnabled: config.searchEnabled !== undefined ? Boolean(config.searchEnabled) : true,
     },
@@ -117,6 +120,8 @@ export async function POST(req) {
       visionApiKeyMasked: next.visionApiKey ? maskApiKey(next.visionApiKey) : "",
       visionModel: next.visionModel || "gemini-2.0-flash",
       calendarFeedUrl: next.calendarFeedUrl || "",
+      calendarFeedUrlSet: Boolean(next.calendarFeedUrl),
+      calendarFeedUrlMasked: next.calendarFeedUrl ? maskCalendarUrl(next.calendarFeedUrl) : "",
       timezone: next.timezone || "UTC",
       searchEnabled: next.searchEnabled !== undefined ? Boolean(next.searchEnabled) : true,
     },

@@ -1496,6 +1496,8 @@ export default function Home() {
           hasSuperadminGroqFallback={Boolean(connInfo?.connection?.hasSuperadminGroqFallback)}
           visionApiKeySet={Boolean(connInfo?.connection?.visionApiKeySet)}
           visionApiKeyMasked={connInfo?.connection?.visionApiKeyMasked || (connInfo?.connection?.visionApiKeySet ? "••••••••••••" : "")}
+          calendarFeedUrlSet={Boolean(connInfo?.connection?.calendarFeedUrlSet || connInfo?.connection?.calendarFeedUrl)}
+          calendarFeedUrlMasked={connInfo?.connection?.calendarFeedUrlMasked || (connInfo?.connection?.calendarFeedUrl ? "••••••••••••" : "")}
         />
       </div>
 

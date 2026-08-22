@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server.js";
-import { getConnection, updateConnection, getBridgeHeaders, maskApiKey, getBridgeUrl } from "../../../../lib/connections.js";
+import { getConnection, updateConnection, getBridgeHeaders, maskApiKey, maskCalendarUrl, getBridgeUrl } from "../../../../lib/connections.js";
 import { hasSuperadminGroqKey } from "../../../../lib/superadmin.js";
 
 export async function GET(_req, props) {
@@ -63,6 +63,7 @@ export async function GET(_req, props) {
 
   const superadminHasGroq = await hasSuperadminGroqKey();
   const { aiApiKey, groqApiKey, visionApiKey, ...rest } = conn || {};
+  const calUrl = conn?.calendarFeedUrl || bridgeStatus?.calendarFeedUrl || "";
   return NextResponse.json({
     connection: {
       ...rest,
@@ -89,7 +90,9 @@ export async function GET(_req, props) {
       visionModel: conn?.visionModel || bridgeStatus?.visionModel || "gemini-2.0-flash",
 
       // Calendar & Search Grounding (Phase 5)
-      calendarFeedUrl: conn?.calendarFeedUrl || bridgeStatus?.calendarFeedUrl || "",
+      calendarFeedUrl: calUrl,
+      calendarFeedUrlSet: Boolean(calUrl),
+      calendarFeedUrlMasked: calUrl ? maskCalendarUrl(calUrl) : "",
       timezone: conn?.timezone || bridgeStatus?.timezone || "UTC",
       searchEnabled: conn?.searchEnabled !== undefined
         ? Boolean(conn.searchEnabled)
@@ -209,6 +212,8 @@ async function handleUpdate(req, props) {
       groqApiKeySet: Boolean(groqApiKey),
       groqApiKeyMasked: groqApiKey ? maskApiKey(groqApiKey) : "",
       calendarFeedUrl: conn.calendarFeedUrl || "",
+      calendarFeedUrlSet: Boolean(conn.calendarFeedUrl),
+      calendarFeedUrlMasked: conn.calendarFeedUrl ? maskCalendarUrl(conn.calendarFeedUrl) : "",
       timezone: conn.timezone || "UTC",
       searchEnabled: conn.searchEnabled !== undefined ? Boolean(conn.searchEnabled) : true,
       hasSuperadminGroqFallback: superadminHasGroq,

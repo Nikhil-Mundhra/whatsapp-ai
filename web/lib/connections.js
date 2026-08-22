@@ -62,6 +62,20 @@ export function maskApiKey(key) {
   return `${start}••••••••${end}`;
 }
 
+export function maskCalendarUrl(url) {
+  if (!url) return "";
+  const clean = String(url).trim();
+  if (clean.length === 0) return "";
+  try {
+    const parsed = new URL(clean);
+    const host = parsed.hostname;
+    return `https://${host}/••••••••/basic.ics`;
+  } catch {
+    if (clean.length <= 15) return clean.slice(0, 4) + "••••••";
+    return clean.slice(0, 10) + "••••••••" + clean.slice(-8);
+  }
+}
+
 export async function createConnection(config = {}) {
   let hash = config.hash ? String(config.hash).trim().toUpperCase() : generateHash();
   if (kv && !config.hash) {
