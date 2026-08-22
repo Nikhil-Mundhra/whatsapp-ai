@@ -21,6 +21,9 @@ export async function GET() {
       visionApiKeySet: Boolean(visionApiKey),
       visionApiKeyMasked: visionApiKey ? maskApiKey(visionApiKey) : "",
       visionModel: config.visionModel || "gemini-2.0-flash",
+      calendarFeedUrl: config.calendarFeedUrl || "",
+      timezone: config.timezone || "UTC",
+      searchEnabled: config.searchEnabled !== undefined ? Boolean(config.searchEnabled) : true,
     },
   });
 }
@@ -42,6 +45,9 @@ export async function POST(req) {
         visionEnabled: form.get("visionEnabled"),
         visionApiKey: form.get("visionApiKey"),
         visionModel: form.get("visionModel"),
+        calendarFeedUrl: form.get("calendarFeedUrl"),
+        timezone: form.get("timezone"),
+        searchEnabled: form.get("searchEnabled"),
       };
     }
   }
@@ -83,6 +89,15 @@ export async function POST(req) {
     const m = String(body.visionModel).trim();
     if (m) next.visionModel = m;
   }
+  if (body.calendarFeedUrl !== undefined) {
+    next.calendarFeedUrl = String(body.calendarFeedUrl).trim();
+  }
+  if (body.timezone !== undefined) {
+    next.timezone = String(body.timezone).trim();
+  }
+  if (body.searchEnabled !== undefined) {
+    next.searchEnabled = Boolean(body.searchEnabled);
+  }
 
   await saveConfig(next);
   const superadminHasGroq = await hasSuperadminGroqKey();
@@ -101,6 +116,9 @@ export async function POST(req) {
       visionApiKeySet: Boolean(next.visionApiKey),
       visionApiKeyMasked: next.visionApiKey ? maskApiKey(next.visionApiKey) : "",
       visionModel: next.visionModel || "gemini-2.0-flash",
+      calendarFeedUrl: next.calendarFeedUrl || "",
+      timezone: next.timezone || "UTC",
+      searchEnabled: next.searchEnabled !== undefined ? Boolean(next.searchEnabled) : true,
     },
   });
 }

@@ -389,4 +389,46 @@ test("polls.js unit tests", async (t) => {
     });
     assert.equal(newMatch, true);
   });
+
+  await t.test("createPoll and voteOnPoll correctly preserve action payload and metadata", async () => {
+    const kvStore = new Map();
+    let pendingSet = new Set();
+
+    _setKv({
+      smembers: async () => Array.from(pendingSet),
+      srem: async (key, member) => pendingSet.delete(member),
+      hget: async (key) => kvStore.get(key) || null,
+      hset: async (key, { data }) => kvStore.set(key, data),
+      zadd: async () => {},
+      sadd: async (key, member) => pendingSet.add(member),
+    });
+
+    const actionPoll = {
+      id: "poll_action_1",
+      hash: "T_PHASE5",
+      contact: "15559876543",
+      question: "Alex: Take over & schedule Coffee tomorrow at 4:00 PM?",
+      options: ["Send & Create Invite", "Send Text Only", "5 minutes", "Deny"],
+      actionType: "create_calendar_event",
+      actionPayload: JSON.stringify({
+        summary: "Coffee with Alex",
+        location: "Blue Bottle Coffee",
+        startUtc: "2026-08-23T10:30:00Z",
+        endUtc: "2026-08-23T11:30:00Z",
+      }),
+      draftReplyText: "Yeah, totally free at 4! Blue Bottle works.",
+      status: "pending",
+      createdAt: Date.now(),
+    };
+
+    await createPoll(actionPoll);
+    const retrieved = await getPoll("T_PHASE5", "poll_action_1");
+    assert.equal(retrieved.actionType, "create_calendar_event");
+    assert.equal(retrieved.draftReplyText, "Yeah, totally free at 4! Blue Bottle works.");
+
+    const voted = await voteOnPoll("T_PHASE5", "poll_action_1", "Send & Create Invite", "web");
+    assert.equal(voted.status, "answered");
+    assert.equal(voted.selectedOption, "Send & Create Invite");
+    assert.equal(voted.source, "web");
+  });
 });

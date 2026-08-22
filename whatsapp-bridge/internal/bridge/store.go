@@ -136,6 +136,60 @@ func migrateSchema(db *sql.DB) error {
 	}
 	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_semantic_memories_chat ON semantic_memories(chat_jid, timestamp)")
 
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS calendar_events (
+		id TEXT PRIMARY KEY,
+		tenant_hash TEXT NOT NULL,
+		calendar_id TEXT NOT NULL,
+		summary TEXT,
+		description TEXT,
+		location TEXT,
+		start_utc TIMESTAMP NOT NULL,
+		end_utc TIMESTAMP NOT NULL,
+		is_all_day BOOLEAN DEFAULT 0,
+		status TEXT DEFAULT 'confirmed',
+		updated_at TIMESTAMP NOT NULL
+	)`)
+	if err != nil {
+		return err
+	}
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_cal_events_time ON calendar_events(tenant_hash, start_utc, end_utc)")
+
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS pending_actions (
+		id TEXT PRIMARY KEY,
+		tenant_hash TEXT NOT NULL,
+		chat_jid TEXT NOT NULL,
+		poll_msg_id TEXT UNIQUE,
+		action_type TEXT NOT NULL,
+		action_payload TEXT NOT NULL,
+		draft_reply_text TEXT NOT NULL,
+		status TEXT DEFAULT 'pending',
+		created_at TIMESTAMP NOT NULL,
+		expires_at TIMESTAMP NOT NULL,
+		executed_at TIMESTAMP,
+		error_message TEXT
+	)`)
+	if err != nil {
+		return err
+	}
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_pending_actions_poll ON pending_actions(tenant_hash, poll_msg_id)")
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_pending_actions_status ON pending_actions(tenant_hash, status)")
+
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS tool_executions (
+		id TEXT PRIMARY KEY,
+		tenant_hash TEXT NOT NULL,
+		chat_jid TEXT NOT NULL,
+		tool_name TEXT NOT NULL,
+		input_payload TEXT NOT NULL,
+		output_payload TEXT NOT NULL,
+		execution_duration_ms INTEGER NOT NULL,
+		status TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL
+	)`)
+	if err != nil {
+		return err
+	}
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_tool_exec_tenant ON tool_executions(tenant_hash, created_at)")
+
 	return nil
 }
 
@@ -528,4 +582,281 @@ func (store *MessageStore) GetMessagesForIndexing(chatJID string, altJIDs []stri
 	}
 	return store.GetMessagesFlexible(chatJID, altJIDs, limit)
 }
+
+// CalendarEvent represents a single event normalized in UTC.
+type CalendarEvent struct {
+	ID          string    `json:"id"`
+	TenantHash  string    `json:"tenantHash"`
+	CalendarID  string    `json:"calendarId"`
+	Summary     string    `json:"summary"`
+	Description string    `json:"description"`
+	Location    string    `json:"location"`
+	StartUTC    time.Time `json:"startUtc"`
+	EndUTC      time.Time `json:"endUtc"`
+	IsAllDay    bool      `json:"isAllDay"`
+	Status      string    `json:"status"` // "confirmed", "tentative", "cancelled"
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// SaveCalendarEvents bulk upserts calendar events for a tenant.
+func (store *MessageStore) SaveCalendarEvents(tenantHash, calendarID string, events []CalendarEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	tx, err := store.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT OR REPLACE INTO calendar_events (
+			id, tenant_hash, calendar_id, summary, description, location,
+			start_utc, end_utc, is_all_day, status, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	now := time.Now().UTC()
+	for _, ev := range events {
+		isAllDayInt := 0
+		if ev.IsAllDay {
+			isAllDayInt = 1
+		}
+		status := ev.Status
+		if status == "" {
+			status = "confirmed"
+		}
+		_, err := stmt.Exec(
+			ev.ID, tenantHash, calendarID, ev.Summary, ev.Description, ev.Location,
+			ev.StartUTC, ev.EndUTC, isAllDayInt, status, now,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ClearCalendarEvents removes old cached calendar events for a specific calendar feed.
+func (store *MessageStore) ClearCalendarEvents(tenantHash, calendarID string) error {
+	_, err := store.db.Exec("DELETE FROM calendar_events WHERE tenant_hash = ? AND calendar_id = ?", tenantHash, calendarID)
+	return err
+}
+
+// GetCalendarEventsInRange returns confirmed events that overlap with [startUTC, endUTC].
+func (store *MessageStore) GetCalendarEventsInRange(tenantHash string, startUTC, endUTC time.Time) ([]CalendarEvent, error) {
+	rows, err := store.db.Query(`
+		SELECT id, tenant_hash, calendar_id, summary, description, location,
+		       start_utc, end_utc, is_all_day, status, updated_at
+		FROM calendar_events
+		WHERE tenant_hash = ?
+		  AND status != 'cancelled'
+		  AND start_utc < ?
+		  AND end_utc > ?
+		ORDER BY start_utc ASC
+	`, tenantHash, endUTC, startUTC)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []CalendarEvent
+	for rows.Next() {
+		var ev CalendarEvent
+		var isAllDayInt int
+		if err := rows.Scan(
+			&ev.ID, &ev.TenantHash, &ev.CalendarID, &ev.Summary, &ev.Description, &ev.Location,
+			&ev.StartUTC, &ev.EndUTC, &isAllDayInt, &ev.Status, &ev.UpdatedAt,
+		); err != nil {
+			continue
+		}
+		ev.IsAllDay = isAllDayInt == 1
+		events = append(events, ev)
+	}
+	return events, nil
+}
+
+// PendingAction represents a structured action awaiting owner approval.
+type PendingAction struct {
+	ID             string     `json:"id"`
+	TenantHash     string     `json:"tenantHash"`
+	ChatJID        string     `json:"chatJid"`
+	PollMsgID      string     `json:"pollMsgId,omitempty"`
+	ActionType     string     `json:"actionType"` // "create_calendar_event" | "send_location"
+	ActionPayload  string     `json:"actionPayload"`
+	DraftReplyText string     `json:"draftReplyText"`
+	Status         string     `json:"status"` // "pending" | "approved" | "rejected" | "executed" | "expired" | "overridden"
+	CreatedAt      time.Time  `json:"createdAt"`
+	ExpiresAt      time.Time  `json:"expiresAt"`
+	ExecutedAt     *time.Time `json:"executedAt,omitempty"`
+	ErrorMessage   string     `json:"errorMessage,omitempty"`
+}
+
+// CreatePendingAction persists a newly proposed action.
+func (store *MessageStore) CreatePendingAction(action *PendingAction) error {
+	_, err := store.db.Exec(`
+		INSERT OR REPLACE INTO pending_actions (
+			id, tenant_hash, chat_jid, poll_msg_id, action_type, action_payload,
+			draft_reply_text, status, created_at, expires_at, executed_at, error_message
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, action.ID, action.TenantHash, action.ChatJID, action.PollMsgID, action.ActionType,
+		action.ActionPayload, action.DraftReplyText, action.Status, action.CreatedAt,
+		action.ExpiresAt, action.ExecutedAt, action.ErrorMessage)
+	return err
+}
+
+// GetPendingActionByPollID fetches a pending action associated with a poll creation ID.
+func (store *MessageStore) GetPendingActionByPollID(tenantHash, pollMsgID string) (*PendingAction, error) {
+	var a PendingAction
+	var executedAt sql.NullTime
+	var errMsg sql.NullString
+	err := store.db.QueryRow(`
+		SELECT id, tenant_hash, chat_jid, poll_msg_id, action_type, action_payload,
+		       draft_reply_text, status, created_at, expires_at, executed_at, error_message
+		FROM pending_actions
+		WHERE tenant_hash = ? AND poll_msg_id = ?
+		LIMIT 1
+	`, tenantHash, pollMsgID).Scan(
+		&a.ID, &a.TenantHash, &a.ChatJID, &a.PollMsgID, &a.ActionType, &a.ActionPayload,
+		&a.DraftReplyText, &a.Status, &a.CreatedAt, &a.ExpiresAt, &executedAt, &errMsg,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if executedAt.Valid {
+		a.ExecutedAt = &executedAt.Time
+	}
+	if errMsg.Valid {
+		a.ErrorMessage = errMsg.String
+	}
+	return &a, nil
+}
+
+// GetPendingActionByID fetches a pending action by its primary key ID.
+func (store *MessageStore) GetPendingActionByID(tenantHash, id string) (*PendingAction, error) {
+	var a PendingAction
+	var executedAt sql.NullTime
+	var errMsg sql.NullString
+	err := store.db.QueryRow(`
+		SELECT id, tenant_hash, chat_jid, poll_msg_id, action_type, action_payload,
+		       draft_reply_text, status, created_at, expires_at, executed_at, error_message
+		FROM pending_actions
+		WHERE tenant_hash = ? AND id = ?
+		LIMIT 1
+	`, tenantHash, id).Scan(
+		&a.ID, &a.TenantHash, &a.ChatJID, &a.PollMsgID, &a.ActionType, &a.ActionPayload,
+		&a.DraftReplyText, &a.Status, &a.CreatedAt, &a.ExpiresAt, &executedAt, &errMsg,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if executedAt.Valid {
+		a.ExecutedAt = &executedAt.Time
+	}
+	if errMsg.Valid {
+		a.ErrorMessage = errMsg.String
+	}
+	return &a, nil
+}
+
+// UpdatePendingActionStatus updates status, error message, and execution timestamp.
+func (store *MessageStore) UpdatePendingActionStatus(tenantHash, id, status, errorMessage string, executedAt *time.Time) error {
+	_, err := store.db.Exec(`
+		UPDATE pending_actions
+		SET status = ?, error_message = ?, executed_at = ?
+		WHERE tenant_hash = ? AND id = ?
+	`, status, errorMessage, executedAt, tenantHash, id)
+	return err
+}
+
+// MarkPendingActionsOverridden marks any pending actions for a chat as overridden.
+func (store *MessageStore) MarkPendingActionsOverridden(tenantHash, chatJID string) error {
+	_, err := store.db.Exec(`
+		UPDATE pending_actions
+		SET status = 'overridden'
+		WHERE tenant_hash = ? AND chat_jid = ? AND status = 'pending'
+	`, tenantHash, chatJID)
+	return err
+}
+
+// ListPendingActions lists pending actions filtered by status.
+func (store *MessageStore) ListPendingActions(tenantHash, status string, limit int) ([]PendingAction, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var rows *sql.Rows
+	var err error
+	if status != "" {
+		rows, err = store.db.Query(`
+			SELECT id, tenant_hash, chat_jid, poll_msg_id, action_type, action_payload,
+			       draft_reply_text, status, created_at, expires_at, executed_at, error_message
+			FROM pending_actions
+			WHERE tenant_hash = ? AND status = ?
+			ORDER BY created_at DESC LIMIT ?
+		`, tenantHash, status, limit)
+	} else {
+		rows, err = store.db.Query(`
+			SELECT id, tenant_hash, chat_jid, poll_msg_id, action_type, action_payload,
+			       draft_reply_text, status, created_at, expires_at, executed_at, error_message
+			FROM pending_actions
+			WHERE tenant_hash = ?
+			ORDER BY created_at DESC LIMIT ?
+		`, tenantHash, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var actions []PendingAction
+	for rows.Next() {
+		var a PendingAction
+		var executedAt sql.NullTime
+		var errMsg sql.NullString
+		if err := rows.Scan(
+			&a.ID, &a.TenantHash, &a.ChatJID, &a.PollMsgID, &a.ActionType, &a.ActionPayload,
+			&a.DraftReplyText, &a.Status, &a.CreatedAt, &a.ExpiresAt, &executedAt, &errMsg,
+		); err != nil {
+			continue
+		}
+		if executedAt.Valid {
+			a.ExecutedAt = &executedAt.Time
+		}
+		if errMsg.Valid {
+			a.ErrorMessage = errMsg.String
+		}
+		actions = append(actions, a)
+	}
+	return actions, nil
+}
+
+// ToolExecution represents an audit log entry for tool executions.
+type ToolExecution struct {
+	ID                  string    `json:"id"`
+	TenantHash          string    `json:"tenantHash"`
+	ChatJID             string    `json:"chatJid"`
+	ToolName            string    `json:"toolName"`
+	InputPayload        string    `json:"inputPayload"`
+	OutputPayload       string    `json:"outputPayload"`
+	ExecutionDurationMs int64     `json:"executionDurationMs"`
+	Status              string    `json:"status"` // "success" | "failed" | "gated"
+	CreatedAt           time.Time `json:"createdAt"`
+}
+
+// LogToolExecution records a tool execution audit entry.
+func (store *MessageStore) LogToolExecution(exec *ToolExecution) error {
+	_, err := store.db.Exec(`
+		INSERT INTO tool_executions (
+			id, tenant_hash, chat_jid, tool_name, input_payload, output_payload,
+			execution_duration_ms, status, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, exec.ID, exec.TenantHash, exec.ChatJID, exec.ToolName, exec.InputPayload,
+		exec.OutputPayload, exec.ExecutionDurationMs, exec.Status, exec.CreatedAt)
+	return err
+}
+
 

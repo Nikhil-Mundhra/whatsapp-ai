@@ -394,8 +394,11 @@ func (t *Tenant) handleEvent(evt interface{}) {
 					return
 				}
 				// When owner manually texts an allowed contact (not self-chat):
-				// Keep active poll alive (no ping-pong delete/recreate), update conversation activity.
+				// Keep active poll alive (no ping-pong delete/recreate), update conversation activity, and override any pending actions.
 				if recipientKey != normalizePhone(t.ownerPhone) {
+					if t.messageStore != nil {
+						_ = t.messageStore.MarkPendingActionsOverridden(t.Hash, v.Info.Chat.String())
+					}
 					t.mu.Lock()
 					t.initMapsLocked()
 					now := time.Now()
@@ -404,7 +407,7 @@ func (t *Tenant) handleEvent(evt interface{}) {
 					if t.sessionStartedAtByRecipient[recipientKey].IsZero() {
 						t.sessionStartedAtByRecipient[recipientKey] = now
 					}
-					t.logger.Infof("Owner sent manual message to %s -> active conversation session updated (poll preserved)", recipientKey)
+					t.logger.Infof("Owner sent manual message to %s -> active conversation session updated (poll preserved, pending actions overridden)", recipientKey)
 					t.mu.Unlock()
 				}
 				return
@@ -790,6 +793,17 @@ func (t *Tenant) handleTenantPollVote(msg *events.Message) {
 				}
 			}
 		}
+
+		// Check if this poll was created for a structured Pending Action
+		if t.messageStore != nil {
+			if pendingAction, err := t.messageStore.GetPendingActionByPollID(t.Hash, pollMsgID); err == nil && pendingAction != nil {
+				voteType := ResolveActionVote(choice)
+				_ = t.ExecuteApprovedAction(pendingAction, voteType)
+				t.mu.Unlock()
+				return
+			}
+		}
+
 		normChoice := strings.TrimSpace(strings.ToLower(choice))
 		isOneText := strings.Contains(normChoice, "1") || strings.Contains(normChoice, "1 text") || normChoice == "send 1 text"
 		is5Min := strings.Contains(normChoice, "5 min") || strings.Contains(normChoice, "5 minutes")

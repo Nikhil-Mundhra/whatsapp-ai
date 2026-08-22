@@ -40,8 +40,17 @@ export async function GET(_req, props) {
         if (conn.visionEnabled === undefined && bridgeStatus.visionEnabled !== undefined) {
           patch.visionEnabled = bridgeStatus.visionEnabled;
         }
-        if (!conn.visionModel && bridgeStatus.visionModel) {
+        if (conn.visionModel === undefined && bridgeStatus.visionModel) {
           patch.visionModel = bridgeStatus.visionModel;
+        }
+        if (conn.calendarFeedUrl === undefined && bridgeStatus.calendarFeedUrl) {
+          patch.calendarFeedUrl = bridgeStatus.calendarFeedUrl;
+        }
+        if (conn.timezone === undefined && bridgeStatus.timezone) {
+          patch.timezone = bridgeStatus.timezone;
+        }
+        if (conn.searchEnabled === undefined && bridgeStatus.searchEnabled !== undefined) {
+          patch.searchEnabled = bridgeStatus.searchEnabled;
         }
         if (Object.keys(patch).length > 0) {
           conn = await updateConnection(hash, patch);
@@ -78,6 +87,13 @@ export async function GET(_req, props) {
       visionApiKeySet: Boolean(visionApiKey || bridgeStatus?.visionApiKeySet),
       visionApiKeyMasked: visionApiKey ? maskApiKey(visionApiKey) : (bridgeStatus?.visionApiKeySet ? "••••••••••••" : ""),
       visionModel: conn?.visionModel || bridgeStatus?.visionModel || "gemini-2.0-flash",
+
+      // Calendar & Search Grounding (Phase 5)
+      calendarFeedUrl: conn?.calendarFeedUrl || bridgeStatus?.calendarFeedUrl || "",
+      timezone: conn?.timezone || bridgeStatus?.timezone || "UTC",
+      searchEnabled: conn?.searchEnabled !== undefined
+        ? Boolean(conn.searchEnabled)
+        : (bridgeStatus?.searchEnabled !== undefined ? Boolean(bridgeStatus.searchEnabled) : true),
     },
     whatsapp,
     bridgeStatus,
@@ -140,6 +156,17 @@ async function handleUpdate(req, props) {
     if (m) updates.visionModel = m;
   }
 
+  // Calendar & Search (Phase 5)
+  if (body.calendarFeedUrl !== undefined) {
+    updates.calendarFeedUrl = String(body.calendarFeedUrl).trim();
+  }
+  if (body.timezone !== undefined) {
+    updates.timezone = String(body.timezone).trim();
+  }
+  if (body.searchEnabled !== undefined) {
+    updates.searchEnabled = Boolean(body.searchEnabled);
+  }
+
   const conn = (await updateConnection(hash, updates)) || { hash, ...updates };
   const BRIDGE_URL = getBridgeUrl();
 
@@ -159,6 +186,9 @@ async function handleUpdate(req, props) {
           visionEnabled: conn.visionEnabled,
           visionApiKey: conn.visionApiKey,
           visionModel: conn.visionModel,
+          calendarFeedUrl: conn.calendarFeedUrl,
+          timezone: conn.timezone,
+          searchEnabled: conn.searchEnabled,
         }),
         signal: AbortSignal.timeout(6000),
       });
@@ -178,6 +208,9 @@ async function handleUpdate(req, props) {
       voiceNoteTranscriptionEnabled: conn.voiceNoteTranscriptionEnabled !== undefined ? Boolean(conn.voiceNoteTranscriptionEnabled) : true,
       groqApiKeySet: Boolean(groqApiKey),
       groqApiKeyMasked: groqApiKey ? maskApiKey(groqApiKey) : "",
+      calendarFeedUrl: conn.calendarFeedUrl || "",
+      timezone: conn.timezone || "UTC",
+      searchEnabled: conn.searchEnabled !== undefined ? Boolean(conn.searchEnabled) : true,
       hasSuperadminGroqFallback: superadminHasGroq,
       visionEnabled: conn.visionEnabled !== undefined ? Boolean(conn.visionEnabled) : true,
       visionApiKeySet: Boolean(visionApiKey),

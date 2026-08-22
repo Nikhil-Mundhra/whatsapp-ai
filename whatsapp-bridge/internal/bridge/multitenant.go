@@ -33,6 +33,9 @@ type TenantConfig struct {
 	VisionEnabled                 *bool    `json:"visionEnabled,omitempty"`
 	VisionApiKey                  string   `json:"visionApiKey,omitempty"`
 	VisionModel                   string   `json:"visionModel,omitempty"`
+	CalendarFeedURL               string   `json:"calendarFeedUrl,omitempty"`
+	SearchEnabled                 *bool    `json:"searchEnabled,omitempty"`
+	Timezone                      string   `json:"timezone,omitempty"`
 }
 
 // Tenant is a single linked WhatsApp account (one per setup hash).
@@ -52,6 +55,9 @@ type Tenant struct {
 	visionEnabled                 bool
 	visionApiKey                  string
 	visionModel                   string
+	calendarFeedURL               string
+	searchEnabled                 bool
+	timezone                      string
 
 	qrCode                        string
 	qrUpdated                     time.Time
@@ -378,6 +384,7 @@ func (t *Tenant) configFile() string {
 func (t *Tenant) saveConfig() {
 	vnEnabled := t.voiceNoteTranscriptionEnabled
 	vEnabled := t.visionEnabled
+	sEnabled := t.searchEnabled
 	cfg := TenantConfig{
 		OwnerPhone:                    t.ownerPhone,
 		Recipients:                    t.recipients,
@@ -388,6 +395,9 @@ func (t *Tenant) saveConfig() {
 		VisionEnabled:                 &vEnabled,
 		VisionApiKey:                  t.visionApiKey,
 		VisionModel:                   t.visionModel,
+		CalendarFeedURL:               t.calendarFeedURL,
+		SearchEnabled:                 &sEnabled,
+		Timezone:                      t.timezone,
 	}
 	if data, err := json.MarshalIndent(cfg, "", "  "); err == nil {
 		_ = os.WriteFile(t.configFile(), data, 0644)
@@ -399,6 +409,8 @@ func (t *Tenant) loadConfig() {
 	t.voiceNoteTranscriptionEnabled = true
 	t.visionEnabled = true
 	t.visionModel = "gemini-2.0-flash"
+	t.searchEnabled = true
+	t.timezone = "UTC"
 
 	data, err := os.ReadFile(t.configFile())
 	if err != nil {
@@ -420,6 +432,13 @@ func (t *Tenant) loadConfig() {
 		t.visionApiKey = cfg.VisionApiKey
 		if cfg.VisionModel != "" {
 			t.visionModel = cfg.VisionModel
+		}
+		t.calendarFeedURL = cfg.CalendarFeedURL
+		if cfg.SearchEnabled != nil {
+			t.searchEnabled = *cfg.SearchEnabled
+		}
+		if cfg.Timezone != "" {
+			t.timezone = cfg.Timezone
 		}
 	}
 }

@@ -53,6 +53,19 @@ func (t *Tenant) applyWebGrant(choice, contact string) {
 	is2Hours := strings.Contains(normChoice, "2 hour") || strings.Contains(normChoice, "2 hr") || strings.Contains(normChoice, "2 hours")
 	isDeny := strings.Contains(normChoice, "deny")
 
+	// Check if there is an active pending action for this chat
+	if t.messageStore != nil && !targetJID.IsEmpty() {
+		if pendingActions, err := t.messageStore.ListPendingActions(t.Hash, "pending", 1); err == nil && len(pendingActions) > 0 {
+			pa := pendingActions[0]
+			if t.matchesTarget(targetJID, types.NewJID(pa.ChatJID, types.DefaultUserServer)) || pa.ChatJID == targetJID.String() {
+				voteType := ResolveActionVote(choice)
+				_ = t.ExecuteApprovedAction(&pa, voteType)
+				t.mu.Unlock()
+				return
+			}
+		}
+	}
+
 	now := time.Now()
 	if isOneText {
 		t.grantKind = "count"
@@ -496,7 +509,12 @@ READ THE ROOM:
 - The last message from the other person is the one you are replying to. Answer what THEY just said and stay on that topic. Never reply with a generic or off-topic one-liner.
 - Never repeat a message you already sent in the history, and never send the same text twice in a row.
 - Never continue your own monologue: if the other person has not spoken since your last message, you have nothing to reply to.
-- Reply naturally and human. Don't mention that you're an AI. Don't use markdown. Output only the message text and nothing else.`, identityClause, extraContext.String())
+- Reply naturally and human. Don't mention that you're an AI. Don't use markdown.
+
+STRUCTURED SCHEDULING ACTION:
+- If you and the contact confirm a specific meeting, event, coffee, lunch, or call with an agreed date and time, output a JSON envelope in the following format:
+{"reply_text": "<conversational reply>", "action": {"type": "create_calendar_event", "summary": "<Event Title>", "location": "<Location>", "startUtc": "<ISO8601 UTC>", "endUtc": "<ISO8601 UTC>"}}
+- Otherwise, output ONLY the plain conversational text message and nothing else.`, identityClause, extraContext.String())
 }
 
 // callGeminiAPI invokes Google Gemini REST API directly.
@@ -727,6 +745,54 @@ func (t *Tenant) replyToChat(targetJID types.JID) {
 	memories := t.retrieveRelevantMemories(targetJID, altJIDs, apiKey, msgs)
 	systemPrompt := t.buildSystemPrompt(identityClause, targetJID, isGroup, chatSettings, memories)
 
+	// Extract latest incoming text for grounding
+	var latestIncomingText string
+	var latestIncomingTime time.Time
+	for _, m := range msgs {
+		if !m.IsFromMe && m.Content != "" {
+			latestIncomingText = m.Content
+			latestIncomingTime = m.Time
+			break
+		}
+	}
+	if latestIncomingTime.IsZero() {
+		latestIncomingTime = time.Now()
+	}
+
+	// 1. Calendar Free-Busy Availability Grounding
+	loc, lErr := time.LoadLocation(t.timezone)
+	if lErr != nil || loc == nil {
+		loc = time.Local
+	}
+	if latestIncomingText != "" && DetectSchedulingIntent(latestIncomingText) {
+		startUTC, endUTC, ok := ResolveQueryWindow(latestIncomingText, latestIncomingTime, loc)
+		if ok && t.messageStore != nil {
+			evs, _ := t.messageStore.GetCalendarEventsInRange(t.Hash, startUTC, endUTC)
+			calGrounding := FormatCalendarAvailability(evs, startUTC, endUTC, loc)
+			if calGrounding != "" {
+				systemPrompt += "\n" + calGrounding
+			}
+		}
+	}
+
+	// 2. Real-Time Fact Search Grounding (Option C Zero-Cost Scraper)
+	rel := ""
+	if chatSettings != nil {
+		rel = chatSettings.Relationship
+	}
+	if t.searchEnabled && latestIncomingText != "" && EvaluateSearchHeuristicGate(latestIncomingText, rel) {
+		rawSnippets, sErr := ScrapeDuckDuckGoLite(latestIncomingText)
+		if sErr == nil && len(rawSnippets) > 0 {
+			filtered := t.SemanticFilterSnippets(latestIncomingText, rawSnippets, apiKey)
+			if len(filtered) > 0 {
+				searchGrounding := FormatSearchGrounding(latestIncomingText, filtered)
+				if searchGrounding != "" {
+					systemPrompt += "\n" + searchGrounding
+				}
+			}
+		}
+	}
+
 	model := t.aiModel
 	if chatSettings != nil && chatSettings.Model != "" {
 		model = chatSettings.Model
@@ -743,11 +809,11 @@ func (t *Tenant) replyToChat(targetJID types.JID) {
 		return
 	}
 
-	var replyText string
+	var rawReply string
 	if strings.HasPrefix(apiKey, "AIza") {
-		replyText, err = t.callGeminiAPI(apiKey, model, systemPrompt, history)
+		rawReply, err = t.callGeminiAPI(apiKey, model, systemPrompt, history)
 	} else {
-		replyText, err = t.callOpenAICompatibleAPI(apiKey, model, systemPrompt, history)
+		rawReply, err = t.callOpenAICompatibleAPI(apiKey, model, systemPrompt, history)
 	}
 
 	if err != nil {
@@ -755,14 +821,73 @@ func (t *Tenant) replyToChat(targetJID types.JID) {
 		return
 	}
 
-	if replyText == "" {
+	if rawReply == "" {
 		t.logger.Warnf("AI generated empty content for tenant %s", t.Hash)
 		return
 	}
 
-	t.logger.Infof("AI drafted reply for %s using %s: %q", targetJID, model, replyText)
+	cleanReplyText, proposedAction := ExtractActionEnvelope(rawReply)
+	t.logger.Infof("AI drafted reply for %s using %s: %q (proposed action: %+v)", targetJID, model, cleanReplyText, proposedAction)
 
-	ok, sendStatus, sentMsgID := sendWhatsAppMessage(t.client, t.messageStore, targetJID.String(), replyText, "", t.logger)
+	// 3. Structured Action Approval Gating (Compound Poll Dispatch)
+	if proposedAction != nil && t.messageStore != nil && t.ownerPhone != "" {
+		actionID := fmt.Sprintf("act-%d", time.Now().UnixNano())
+		payloadBytes, _ := json.Marshal(proposedAction)
+		contactName := t.resolveContactDisplayName(targetJID.String())
+		poll := BuildCompoundActionPoll(contactName, proposedAction)
+
+		ok, status, pollID := sendWhatsAppPoll(t.client, t.ownerPhone, poll.Question, poll.Options, 1)
+		if ok && pollID != "" {
+			t.recordApiSent(pollID)
+			_ = t.messageStore.CreatePendingAction(&PendingAction{
+				ID:             actionID,
+				TenantHash:     t.Hash,
+				ChatJID:        targetJID.String(),
+				PollMsgID:      pollID,
+				ActionType:     proposedAction.Type,
+				ActionPayload:  string(payloadBytes),
+				DraftReplyText: cleanReplyText,
+				Status:         "pending",
+				CreatedAt:      time.Now().UTC(),
+				ExpiresAt:      time.Now().UTC().Add(5 * time.Minute),
+			})
+			t.logger.Infof("Created pending action %s and dispatched compound action poll %s: status=%s", actionID, pollID, status)
+
+			// Broadcast to Next.js Web control plane
+			go func(pID, contact, cName, q, aType, aPay, dText string, opts []string) {
+				webURL := os.Getenv("WEB_BASE_URL")
+				if webURL == "" {
+					webURL = "http://localhost:3000"
+				}
+				payload, _ := json.Marshal(map[string]interface{}{
+					"id":             pID,
+					"hash":           t.Hash,
+					"contact":        contact,
+					"contactDisplay": cName,
+					"question":       q,
+					"options":        opts,
+					"status":         "pending",
+					"actionType":     aType,
+					"actionPayload":  aPay,
+					"draftReplyText": dText,
+				})
+				client := &http.Client{Timeout: 3 * time.Second}
+				req, reqErr := http.NewRequest("POST", webURL+"/api/polls", bytes.NewReader(payload))
+				if reqErr == nil {
+					req.Header.Set("Content-Type", "application/json")
+					if token := os.Getenv("INTERNAL_API_SECRET"); token != "" {
+						req.Header.Set("Authorization", "Bearer "+token)
+					}
+					_, _ = client.Do(req)
+				}
+			}(pollID, targetJID.String(), contactName, poll.Question, proposedAction.Type, string(payloadBytes), cleanReplyText, poll.Options)
+
+			return
+		}
+	}
+
+	// Direct delivery if no action or poll creation bypassed
+	ok, sendStatus, sentMsgID := sendWhatsAppMessage(t.client, t.messageStore, targetJID.String(), cleanReplyText, "", t.logger)
 	t.logger.Infof("Sent AI reply to %s: ok=%v status=%s msgID=%s", targetJID, ok, sendStatus, sentMsgID)
 	if ok && sentMsgID != "" {
 		t.recordApiSent(sentMsgID)

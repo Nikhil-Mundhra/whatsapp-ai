@@ -13,6 +13,8 @@ import {
   EditIcon,
   MicIcon,
   ImageIcon,
+  CalendarIcon,
+  SearchIcon,
 } from "../Icons/WhatsAppIcons";
 import { ContactPicker } from "../UI/ContactPicker";
 
@@ -1146,6 +1148,159 @@ export function SettingsDrawer({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Phase 5.1: Calendar & Free-Busy Availability Grounding */}
+          <div className="wa-card">
+            <div style={{ display: "grid", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    background: configForm.calendarFeedUrl ? "rgba(0, 168, 132, 0.15)" : "var(--wa-input-bg)",
+                    color: configForm.calendarFeedUrl ? "#00a884" : "var(--wa-text-secondary)",
+                  }}
+                >
+                  <CalendarIcon size={16} color="currentColor" />
+                </div>
+                <div>
+                  <span style={{ fontWeight: 600, fontSize: 13, color: "var(--wa-text-primary)", display: "block" }}>
+                    Calendar & Availability Grounding
+                  </span>
+                  <span style={{ fontSize: 11, color: "var(--wa-text-secondary)" }}>
+                    Sync read-only iCal feed for sub-2ms free/busy scheduling
+                  </span>
+                </div>
+              </div>
+
+              {/* Feed URL Input */}
+              <div style={{ display: "grid", gap: 6, paddingTop: 4, borderTop: "1px solid var(--wa-border)" }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--wa-text-primary)" }}>
+                  Private iCal / ICS Subscription URL
+                </label>
+                <input
+                  type="url"
+                  value={configForm.calendarFeedUrl || ""}
+                  onChange={(e) =>
+                    setConfigForm((prev) => ({ ...prev, calendarFeedUrl: e.target.value }))
+                  }
+                  placeholder="e.g. https://calendar.google.com/calendar/ical/.../basic.ics"
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: 6,
+                    border: "1px solid var(--wa-border-strong)",
+                    fontSize: 13,
+                    outline: "none",
+                    backgroundColor: "var(--wa-input-bg)",
+                    color: "var(--wa-text-primary)",
+                  }}
+                />
+                <span style={{ fontSize: 11, color: "var(--wa-text-secondary)", lineHeight: 1.4 }}>
+                  Obtain from Google Calendar (Settings &gt; Secret address in iCal format), Apple Calendar (Share Calendar), or Outlook. Zero OAuth setup needed.
+                </span>
+
+                {/* Timezone Selector */}
+                <div style={{ marginTop: 6 }}>
+                  <label style={{ fontSize: 12, color: "var(--wa-text-secondary)", display: "block", marginBottom: 4 }}>
+                    Your Timezone
+                  </label>
+                  <input
+                    type="text"
+                    value={configForm.timezone || "UTC"}
+                    onChange={(e) =>
+                      setConfigForm((prev) => ({ ...prev, timezone: e.target.value }))
+                    }
+                    placeholder="e.g. Asia/Kolkata, America/New_York, Europe/London"
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      borderRadius: 6,
+                      border: "1px solid var(--wa-border-strong)",
+                      fontSize: 13,
+                      backgroundColor: "var(--wa-input-bg)",
+                      color: "var(--wa-text-primary)",
+                    }}
+                  />
+                  <span style={{ fontSize: 11, color: "var(--wa-text-secondary)", marginTop: 2, display: "block" }}>
+                    IANA Timezone string used to anchor relative dates ("tomorrow 4 PM", "next Friday").
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Phase 5.2: Real-Time Fact Search (Zero-Cost) */}
+          <div className="wa-card">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    background: configForm.searchEnabled !== false ? "rgba(0, 168, 132, 0.15)" : "var(--wa-input-bg)",
+                    color: configForm.searchEnabled !== false ? "#00a884" : "var(--wa-text-secondary)",
+                  }}
+                >
+                  <SearchIcon size={16} color="currentColor" />
+                </div>
+                <div>
+                  <span style={{ fontWeight: 600, fontSize: 13, color: "var(--wa-text-primary)", display: "block" }}>
+                    Real-Time Fact Search (Zero-Cost)
+                  </span>
+                  <span style={{ fontSize: 11, color: "var(--wa-text-secondary)" }}>
+                    Ground venue hours, weather, and locations with semantic anti-hallucination filter
+                  </span>
+                </div>
+              </div>
+
+              {/* Toggle Switch */}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={configForm.searchEnabled !== false}
+                onClick={() =>
+                  setConfigForm((prev) => ({
+                    ...prev,
+                    searchEnabled: prev.searchEnabled === false,
+                  }))
+                }
+                style={{
+                  width: 44,
+                  height: 24,
+                  borderRadius: 12,
+                  background: configForm.searchEnabled !== false ? "#00a884" : "var(--wa-border-strong)",
+                  border: "none",
+                  cursor: "pointer",
+                  position: "relative",
+                  transition: "background 0.2s ease",
+                  padding: 2,
+                  flexShrink: 0,
+                }}
+                title={configForm.searchEnabled !== false ? "Disable Fact Search" : "Enable Fact Search"}
+              >
+                <div
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: "50%",
+                    background: "#ffffff",
+                    transform: configForm.searchEnabled !== false ? "translateX(20px)" : "translateX(0px)",
+                    transition: "transform 0.2s ease",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+                  }}
+                />
+              </button>
             </div>
           </div>
 
